@@ -153,9 +153,14 @@ enum CurrencyCategory {
 /// The 8 tracked currencies. Seeded once; the per-currency indicator WEIGHTS
 /// stay in code (src/data/currencyWeights.ts) — this table is identity only.
 model Currency {
-  code        String           @id @db.VarChar(3)
-  name        String
-  flag        String
+  code String @id @db.VarChar(3)
+  name String
+
+  /// ISO 3166-1 alpha-2 region code ("US", "GB", "EU" for the euro area).
+  /// Stored as a code rather than an emoji flag so the UI can render a proper
+  /// vector flag and so the data stays text-safe across fonts and platforms.
+  countryCode String @db.VarChar(2)
+
   category    CurrencyCategory
   centralBank String?
   /// Central bank inflation target, e.g. 2.0 (CHF 1.0, AUD 2.5)

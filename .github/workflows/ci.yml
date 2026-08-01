@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Generates the Prisma client types that typecheck and build depend on.
+      # No database connection is required for generate.
+      - run: pnpm prisma generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Unit tests
+        run: pnpm test:run
+
+      - name: Build
+        run: pnpm build
+        env:
+          # Build-time placeholders. The app must never require a live database
+          # or real secrets to compile — if this step needs a real key, that is
+          # a bug in the code, not in the workflow.
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db
+          DIRECT_URL: postgresql://user:pass@localhost:5432/db
+          AUTH_SECRET: ci-placeholder-secret-value-not-used-at-build

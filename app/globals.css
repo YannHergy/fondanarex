@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/* Dark mode is class-driven (`.dark` on <html>), not media-driven, because the
+ * theme is a persisted user preference. The legacy app supported both themes but
+ * never persisted the choice, so it silently reset to dark on every reload. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+ * Static palette — identical in both themes.
+ * Ported from the legacy tailwind.config.js. Tailwind v4 is CSS-first: there is
+ * no tailwind.config.js any more, theme variables live here under @theme.
+ * ------------------------------------------------------------------------- */
+@theme {
+  /* Brand accents */
+  --color-brand-blue: #4a9eff;
+  --color-brand-cyan: #00d4ff;
+  --color-brand-steel: #7a8fa8;
+  --color-brand-green: #00c896;
+  --color-brand-red: #ff3355;
+  --color-brand-amber: #e8a020;
+  --color-brand-violet: #c026d3;
+
+  /* Fixed per-currency identity colours. A currency keeps the same colour
+   * everywhere it appears, regardless of whether it is in the A or B slot of a
+   * comparison — this was a deliberate and good decision in the legacy design. */
+  --color-ccy-usd: #3fb950;
+  --color-ccy-eur: #3b82f6;
+  --color-ccy-gbp: #8b5cf6;
+  --color-ccy-jpy: #ef4444;
+  --color-ccy-aud: #f59e0b;
+  --color-ccy-cad: #f97316;
+  --color-ccy-nzd: #06b6d4;
+  --color-ccy-chf: #f43f5e;
+
+  /* Directional semantics, kept distinct from brand green/red so that
+   * "bullish" can be restyled without touching the brand palette. */
+  --color-bullish: #00c896;
+  --color-bearish: #ff3355;
+  --color-neutral-bias: #7a8fa8;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "Fira Code", monospace;
+
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Semantic surface tokens — these flip between themes.
+ * Components reference these (bg-surface, text-muted) rather than raw palette
+ * values, so a theme change never requires touching a component.
+ * ------------------------------------------------------------------------- */
+:root {
+  --app-bg: #f6f7f9;
+  --app-surface: #ffffff;
+  --app-panel: #f0f2f5;
+  --app-border: #dfe3e9;
+  --app-border-strong: #c6ccd6;
+  --app-text: #0f1117;
+  --app-text-muted: #5b6472;
+  --app-text-subtle: #858e9d;
+}
+
+.dark {
+  --app-bg: #08090d;
+  --app-surface: #0f1117;
+  --app-panel: #13151f;
+  --app-border: #1a1d2e;
+  --app-border-strong: #252536;
+  --app-text: #e6e8ee;
+  --app-text-muted: #9aa3b2;
+  --app-text-subtle: #6b7383;
+}
+
+@theme inline {
+  --color-bg: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-panel: var(--app-panel);
+  --color-border-app: var(--app-border);
+  --color-border-strong: var(--app-border-strong);
+  --color-fg: var(--app-text);
+  --color-muted: var(--app-text-muted);
+  --color-subtle: var(--app-text-subtle);
+}
+
+@layer base {
+  * {
+    border-color: var(--app-border);
+  }
+
+  body {
+    background-color: var(--app-bg);
+    color: var(--app-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular figures everywhere numbers are compared vertically. Prices and
+   * scores in proportional digits are genuinely harder to scan in a column. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Material Symbols ligature rendering. The font maps symbol names to glyphs,
+   * so the element's text content is the icon name. */
+  .material-symbols-outlined {
+    font-family: "Material Symbols Outlined", sans-serif;
+    font-weight: normal;
+    font-style: normal;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: "liga";
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  /* Wide content (tables, charts) must scroll inside its own container so the
+   * page body never scrolls horizontally. */
+  .scroll-x {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}

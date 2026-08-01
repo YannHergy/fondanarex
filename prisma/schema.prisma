@@ -1,0 +1,1049 @@
+// ============================================================================
+// DIPper In FOnda — initial Prisma baseline
+//
+// Derived from the 20 localStorage keys in the current app. This is a BASELINE,
+// not a final schema: fields marked `Json` are deliberately loose so they can be
+// normalised in a later migration once the access patterns settle.
+//
+// Design rules applied throughout:
+//   1. `userId` on every user-owned table from day one, even while single-user.
+//      Retrofitting a tenant key across populated tables is genuinely painful.
+//   2. `Decimal` for every price, amount, and percentage. Never Float for money.
+//   3. Screenshots are blob URLs in `Attachment`, never base64 in a column.
+//   4. Indicator history is rows, not a `previousData` blob — "previous" is just
+//      the prior row, which also kills every `*Prev` field in the old code.
+//   5. Static reference data (currency weights, country profiles, prediction
+//      rules, fundamental indicator graph) STAYS IN CODE, in git, where changes
+//      to the scoring model are reviewable. It is not in this schema on purpose.
+// ============================================================================
+
+// Prisma 7: the generator is `prisma-client` (not the v6 `prisma-client-js`),
+// and `output` is now REQUIRED. The generated client is gitignored and produced
+// by `prisma generate` on install and in CI.
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+// Prisma 7 removed `url` / `directUrl` from the datasource block. Connection
+// URLs for the CLI live in prisma.config.ts; the runtime connection is supplied
+// to PrismaClient via a driver adapter (see lib/prisma.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// AUTH
+// Standard Auth.js (NextAuth v5) adapter models. Delete this whole block if you
+// use Clerk or another hosted provider — keep `User`, drop Account/Session/Token.
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  settings     UserSettings?
+  tradingAccts TradingAccount[]
+  trades       Trade[]
+  strategies   CustomStrategy[]
+  weekPlans    WeekPlan[]
+  weeklyEvents WeeklyEvent[]
+  alerts       Alert[]
+  alertPrefs   AlertPreference[]
+  overrides    IndicatorOverride[]
+  ccyNotes     CurrencyNote[]
+  marketCtx    MarketContextValue[]
+  briefings    BriefingSession[]
+  predictions  Prediction[]
+  newsEvents   FundamentalEvent[]
+  pineConfigs  PineConfig[]
+  attachments  Attachment[]
+  scoreSnaps   ScoreSnapshot[]
+  mtAccounts   MetaApiAccount[]
+  favorites    FavoritePair[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @id
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================================
+// SETTINGS
+// Replaces: dipper_risk_capital, dipper_risk_pct, dipper_risk_rr,
+//           sidebar_collapsed, and the unpersisted isDarkMode.
+// ============================================================================
+
+model UserSettings {
+  userId String @id
+
+  // Risk calculator defaults (RiskCalculator.tsx)
+  riskCapital Decimal @default(5000) @db.Decimal(14, 2)
+  riskPct     Decimal @default(0.4) @db.Decimal(7, 4)
+  riskRR      Decimal @default(2) @db.Decimal(7, 2)
+
+  // UI preferences
+  theme            String  @default("dark") // "dark" | "light"
+  sidebarCollapsed Boolean @default(false)
+  locale           String  @default("fr")
+
+  // Global alert settings (per-currency filtering lives in AlertPreference)
+  alertSoundsEnabled Boolean @default(false)
+  dndEnabled         Boolean @default(false)
+  dndFrom            String? @db.VarChar(5) // "22:00"
+  dndTo              String? @db.VarChar(5) // "07:00"
+
+  // Escape hatch for preferences not yet worth a column
+  extra Json?
+
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================================
+// REFERENCE DATA — seeded, rarely mutated
+// ============================================================================
+
+enum CurrencyCategory {
+  SAFE_HAVEN
+  RISK_ON
+  NEUTRAL
+}
+
+/// The 8 tracked currencies. Seeded once; the per-currency indicator WEIGHTS
+/// stay in code (src/data/currencyWeights.ts) — this table is identity only.
+model Currency {
+  code        String           @id @db.VarChar(3)
+  name        String
+  flag        String
+  category    CurrencyCategory
+  centralBank String?
+  /// Central bank inflation target, e.g. 2.0 (CHF 1.0, AUD 2.5)
+  cbTarget    Decimal?         @db.Decimal(5, 2)
+  /// Estimated NAIRU used by the unemployment scorer
+  nairu       Decimal?         @db.Decimal(5, 2)
+  sortOrder   Int              @default(0)
+
+  indicatorValues IndicatorValue[]
+  overrides       IndicatorOverride[]
+  notes           CurrencyNote[]
+  weeklyEvents    WeeklyEvent[]
+  scoreSnapshots  ScoreSnapshot[]
+  fundEvents      FundamentalEvent[]
+  alerts          Alert[]
+  alertPrefs      AlertPreference[]
+}
+
+/// Instrument specification — the fix for the hardcoded "1 pip = $10/lot" and
+/// "JPY ? 100 : 10000" assumptions in journalService.ts. Every pip and P&L
+/// calculation must resolve through this table, never through a constant.
+model Instrument {
+  symbol String @id @db.VarChar(16) // "EUR/USD"
+
+  baseCurrency  String @db.VarChar(3)
+  quoteCurrency String @db.VarChar(3)
+
+  /// Price increment of one pip, e.g. 0.0001 majors, 0.01 JPY pairs
+  pipSize      Decimal @default(0.0001) @db.Decimal(12, 8)
+  /// Units of base currency in one standard lot
+  contractSize Decimal @default(100000) @db.Decimal(14, 2)
+  /// Decimal places to render prices at
+  pricePrecision Int   @default(5)
+
+  isActive     Boolean @default(true)
+  /// true for the 14 pairs in FORECAST_PAIRS (weeklyPlanService.ts)
+  inForecastSet Boolean @default(false)
+
+  trades Trade[]
+  setups PlanSetup[]
+
+  @@index([isActive])
+}
+
+// ============================================================================
+// MACRO INDICATOR DATA
+//
+// Replaces: dipper_app_data_v2 (the CurrencyData record) and the hand-rolled
+// PROTECTED_FIELDS allowlist in unifiedDataService.ts.
+//
+// The split is deliberate and structural:
+//   IndicatorValue    — objective data fetched from OECD/FRED. Global, shared,
+//                       historical. One row per (currency, indicator, period).
+//   IndicatorOverride — a user's manual value for the same slot.
+//
+// Read resolution: override wins if present, else the newest IndicatorValue.
+// An API refresh writes only to IndicatorValue and therefore CANNOT clobber a
+// manual entry — the guarantee PROTECTED_FIELDS was hand-maintaining.
+// ============================================================================
+
+enum IndicatorSource {
+  OECD
+  FRED
+  MANUAL
+  DERIVED
+}
+
+model IndicatorValue {
+  id String @id @default(cuid())
+
+  currencyCode String @db.VarChar(3)
+  /// Camel-case key matching the scoring engine: "cpi", "gdpQoQ",
+  /// "pmiServices", "unemployment", "interestRate", "tradeBalance", ...
+  indicatorKey String @db.VarChar(48)
+
+  value Decimal         @db.Decimal(18, 6)
+  unit  String?         @db.VarChar(16) // "%", "K", "B", "index"
+  source IndicatorSource
+
+  /// Reference period as published: "2026-03" or "2026-Q1"
+  period      String    @db.VarChar(8)
+  /// Resolved period end, for ordering and range queries
+  periodEnd   DateTime  @db.Date
+  /// Computed next publication date (computeNextRelease in unifiedDataService)
+  nextRelease DateTime? @db.Date
+
+  fetchedAt DateTime @default(now())
+
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@unique([currencyCode, indicatorKey, period, source])
+  @@index([currencyCode, indicatorKey, periodEnd(sort: Desc)])
+}
+
+model IndicatorOverride {
+  id String @id @default(cuid())
+
+  userId       String
+  currencyCode String @db.VarChar(3)
+  indicatorKey String @db.VarChar(48)
+
+  value Decimal @db.Decimal(18, 6)
+  note  String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@unique([userId, currencyCode, indicatorKey])
+  @@index([userId])
+}
+
+enum Stance {
+  VERY_HAWKISH
+  HAWKISH
+  NEUTRAL
+  DOVISH
+  VERY_DOVISH
+}
+
+/// Per-user qualitative context for a currency. These are the fields the old
+/// PROTECTED_FIELDS set guarded hardest — free text that no API should touch.
+model CurrencyNote {
+  id String @id @default(cuid())
+
+  userId       String
+  currencyCode String @db.VarChar(3)
+
+  stance              Stance?
+  geopoliticalRisks   String?  @db.Text
+  qualitativeAnalysis String?  @db.Text
+  eventsToWatch       String[]
+
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@unique([userId, currencyCode])
+}
+
+/// Global market-context inputs (src/data/marketContext.ts) — oil, iron ore,
+/// dairy, China PMI, VIX, EUR/CHF, NFP, ZEW, KOF, Ivey, Tokyo CPI, etc.
+///
+/// Stored as dated rows rather than one object, which removes every `*Prev`
+/// field in the old interface: momentum is computed from the preceding row.
+/// A NULL value is meaningful — it means "unavailable", and the scoring engine
+/// must drop that indicator's weight from the denominator.
+model MarketContextValue {
+  id String @id @default(cuid())
+
+  userId String
+  /// Snake-case key: "oil_change_pct", "china_pmi", "vix", "eur_chf_change_pct",
+  /// "us_nfp", "eu_zew", "gb_wage_growth", "jp_tokyo_cpi", "ch_kof", ...
+  key    String @db.VarChar(48)
+
+  value      Decimal? @db.Decimal(18, 6)
+  /// For non-numeric context, e.g. snb_intervention: "affaiblir_chf"
+  textValue  String?  @db.VarChar(64)
+  observedOn DateTime @db.Date
+
+  source IndicatorSource @default(MANUAL)
+  note   String?         @db.Text
+
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key, observedOn])
+  @@index([userId, key, observedOn(sort: Desc)])
+}
+
+/// Computed score history. Not strictly required (scores are derivable), but
+/// the `score_change_majeur` alert needs a prior value to compare against, and
+/// the Charts view wants a time series. Written by the scoring job, never edited.
+model ScoreSnapshot {
+  id String @id @default(cuid())
+
+  userId       String
+  currencyCode String @db.VarChar(3)
+
+  /// Final normalised score, 0–100
+  total    Decimal @db.Decimal(6, 2)
+  /// Raw weighted mean, -10 to +10
+  rawTotal Decimal @db.Decimal(6, 3)
+  realRate Decimal? @db.Decimal(8, 4)
+
+  /// Radar axes: growth, inflation, employment, trade, monetary, pmi, sentiment
+  axes Json
+  /// IndicatorScore[] — per-indicator contribution, weight, availability
+  breakdown Json?
+  /// Sum of weights actually used vs the profile total (100)
+  weightUsed Decimal? @db.Decimal(6, 2)
+
+  computedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@index([userId, currencyCode, computedAt(sort: Desc)])
+}
+
+// ============================================================================
+// TRADING ACCOUNTS
+// Replaces: dipper_accounts_v1 + the ACCOUNT_CONFIGS constant.
+//
+// ACCOUNT_CONFIGS is currently a hardcoded array, but it is plainly user data —
+// four specific prop-firm accounts with personal capital, drawdown limits and
+// allowed setups. It belongs in the database so it can be edited without a
+// deploy. Seed it from the existing constant.
+// ============================================================================
+
+enum AccountStyle {
+  SCALPING
+  DAY_SWING
+}
+
+enum EntryType {
+  M1_ENTRY
+  M2_ENTRY
+  A11_ENTRY
+  A12_ENTRY
+  A2_ENTRY
+  A21_ENTRY
+  A22_ENTRY
+  GOLDEN_ENTRY
+}
+
+model TradingAccount {
+  id     String @id @default(cuid())
+  userId String
+
+  name  String
+  /// Stable display order / legacy numeric id (1..4)
+  slot  Int
+  color String @db.VarChar(9)
+
+  initialCapital Decimal @db.Decimal(14, 2)
+  currentCapital Decimal @db.Decimal(14, 2)
+  /// Notional capital used for sizing when useRealCapital is false
+  tradingCapital Decimal @db.Decimal(14, 2)
+  useRealCapital Boolean @default(true)
+
+  maxDDPct  Decimal  @db.Decimal(6, 3)
+  targetPct Decimal? @db.Decimal(6, 3)
+  riskPct   Decimal  @db.Decimal(6, 3)
+
+  style          AccountStyle
+  allowedEntries EntryType[]
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades Trade[]
+
+  @@unique([userId, slot])
+  @@index([userId])
+}
+
+/// MetaApi provisioning link. Credentials stay in env/secret storage — this
+/// records WHICH account is synced and the outcome of the last sync, so the
+/// daily cron finally has somewhere to write (today it discards its result).
+model MetaApiAccount {
+  id     String @id @default(cuid())
+  userId String
+
+  metaApiAccountId String  @db.VarChar(64)
+  label            String?
+  region           String? @db.VarChar(32)
+
+  lastSyncAt        DateTime?
+  lastSyncStatus    String?   @db.VarChar(32) // "ok" | "timeout" | "error"
+  lastSyncError     String?   @db.Text
+  lastSyncTradeCount Int?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, metaApiAccountId])
+}
+
+// ============================================================================
+// TRADING JOURNAL
+// Replaces: dipper_journal_v1, dipper_custom_strategies_v1
+// ============================================================================
+
+enum Direction {
+  BUY
+  SELL
+}
+
+enum TradeSource {
+  MANUAL
+  METAAPI
+}
+
+model Trade {
+  id     String @id @default(cuid())
+  userId String
+
+  accountId  String?
+  instrument String @db.VarChar(16)
+
+  direction Direction
+
+  /// Entry timestamp. Store UTC; render in the user's timezone.
+  openedAt DateTime
+  closedAt DateTime?
+
+  entryPrice Decimal  @db.Decimal(18, 8)
+  exitPrice  Decimal? @db.Decimal(18, 8)
+  stopLoss   Decimal? @db.Decimal(18, 8)
+  takeProfit Decimal? @db.Decimal(18, 8)
+  lotSize    Decimal  @db.Decimal(12, 4)
+
+  /// Derived from Instrument + prices. Stored for query performance, but always
+  /// recomputable — keep the recompute job so a pip-spec fix backfills cleanly.
+  pips Decimal? @db.Decimal(12, 2)
+  /// Realised P&L in account currency, including commission and swap
+  pnl        Decimal? @db.Decimal(14, 2)
+  commission Decimal? @db.Decimal(14, 2)
+  swap       Decimal? @db.Decimal(14, 2)
+
+  strategy  String?   @db.VarChar(64)
+  entryType EntryType?
+  session   String?   @db.VarChar(32) // London | New York | Asian | London Close
+  closeType String?   @db.VarChar(32)
+
+  emotionBefore String? @db.VarChar(32)
+  emotionAfter  String? @db.VarChar(32)
+  notes         String? @db.Text
+  tags          String[]
+
+  source     TradeSource @default(MANUAL)
+  /// MetaApi position id — the dedup key for sync. Unique per user.
+  positionId String?     @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account     TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  instrumentRef Instrument    @relation(fields: [instrument], references: [symbol])
+  screenshots Attachment[]
+
+  @@unique([userId, positionId])
+  @@index([userId, openedAt(sort: Desc)])
+  @@index([userId, instrument])
+  @@index([accountId])
+}
+
+model CustomStrategy {
+  id     String @id @default(cuid())
+  userId String
+
+  name      String   @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+}
+
+// ============================================================================
+// ATTACHMENTS
+// Replaces every base64 data URL currently held in localStorage.
+//
+// Two separate destructive bugs in the old code motivate this table:
+//   journalService.ts:80    — on quota overflow, wipes screenshots from all but
+//                             the 4 newest trades, silently and irreversibly.
+//   weeklyPlanService.ts:118 — same, for all but the 3 newest week plans.
+// Blob storage removes the quota ceiling entirely.
+//
+// `blobPath` exists so orphaned blobs can be garbage-collected on delete —
+// storing only the public URL makes cleanup unreliable.
+// ============================================================================
+
+model Attachment {
+  id     String @id @default(cuid())
+  userId String
+
+  url      String  @db.Text
+  blobPath String  @db.Text
+  mimeType String  @db.VarChar(64)
+  sizeBytes Int
+  width    Int?
+  height   Int?
+  caption  String? @db.Text
+  /// Ordering within its parent
+  position Int     @default(0)
+
+  // Exactly one of these should be set.
+  tradeId       String?
+  planSetupId   String?
+  setupReviewId String?
+
+  createdAt DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trade       Trade?       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  planSetup   PlanSetup?   @relation(fields: [planSetupId], references: [id], onDelete: Cascade)
+  setupReview SetupReview? @relation(fields: [setupReviewId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tradeId])
+  @@index([planSetupId])
+  @@index([setupReviewId])
+}
+
+// ============================================================================
+// WEEKLY PLAN
+// Replaces: dipper_weekly_plans_v1
+// ============================================================================
+
+enum TechnicalBias {
+  BULLISH
+  BEARISH
+  NEUTRAL
+}
+
+model WeekPlan {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Monday of the week, YYYY-MM-DD
+  weekStart DateTime @db.Date
+
+  fundamentalContext String? @db.Text
+  generalConclusions String? @db.Text
+
+  // Weekly review
+  lessons            String? @db.Text
+  nextWeekObjectives String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  setups      PlanSetup[]
+  newsImpacts PlanNewsImpact[]
+
+  @@unique([userId, weekStart])
+  @@index([userId, weekStart(sort: Desc)])
+}
+
+model PlanSetup {
+  id         String @id @default(cuid())
+  weekPlanId String
+
+  instrument    String        @db.VarChar(16)
+  technicalBias TechnicalBias
+
+  entryZone String? @db.VarChar(64)
+  tp        String? @db.VarChar(64)
+  sl        String? @db.VarChar(64)
+  notes     String? @db.Text
+
+  // "Fondamentale I / II" — the fundamental rationale behind the setup
+  fundamentalNotes String? @db.Text
+  tailwinds        String? @db.Text
+  headwinds        String? @db.Text
+
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  weekPlan      WeekPlan     @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  instrumentRef Instrument   @relation(fields: [instrument], references: [symbol])
+  screenshots   Attachment[]
+  review        SetupReview?
+
+  @@index([weekPlanId])
+}
+
+model SetupReview {
+  id      String @id @default(cuid())
+  setupId String @unique
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  setup       PlanSetup    @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  screenshots Attachment[]
+}
+
+/// Per-week note on how a scheduled release is expected to affect the plan.
+/// eventKey mirrors the old "USD-interestRate" composite.
+model PlanNewsImpact {
+  id         String @id @default(cuid())
+  weekPlanId String
+
+  eventKey   String @db.VarChar(48)
+  impactNote String @db.Text
+
+  weekPlan WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([weekPlanId, eventKey])
+}
+
+// ============================================================================
+// WEEKLY EVENTS TRACKER
+// Replaces: dipper_weekly_events_v1
+// ============================================================================
+
+enum Importance {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum EventImpact {
+  BULLISH_STRONG
+  BULLISH
+  NEUTRAL
+  BEARISH
+  BEARISH_STRONG
+}
+
+model WeeklyEvent {
+  id     String @id @default(cuid())
+  userId String
+
+  currencyCode String @db.VarChar(3)
+  name         String
+
+  /// ISO week key, e.g. "2026-W17" — denormalised for cheap weekly grouping
+  weekKey     String   @db.VarChar(8)
+  scheduledAt DateTime
+
+  importance Importance
+
+  forecast String? @db.VarChar(32)
+  previous String? @db.VarChar(32)
+  actual   String? @db.VarChar(32)
+
+  impact        EventImpact?
+  pipsVariation Decimal?     @db.Decimal(10, 1)
+  notes         String?      @db.Text
+
+  /// true when imported from the calendar rather than entered by hand
+  fromCalendar Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@index([userId, weekKey])
+  @@index([userId, scheduledAt])
+}
+
+// ============================================================================
+// FUNDAMENTAL ENGINE + PREDICTIONS
+// Replaces: dipper_fundamental_events_v1, dipper_predictions_v1
+//
+// The indicator graph itself (FUNDAMENTAL_INDICATORS, FUNDAMENTAL_CONNECTIONS,
+// PREDICTION_RULES) stays in code. Only observed events and their generated
+// predictions are persisted.
+// ============================================================================
+
+model FundamentalEvent {
+  id     String @id @default(cuid())
+  userId String
+
+  indicatorId   String @db.VarChar(48)
+  indicatorName String
+  currencyCode  String @db.VarChar(3)
+
+  occurredAt DateTime
+  unit       String?  @db.VarChar(16)
+
+  previous Decimal? @db.Decimal(18, 6)
+  forecast Decimal? @db.Decimal(18, 6)
+  actual   Decimal? @db.Decimal(18, 6)
+
+  /// actual - forecast
+  surpriseRaw        Decimal? @db.Decimal(18, 6)
+  /// normalised to -5..+5
+  surpriseNormalized Decimal? @db.Decimal(6, 3)
+
+  /// CascadeImpact[] — {targetId, targetCurrency, targetName, impact, depth}.
+  /// Json for now: it is always read whole and the propagation algorithm is
+  /// still being tuned. Normalise later if you need to query by target.
+  cascadeImpacts Json?
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  sourceOf Prediction[] @relation("PredictionSource")
+  resolves Prediction[] @relation("PredictionResolution")
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, currencyCode])
+}
+
+enum PredictionStatus {
+  PENDING
+  CONFIRMED
+  CONTRADICTED
+  EXPIRED
+}
+
+enum PredictionDirection {
+  UP
+  DOWN
+  NEUTRAL
+}
+
+model Prediction {
+  id     String @id @default(cuid())
+  userId String
+
+  // Source event that triggered the rule
+  sourceEventId       String
+  sourceIndicatorId   String              @db.VarChar(48)
+  sourceIndicatorName String
+  sourceCurrency      String              @db.VarChar(3)
+  sourceDirection     PredictionDirection
+
+  // Predicted target
+  targetIndicatorId   String              @db.VarChar(48)
+  targetIndicatorName String
+  targetCurrency      String              @db.VarChar(3)
+  predictedDirection  PredictionDirection
+
+  /// Rule confidence, 1–5
+  confidence Int
+  reason     String @db.Text
+  delayLabel String @db.VarChar(32)
+
+  status    PredictionStatus @default(PENDING)
+  expiresAt DateTime
+
+  resolvedAt        DateTime?
+  resolvedEventId   String?
+  resolvedDirection PredictionDirection?
+
+  createdAt DateTime @default(now())
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceEvent   FundamentalEvent  @relation("PredictionSource", fields: [sourceEventId], references: [id], onDelete: Cascade)
+  resolvedEvent FundamentalEvent? @relation("PredictionResolution", fields: [resolvedEventId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([userId, targetCurrency, status])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// AI BRIEFING
+// Replaces: dipper_briefing_history_v2 (which kept only the last 5 sessions
+// because of the localStorage quota — no such limit now).
+// ============================================================================
+
+enum AIName {
+  PERPLEXITY
+  CLAUDE
+  GROQ
+}
+
+enum ConsensusStrength {
+  STRONG
+  MEDIUM
+  MIXED
+}
+
+model BriefingSession {
+  id     String @id @default(cuid())
+  userId String
+
+  status      String    @db.VarChar(16) // "running" | "complete" | "failed"
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  /// CurrencyConsensus[] — final merged verdict across all 4 currency groups
+  consensus Json?
+
+  /// Cost and usage accounting, per provider. Populate this from day one —
+  /// without it there is no way to see an unbounded-token incident happening.
+  totalInputTokens  Int?
+  totalOutputTokens Int?
+  costUsd           Decimal? @db.Decimal(10, 4)
+
+  errorMessage String? @db.Text
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages BriefingMessage[]
+
+  @@index([userId, startedAt(sort: Desc)])
+}
+
+model BriefingMessage {
+  id        String @id @default(cuid())
+  sessionId String
+
+  ai    AIName
+  /// Exact model id used, e.g. "claude-opus-5". Recording this makes it
+  /// possible to explain why an old briefing reads differently after a
+  /// model change — the current code does not persist it.
+  model String @db.VarChar(64)
+
+  /// 0=research, 1=analysis, 2=contradiction, 3=defence, 4=final verdict
+  round      Int
+  roundLabel String @db.VarChar(64)
+  /// Currency codes this message covers, e.g. ["EUR","GBP"]
+  groupCodes String[]
+
+  content      String  @db.Text
+  researchText String? @db.Text
+  /// Record<currencyCode, {bias, explanation, conviction, changedOpinion}>
+  biases       Json?
+
+  changedOpinion Boolean @default(false)
+
+  durationMs   Int?
+  inputTokens  Int?
+  outputTokens Int?
+  /// Non-null when the call failed. The UI MUST branch on this rather than
+  /// rendering an empty analysis as a successful one, which is the current bug.
+  errorMessage String? @db.Text
+  /// Anthropic stop_reason — "end_turn" | "max_tokens" | "refusal" | ...
+  stopReason   String? @db.VarChar(32)
+
+  createdAt DateTime @default(now())
+
+  session BriefingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, round])
+}
+
+// ============================================================================
+// ALERTS
+// Replaces: dipper_alerts_v1, dipper_alert_prefs_v1
+// ============================================================================
+
+enum AlertPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum AlertKind {
+  SURPRISE_CRITICAL
+  SURPRISE_HIGH
+  SCORE_CHANGE_MAJOR
+  SCORE_CHANGE
+  PAIR_STRONG_CONVICTION
+  PAIR_DIRECTION_CHANGE
+  NEWS_MAJOR
+  CENTRAL_BANK_DECISION
+  TRADE_DIVERGENCE
+  DAILY_RECAP
+  // from alertsService.ts (Fundamental Engine)
+  PREDICTIVE
+  DIVERGENCE
+  CONFIRMATION
+  ESCALATION
+  TEST
+}
+
+/// Note: the old code had TWO services — `alertService` (user alerts) and
+/// `alertsService` (fundamental engine alerts) — with incompatible type unions
+/// and near-identical names. They are merged here into one table with one enum.
+model Alert {
+  id     String @id @default(cuid())
+  userId String
+
+  kind     AlertKind
+  priority AlertPriority
+
+  currencyCode String? @db.VarChar(3)
+  instrument   String? @db.VarChar(16)
+
+  title   String
+  message String @db.Text
+  /// Free-form payload: related indicator ids, score deltas, event ids
+  context Json?
+
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  dismissed Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency? @relation(fields: [currencyCode], references: [code], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, read, dismissed])
+}
+
+/// Per-currency alert filtering. Always scoped to a currency — the global
+/// settings (sounds, do-not-disturb) live on UserSettings instead.
+///
+/// They were originally modelled here with a nullable `currencyCode` where NULL
+/// meant "the global row", but Postgres treats NULLs as DISTINCT in a unique
+/// index, so `@@unique([userId, currencyCode])` would not have prevented
+/// duplicate global rows. Splitting them avoids the trap entirely.
+model AlertPreference {
+  id     String @id @default(cuid())
+  userId String
+
+  currencyCode String @db.VarChar(3)
+
+  enabled     Boolean       @default(true)
+  minPriority AlertPriority @default(NORMAL)
+
+  updatedAt DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@unique([userId, currencyCode])
+}
+
+/// Favourite pairs, used by LiveSignals. Split out of the preferences blob so
+/// it can be queried and joined rather than parsed.
+model FavoritePair {
+  userId     String
+  instrument String   @db.VarChar(16)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, instrument])
+}
+
+// ============================================================================
+// PINE SCRIPT CONFIGS
+// Replaces: dipper_pine_configs_v1, dipper_journal_pine_v1, dipper_pine_pending
+//
+// Rows are kept as Json: they are always loaded and saved as a complete set,
+// never filtered server-side, and the row shape is driven by the .pine scripts.
+// Normalise only if you start querying inside them.
+// ============================================================================
+
+enum PineConfigKind {
+  NEWS_LINES
+  EVENT_JOURNAL
+}
+
+model PineConfig {
+  id     String @id @default(cuid())
+  userId String
+
+  kind PineConfigKind
+  name String         @db.VarChar(64)
+
+  /// NewsRow[] or EventJournalRow[] depending on `kind`
+  rows Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, name])
+  @@index([userId, kind])
+}
+
+// ============================================================================
+// DELIBERATELY NOT IN THIS SCHEMA
+//
+//  - Macro API response cache (dipper_cache_v1_*)
+//      Use the Next.js fetch cache / `unstable_cache` with revalidation instead.
+//      IndicatorValue already gives you the durable history; a second cache
+//      table would just be a slower Redis.
+//
+//  - Rate limiting counters
+//      Use Upstash Redis with @upstash/ratelimit. Postgres works at your volume
+//      but you do not want a write to the primary on every request.
+//
+//  - API keys / MetaApi tokens
+//      Environment variables and Vercel secrets. Never a table.
+//
+//  - Static domain data: currency weights, country profiles, sensitivity matrix,
+//    fundamental indicator graph, prediction rules, account entry-type win rates.
+//      These belong in git. Putting the scoring model in a database makes it
+//      silently mutable and unreviewable — the opposite of what you want for the
+//      one part of the app whose correctness matters most.
+// ============================================================================

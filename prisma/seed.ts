@@ -3,7 +3,8 @@ import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import "dotenv/config";
 
-import { PrismaClient, CurrencyCategory } from "../lib/generated/prisma/client.js";
+import { PrismaClient, CurrencyCategory, IndicatorSource } from "../lib/generated/prisma/client.js";
+import { CURRENCY_BASELINE } from "../domain/data/baseline.js";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -117,18 +118,52 @@ const CURRENCIES = [
  * quote, and offered no way to express a non-standard instrument at all.
  */
 const JOURNAL_PAIRS = [
-  "EUR/USD", "GBP/USD", "AUD/USD", "NZD/USD", "USD/CAD", "USD/JPY", "USD/CHF",
-  "EUR/GBP", "GBP/JPY", "AUD/NZD", "EUR/JPY", "EUR/AUD", "GBP/AUD", "GBP/NZD",
-  "AUD/CAD", "NZD/CAD", "EUR/CAD", "EUR/CHF", "EUR/NZD", "GBP/CAD", "GBP/CHF",
-  "AUD/CHF", "NZD/CHF", "AUD/JPY", "NZD/JPY", "CAD/JPY", "CHF/JPY", "GBP/NOK",
+  "EUR/USD",
+  "GBP/USD",
+  "AUD/USD",
+  "NZD/USD",
+  "USD/CAD",
+  "USD/JPY",
+  "USD/CHF",
+  "EUR/GBP",
+  "GBP/JPY",
+  "AUD/NZD",
+  "EUR/JPY",
+  "EUR/AUD",
+  "GBP/AUD",
+  "GBP/NZD",
+  "AUD/CAD",
+  "NZD/CAD",
+  "EUR/CAD",
+  "EUR/CHF",
+  "EUR/NZD",
+  "GBP/CAD",
+  "GBP/CHF",
+  "AUD/CHF",
+  "NZD/CHF",
+  "AUD/JPY",
+  "NZD/JPY",
+  "CAD/JPY",
+  "CHF/JPY",
+  "GBP/NOK",
 ] as const;
 
 /** The subset surfaced in the weekly forecast view (legacy FORECAST_PAIRS). */
 const FORECAST_PAIRS = new Set([
-  "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "NZD/USD",
-  "EUR/NZD", "GBP/NZD", "NZD/JPY", "NZD/CAD",
-  "EUR/AUD", "EUR/CAD", "GBP/CAD",
-  "EUR/GBP", "GBP/NOK",
+  "EUR/USD",
+  "GBP/USD",
+  "USD/JPY",
+  "AUD/USD",
+  "NZD/USD",
+  "EUR/NZD",
+  "GBP/NZD",
+  "NZD/JPY",
+  "NZD/CAD",
+  "EUR/AUD",
+  "EUR/CAD",
+  "GBP/CAD",
+  "EUR/GBP",
+  "GBP/NOK",
 ]);
 
 function instrumentSpec(symbol: string) {
@@ -152,6 +187,91 @@ function instrumentSpec(symbol: string) {
     isActive: true,
     inForecastSet: FORECAST_PAIRS.has(symbol),
   };
+}
+
+/**
+ * Writes the legacy baseline readings as IndicatorValue rows.
+ *
+ * In the old app `INITIAL_CURRENCIES` was the starting state loaded into React
+ * on first run, then merged with localStorage forever after. Here it is only a
+ * seed: two dated rows per indicator (the reading and the one before it), which
+ * is what lets every `*Prev` lookup in the legacy scoring code become "the
+ * previous row" instead of a parallel `previousData` map.
+ *
+ * Source is MANUAL because these values were hand-maintained in the legacy
+ * source file, not fetched. A later API refresh writes OECD/FRED rows for newer
+ * periods, which win on date without conflicting with these.
+ */
+async function seedBaselineIndicators(prisma: PrismaClient) {
+  const pending: Array<{
+    currencyCode: string;
+    indicatorKey: string;
+    source: IndicatorSource;
+    period: string;
+    periodEnd: Date;
+    value: number;
+    nextRelease: Date | null;
+  }> = [];
+
+  for (const currency of CURRENCY_BASELINE) {
+    const reference = new Date(`${currency.lastUpdate}T00:00:00Z`);
+
+    // Period end is the last day of the reference month, and the previous
+    // reading is the month before. The legacy data carried no period at all —
+    // only a single `lastUpdate` per currency — so this is the most faithful
+    // reconstruction available, and real periods arrive with the first refresh.
+    const periods = [0, 1].map((back) => {
+      const end = new Date(
+        Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth() - back + 1, 0),
+      );
+      const label = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}`;
+      return { end, label };
+    });
+
+    const [currentPeriod, previousPeriod] = periods;
+    if (!currentPeriod || !previousPeriod) continue;
+
+    for (const [key, reading] of Object.entries(currency.indicators)) {
+      const rows = [
+        {
+          period: currentPeriod.label,
+          periodEnd: currentPeriod.end,
+          value: reading.current,
+          nextRelease: reading.nextRelease ? new Date(`${reading.nextRelease}T00:00:00Z`) : null,
+        },
+        ...(reading.previous === undefined
+          ? []
+          : [
+              {
+                period: previousPeriod.label,
+                periodEnd: previousPeriod.end,
+                value: reading.previous,
+                nextRelease: null,
+              },
+            ]),
+      ];
+
+      for (const row of rows) {
+        pending.push({
+          currencyCode: currency.code,
+          indicatorKey: key,
+          source: IndicatorSource.MANUAL,
+          ...row,
+        });
+      }
+    }
+  }
+
+  // One statement rather than ~250 sequential upserts: each round trip to Neon
+  // costs more than the write itself. `skipDuplicates` gives the idempotency
+  // that matters here — re-running the seed must never revert a value the user
+  // has since corrected through the admin screen.
+  const { count } = await prisma.indicatorValue.createMany({
+    data: pending,
+    skipDuplicates: true,
+  });
+
+  console.log(`Seeded ${count} baseline indicator readings (${pending.length} candidates).`);
 }
 
 async function main() {
@@ -197,6 +317,8 @@ async function main() {
       );
     }
     console.log(`Verified ${forecastCount} forecast instruments.`);
+
+    await seedBaselineIndicators(prisma);
   } finally {
     await prisma.$disconnect();
   }

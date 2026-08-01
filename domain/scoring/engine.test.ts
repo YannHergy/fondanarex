@@ -46,7 +46,7 @@ function makeCurrency(overrides: Partial<CurrencyData> = {}): CurrencyData {
     return {
         code: 'USD',
         name: 'US Dollar',
-        flag: '',
+        countryCode: '',
         interestRate: 3,
         stance: 'Neutral',
         category: 'Neutral',

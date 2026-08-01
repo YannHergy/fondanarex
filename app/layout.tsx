@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+
+import { getSettings } from "@/lib/settings";
+import { cn } from "@/lib/utils";
+
 import "./globals.css";
 
 const inter = Inter({
@@ -36,12 +40,17 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // The theme comes from UserSettings, so it survives a reload — the legacy app
+  // supported light mode but kept the flag in React state only, which meant it
+  // silently reset to dark on every refresh. Signed-out pages get the default.
+  const { theme } = await getSettings();
+
   return (
-    // `dark` is the default here. A future theme toggle flips this class and
-    // persists the choice in UserSettings — the legacy app supported light mode
-    // but never persisted the preference, so it reset on every reload.
-    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="fr"
+      className={cn(theme === "dark" && "dark", inter.variable, jetbrainsMono.variable)}
+    >
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

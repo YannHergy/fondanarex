@@ -35,7 +35,9 @@ export type CurrencyCategory = 'Safe-Haven' | 'Risk-On' | 'Neutral';
 export interface CurrencyData {
     code: string;
     name: string;
-    flag: string;
+    /** ISO 3166-1 alpha-2 region code. Emoji flags are never stored; the UI
+     * renders a flag from this code. */
+    countryCode: string;
     interestRate: number;
     stance: CentralBankStance;
     /** Used by sentiment scoring */

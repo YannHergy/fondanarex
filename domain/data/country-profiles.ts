@@ -18,7 +18,8 @@ export interface CountryProfile {
     code: string;
     name: string;
     fullName: string;
-    flag: string;
+    /** ISO 3166-1 alpha-2 region code — the UI renders the flag from this. */
+    countryCode: string;
     centralBank: string;
     tag: string;
     tagType: TagType;
@@ -41,7 +42,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'USD',
         name: 'Dollar Américain',
         fullName: 'Dollar Américain — États-Unis',
-        flag: '🇺🇸',
+        countryCode: 'US',
         centralBank: 'Réserve Fédérale (Fed)',
         tag: 'REFUGE PRINCIPAL / DEVISE DE RÉSERVE MONDIALE',
         tagType: 'refuge',
@@ -100,7 +101,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'EUR',
         name: 'Euro',
         fullName: 'Euro — Zone Euro (19 pays)',
-        flag: '🇪🇺',
+        countryCode: 'EU',
         centralBank: 'Banque Centrale Européenne (BCE)',
         tag: 'REFUGE SECONDAIRE / INDUSTRIEL FRAGMENTÉ',
         tagType: 'industrial',
@@ -157,7 +158,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'GBP',
         name: 'Livre Sterling',
         fullName: 'Livre Sterling — Royaume-Uni',
-        flag: '🇬🇧',
+        countryCode: 'GB',
         centralBank: 'Banque d\'Angleterre (BoE)',
         tag: 'PUISSANCE FINANCIÈRE / SERVICES',
         tagType: 'industrial',
@@ -217,7 +218,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'JPY',
         name: 'Yen Japonais',
         fullName: 'Yen Japonais — Japon',
-        flag: '🇯🇵',
+        countryCode: 'JP',
         centralBank: 'Banque du Japon (BoJ)',
         tag: 'REFUGE / FINANCEMENT MONDIAL / RISQUE SYSTÉMIQUE',
         tagType: 'refuge',
@@ -238,7 +239,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
             'Banques japonaises = « zombies » qui soutiennent des entreprises non-rentables avec des taux à 0%',
             'Mur démographique : retraités vident leur épargne → pression permanente sur les finances publiques',
             'Premier partenaire commercial = Chine → si la Chine ralentit, le Japon ralentit immédiatement',
-            '⚠️ RISQUE SYSTÉMIQUE MONDIAL : si le Japon rapatrie ses capitaux → vente massive d\'obligations US → taux US explosent → crise type 2008',
+            'RISQUE SYSTÉMIQUE MONDIAL : si le Japon rapatrie ses capitaux → vente massive d\'obligations US → taux US explosent → crise type 2008',
         ],
         specialIndicators: [
             'USD/JPY = baromètre du système financier mondial — un mouvement brusque (ex: -4.3% en 12h le 23 jan. 2026) = signal d\'alarme systémique',
@@ -272,7 +273,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'CHF',
         name: 'Franc Suisse',
         fullName: 'Franc Suisse — Suisse',
-        flag: '🇨🇭',
+        countryCode: 'CH',
         centralBank: 'Banque Nationale Suisse (SNB)',
         tag: 'ULTRA-REFUGE / GESTION DE FORTUNE MONDIALE',
         tagType: 'refuge',
@@ -329,7 +330,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'CAD',
         name: 'Dollar Canadien',
         fullName: 'Dollar Canadien — Canada',
-        flag: '🇨🇦',
+        countryCode: 'CA',
         centralBank: 'Banque du Canada (BoC)',
         tag: 'MATIÈRE PREMIÈRE / SATELLITE DES USA',
         tagType: 'commodity',
@@ -349,7 +350,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
             'Pas de centre financier mondial (Toronto est important régionalement mais pas globalement)',
             'Pétrole canadien très dépendant des pipelines et des raffineries américaines pour l\'exportation',
             'Tarifs douaniers de Trump = catastrophe économique pour le Canada (aucune capacité de rétorsion sérieuse)',
-            '⚠️ Citation de formation : « Le Canada ne pèse que dalle dans la finance mondiale. Très très très peu de leviers. »',
+            'Citation de formation : « Le Canada ne pèse que dalle dans la finance mondiale. Très très très peu de leviers. »',
         ],
         specialIndicators: [
             'Décisions américaines sur le commerce Canada-USA (impact disproportionné — chaque menace fait chuter le CAD)',
@@ -382,7 +383,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'AUD',
         name: 'Dollar Australien',
         fullName: 'Dollar Australien — Australie',
-        flag: '🇦🇺',
+        countryCode: 'AU',
         centralBank: 'Banque Centrale d\'Australie (RBA)',
         tag: 'DEVISE LA PLUS FRAGILE DU G10 / MATIÈRE PREMIÈRE',
         tagType: 'fragile',
@@ -398,7 +399,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         ],
         weaknesses: [
             'Dette des ménages = 112% du PIB (2ème plus élevée au monde après la Suisse)',
-            '⚠️ Importe 40% de ses biens manufacturés — quasi aucune industrie propre (pays le plus sous-industrialisé de l\'hémisphère occidental)',
+            'Importe 40% de ses biens manufacturés — quasi aucune industrie propre (pays le plus sous-industrialisé de l\'hémisphère occidental)',
             'Importe 90% du carburant raffiné (paradoxe : ils ont du gaz et charbon mais pas de raffineries)',
             'Mines australiennes majoritairement détenues par des étrangers → l\'argent repart immédiatement',
             'AUD très volatile et peu liquide → mouvements violents et imprévisibles (amplifie tous les chocs)',
@@ -438,7 +439,7 @@ export const COUNTRY_PROFILES: CountryProfile[] = [
         code: 'NZD',
         name: 'Dollar Néo-Zélandais',
         fullName: 'Dollar Néo-Zélandais — Nouvelle-Zélande',
-        flag: '🇳🇿',
+        countryCode: 'NZ',
         centralBank: 'Banque de Réserve de Nouvelle-Zélande (RBNZ)',
         tag: 'AGRICOLE / SATELLITE AUD',
         tagType: 'commodity',

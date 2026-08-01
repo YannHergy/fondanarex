@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useOptimistic, useTransition } from "react";
 
-import { setSidebarCollapsed, setTheme, signOutAction } from "@/app/(app)/preferences-actions";
+import { setSidebarCollapsed, setTheme } from "@/app/(app)/preferences-actions";
 import { Icon } from "@/components/ui/icon";
 import { NAV_ITEMS, isActiveRoute } from "@/components/nav/nav-items";
 import { cn } from "@/lib/utils";
@@ -138,16 +138,10 @@ export function Sidebar({
 
         {/* Legacy had a "Reset Data" button here that wiped every manual edit
          * behind a single window.confirm. It now lives on the Admin page, next
-         * to the data it destroys. */}
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            className="text-muted hover:text-brand-red hover:bg-brand-red/5 flex w-full items-center justify-center gap-2 rounded p-2.5 text-xs transition-all"
-          >
-            <Icon name="logout" size={14} />
-            <span className={cn(labelClass, "tracking-wide")}>Déconnexion</span>
-          </button>
-        </form>
+         * to the data it destroys.
+         *
+         * Sign-out lived here too, until authentication was temporarily
+         * disabled — see lib/session.ts. */}
       </div>
     </div>
   );

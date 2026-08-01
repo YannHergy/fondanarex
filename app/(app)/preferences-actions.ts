@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireUserIdOrThrow } from "@/lib/session";
 
@@ -30,10 +29,6 @@ export async function setTheme(theme: unknown): Promise<void> {
   // The theme class is applied on <html> in the root layout, so the whole tree
   // has to re-render, not just the current page.
   revalidatePath("/", "layout");
-}
-
-export async function signOutAction(): Promise<void> {
-  await signOut({ redirectTo: "/signin" });
 }
 
 export async function setSidebarCollapsed(collapsed: unknown): Promise<void> {

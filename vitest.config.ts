@@ -30,7 +30,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": resolve(__dirname, "./"),
+      // `import.meta.dirname`, not `__dirname`: Vite's native config loader
+      // does not provide the CommonJS globals and warns about them today.
+      "@": resolve(import.meta.dirname, "./"),
     },
   },
 });

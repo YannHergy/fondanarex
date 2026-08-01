@@ -1,6 +1,21 @@
 [build]
+  # `prisma generate` also runs via postinstall; it is repeated here so the
+  # client is regenerated even when the install step is restored from cache.
+  # It reads schema.prisma only and never connects, so it works before the
+  # site's environment variables are populated.
   command = "pnpm prisma generate && pnpm build"
   publish = ".next"
+
+# Required environment variables, set in Site settings -> Environment variables:
+#
+#   DATABASE_URL  Neon POOLED connection (host contains `-pooler`)
+#   DIRECT_URL    Neon UNPOOLED connection — used by `prisma migrate` only
+#
+# Everything else is optional: each integration key (FRED, Finnhub, Marketaux,
+# NewsAPI, Groq, Perplexity, Anthropic, FXMacroData, MetaApi) enables one
+# feature, and a missing key disables that feature rather than breaking a page.
+#
+# The build itself needs NO environment variables — pages render per request.
 
 [build.environment]
   NODE_VERSION = "22"

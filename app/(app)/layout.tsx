@@ -5,12 +5,25 @@ import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 /**
- * Shell for every authenticated screen.
+ * Every screen under this layout renders per request, never at build time.
  *
- * `requireUserId` redirects to /signin when there is no session. proxy.ts
- * already gates these paths; doing it again here means a routing mistake in the
- * matcher cannot silently expose a page, and it gives the children a userId that
- * is known to exist.
+ * This is not a performance knob — it is required for the build to work at all.
+ * Every page here reads live, user-scoped data from Postgres. While the app used
+ * Auth.js, reading the session cookie made each route implicitly dynamic; with
+ * authentication temporarily disabled nothing touches cookies any more, so Next
+ * would happily try to PRERENDER these pages during `next build` and bake the
+ * result into the deployment. That both requires a reachable database at build
+ * time and serves stale data afterwards.
+ */
+export const dynamic = "force-dynamic";
+
+/**
+ * Shell for every screen.
+ *
+ * `requireUserId` resolves the workspace user. Authentication is currently
+ * disabled (see lib/session.ts) so this always succeeds unless the database is
+ * unreachable — but the signature is unchanged, so restoring auth needs no edit
+ * here.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const userId = await requireUserId();

@@ -15,7 +15,10 @@ const serverSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DIRECT_URL: z.string().min(1).optional(),
 
-  AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
+  // Optional while authentication is disabled (see lib/session.ts). Make
+  // AUTH_SECRET required again when Auth.js is restored — without it, sessions
+  // are unsigned.
+  AUTH_SECRET: z.string().default(""),
   AUTH_GITHUB_ID: z.string().default(""),
   AUTH_GITHUB_SECRET: z.string().default(""),
   AUTH_ALLOWED_LOGINS: z.string().default(""),

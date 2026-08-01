@@ -12,10 +12,26 @@ Next.js, with a real database, authenticated server-side APIs, and a tested scor
 | Styling    | Tailwind CSS v4 (CSS-first `@theme`, no `tailwind.config.js`) |
 | Icons      | Material Symbols                                              |
 | Database   | Neon Postgres via Prisma 7 (`prisma-client` + Neon adapter)   |
-| Auth       | Auth.js v5 (NextAuth beta) with GitHub OAuth                  |
+| Auth       | **Temporarily disabled** — see below                          |
 | AI         | Anthropic SDK (Claude Sonnet 5), Groq, Perplexity             |
 | Unit tests | Vitest                                                        |
 | E2E        | Playwright                                                    |
+
+## ⚠️ Authentication is currently disabled
+
+There is no sign-in. The app runs as a single implicit user: everyone who can
+reach the deployment shares one workspace. This is deliberate and temporary, so
+the project can be deployed while GitHub OAuth credentials are pending.
+
+**Do not put real trading data behind a public URL in this state.** Until auth is
+restored, keep the site access-restricted (Netlify password protection or a
+private preview URL).
+
+Restoring it is a change to `lib/session.ts` only — every data-access function
+still takes an explicit `userId` and every page still resolves it through
+`requireUserId()`, so no call site changes. The removed pieces (`auth.ts`,
+`app/signin/`, `app/api/auth/`, the session check in `proxy.ts`) are in git
+history and the procedure is documented at the top of `lib/session.ts`.
 
 ## Getting started
 
@@ -28,9 +44,13 @@ pnpm dev
 
 ### Required environment
 
-At minimum you need `DATABASE_URL`, `DIRECT_URL`, and `AUTH_SECRET` (`npx auth secret`).
-Every third-party integration key is optional — a missing key disables that
-integration rather than breaking the app.
+At minimum you need `DATABASE_URL` and `DIRECT_URL`. (`AUTH_SECRET` becomes
+required again once authentication is restored.) Every third-party integration
+key is optional — a missing key disables that integration rather than breaking
+the app.
+
+The **build** needs no environment variables at all: every page renders per
+request, and `prisma generate` reads the schema without connecting.
 
 `DATABASE_URL` should be the Neon **pooled** connection (`-pooler` in the host).
 `DIRECT_URL` is the **unpooled** one and is used only by `prisma migrate`, which

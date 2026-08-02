@@ -6,6 +6,29 @@
   command = "pnpm prisma generate && pnpm build"
   publish = ".next"
 
+# ── Macro data refresh ───────────────────────────────────────────────────────
+# The scores are only as fresh as IndicatorValue, which is filled by
+# /api/cron/refresh-macro. Netlify's UI-scheduled functions cannot call an app
+# route directly, so drive it from any scheduler (Netlify scheduled function,
+# GitHub Actions cron, cron-job.org) with the shared secret:
+#
+#   GET https://<site>/api/cron/refresh-macro?secret=$CRON_SECRET
+#
+# IMPORTANT: the OECD rate-limits hard and answers a bare 500 as often as a 429
+# when it throttles. Pulling all five datasets in one call needs ~30s of
+# deliberate spacing, which exceeds Netlify's 26s synchronous function ceiling.
+# Schedule them one at a time instead, a few minutes apart:
+#
+#   ?dataset=cpi&fred=0
+#   ?dataset=coreCpi&fred=0
+#   ?dataset=unemployment&fred=0
+#   ?dataset=interestRate&fred=0
+#   ?dataset=gdpQoQ&fred=0
+#   (no parameters, once a day, for FRED + everything)
+#
+# Twice daily is ample: these are monthly and quarterly series. Nothing is
+# gained by polling faster than the publication calendar.
+
 # Required environment variables, set in Site settings -> Environment variables:
 #
 #   DATABASE_URL  Neon POOLED connection (host contains `-pooler`)

@@ -119,6 +119,7 @@ describe('extractLatestTwo', () => {
             current: 3,
             previous: 2,
             latestPeriod: '2026-03',
+            previousPeriod: '2026-02',
         });
     });
 
@@ -127,6 +128,7 @@ describe('extractLatestTwo', () => {
             current: 0.5,
             previous: 0.2,
             latestPeriod: '2025-Q4',
+            previousPeriod: '2025-Q3',
         });
     });
 
@@ -135,6 +137,9 @@ describe('extractLatestTwo', () => {
             current: 4.2,
             previous: 4.2,
             latestPeriod: '2026-01',
+            // No earlier observation: previous repeats current, and the null
+            // period tells the writer there is no second row to persist.
+            previousPeriod: null,
         });
     });
 
@@ -160,9 +165,18 @@ describe('toCurrencyDatapoints', () => {
 });
 
 describe('country code maps', () => {
-    it('round-trip between the two directions', () => {
-        for (const [oecd, currency] of Object.entries(OECD_TO_CURRENCY)) {
-            expect(CURRENCY_TO_OECD[currency]).toBe(oecd);
+    // Not a bijection: the euro area is spelled EA20 in the price and labour
+    // dataflows but EA in national accounts, so several OECD codes map to EUR.
+    // The canonical code for each currency must still round-trip.
+    it('maps every canonical currency code back to itself', () => {
+        for (const [currency, oecd] of Object.entries(CURRENCY_TO_OECD)) {
+            expect(OECD_TO_CURRENCY[oecd]).toBe(currency);
+        }
+    });
+
+    it('accepts every euro-area spelling the OECD uses', () => {
+        for (const alias of ['EA', 'EA19', 'EA20']) {
+            expect(OECD_TO_CURRENCY[alias]).toBe('EUR');
         }
     });
 

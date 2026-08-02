@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { RefreshButton } from "@/app/(app)/_components/refresh-button";
 import { Card, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -133,9 +134,12 @@ export default async function DashboardPage() {
           title="Tableau de bord macro"
           subtitle="Scoring institutionnel G10 · 8 devises · 0 – 100"
         >
-          <div className="text-subtle flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase">
-            <span className="bg-brand-cyan h-1.5 w-1.5 rounded-full" />
-            {formatLastSync(lastSync._max.fetchedAt)}
+          <div className="flex items-center gap-3">
+            <div className="text-subtle flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase">
+              <span className="bg-brand-cyan h-1.5 w-1.5 rounded-full" />
+              {formatLastSync(lastSync._max.fetchedAt)}
+            </div>
+            <RefreshButton />
           </div>
         </PageHeader>
       </div>

@@ -26,6 +26,15 @@ export interface SdmxDatapoint {
     previous: number;
     /** Period label of `current`, e.g. "2026-01" or "2025-Q4" */
     latestPeriod: string;
+    /**
+     * Period label of `previous`, or null when only one observation exists.
+     *
+     * Needed because both readings are persisted as separate dated rows. Storing
+     * only the latest would leave every momentum scorer without a prior value,
+     * and those scorers fall back to treating the change as zero — a currency
+     * whose inflation was accelerating would score as though it were flat.
+     */
+    previousPeriod: string | null;
 }
 
 interface SdmxDimension {
@@ -42,12 +51,35 @@ interface SdmxDimension {
  *
  * @param divisor Scales the raw value — e.g. 1000 to turn millions into billions.
  */
+export interface SdmxParseResult {
+    values: Record<string, Record<string, number>>;
+    /**
+     * Number of (country, period) slots that matched MORE THAN ONE observation.
+     *
+     * This is a correctness alarm, not a statistic. It means the query key left
+     * a dimension unpinned — for example asking the OECD price dataflow for CPI
+     * without fixing EXPENDITURE, which returns 29 sub-indices (food, health,
+     * fuels, ...) alongside the headline. The first one encountered would then
+     * silently become "the CPI", and the resulting score would be wrong in a way
+     * nothing else in the system could detect.
+     *
+     * Callers must treat a non-zero value as a broken query, not as noise.
+     */
+    collisions: number;
+}
+
+/** Backwards-compatible view over {@link parseSdmxSeries}. */
 export function parseSdmxJson(
     json: unknown,
     divisor = 1,
 ): Record<string, Record<string, number>> {
+    return parseSdmxSeries(json, divisor).values;
+}
+
+export function parseSdmxSeries(json: unknown, divisor = 1): SdmxParseResult {
     const result: Record<string, Record<string, number>> = {};
-    if (divisor === 0) return result;
+    let collisions = 0;
+    if (divisor === 0) return { values: result, collisions };
 
     const root = json as {
         data?: {
@@ -65,13 +97,13 @@ export function parseSdmxJson(
     const observations =
         root?.data?.dataSets?.[0]?.observations ?? root?.dataSets?.[0]?.observations;
 
-    if (!dimensions || !observations) return result;
+    if (!dimensions || !observations) return { values: result, collisions };
 
     const locationPosition = dimensions.findIndex(
         d => d.id === 'REF_AREA' || d.id === 'LOCATION',
     );
     const timePosition = dimensions.findIndex(d => d.id === 'TIME_PERIOD');
-    if (locationPosition === -1 || timePosition === -1) return result;
+    if (locationPosition === -1 || timePosition === -1) return { values: result, collisions };
 
     const locationValues = dimensions[locationPosition]?.values ?? [];
     const timeValues = dimensions[timePosition]?.values ?? [];
@@ -90,13 +122,17 @@ export function parseSdmxJson(
         if (!country || !period || value === null || value === undefined) continue;
 
         const byPeriod = (result[country] ??= {});
-        // Several series can land on the same (country, period) when the key
-        // pattern leaves a dimension unfiltered. The first non-null wins, which
-        // matches the legacy behaviour.
-        if (!(period in byPeriod)) byPeriod[period] = value / divisor;
+        // Several series land on the same (country, period) when the key leaves
+        // a dimension unpinned. The first still wins so the shape of the result
+        // is unchanged, but the collision is COUNTED — see SdmxParseResult.
+        if (period in byPeriod) {
+            collisions += 1;
+        } else {
+            byPeriod[period] = value / divisor;
+        }
     }
 
-    return result;
+    return { values: result, collisions };
 }
 
 /**
@@ -131,6 +167,7 @@ export function extractLatestTwo(
         current: round(current),
         previous: round(previous),
         latestPeriod: latest,
+        previousPeriod: priorPeriod ?? null,
     };
 }
 
@@ -138,7 +175,14 @@ export function extractLatestTwo(
 // COUNTRY CODE MAPPING
 // ================================================================
 
-/** OECD reference area -> currency code. EA20 is the euro area aggregate. */
+/**
+ * OECD reference area -> currency code.
+ *
+ * The euro area appears under more than one code depending on the dataflow:
+ * the price and labour dataflows use `EA20` (the 20 members), while the
+ * national-accounts dataflow uses plain `EA`. Both must map to EUR or the euro
+ * area silently disappears from whichever dataset uses the other spelling.
+ */
 export const OECD_TO_CURRENCY: Record<string, string> = {
     AUS: 'AUD',
     CAN: 'CAD',
@@ -147,12 +191,25 @@ export const OECD_TO_CURRENCY: Record<string, string> = {
     JPN: 'JPY',
     CHE: 'CHF',
     EA20: 'EUR',
+    EA: 'EUR',
+    EA19: 'EUR',
     USA: 'USD',
 };
 
-export const CURRENCY_TO_OECD: Record<string, string> = Object.fromEntries(
-    Object.entries(OECD_TO_CURRENCY).map(([oecd, currency]) => [currency, oecd]),
-);
+/**
+ * Currency -> canonical OECD area. Built explicitly rather than by inverting
+ * the map above, which would make the EUR entry depend on key order.
+ */
+export const CURRENCY_TO_OECD: Record<string, string> = {
+    AUD: 'AUS',
+    CAD: 'CAN',
+    GBP: 'GBR',
+    NZD: 'NZL',
+    JPY: 'JPN',
+    CHF: 'CHE',
+    EUR: 'EA20',
+    USD: 'USA',
+};
 
 /**
  * Reduces a parsed SDMX body to one datapoint per currency, dropping countries

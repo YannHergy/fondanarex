@@ -127,25 +127,80 @@ interface IndicatorRow {
 /**
  * The two most recent readings of every indicator, in one query.
  *
- * ROW_NUMBER rather than fetching the table and reducing in JS: indicator
- * history grows by a row per indicator per month forever, and "load everything
- * then keep two" degrades quietly as the table fills.
+ * Resolution is by SOURCE TIER FIRST, then by period — and that order is the
+ * whole point:
+ *
+ *   FRED (1) > OECD (2) > DERIVED (3) > MANUAL (4)
+ *
+ * MANUAL here is the seeded legacy baseline, not user input; a user's manual
+ * correction lives in IndicatorOverride and is applied later, outside this
+ * query. That baseline was reconstructed with fabricated period labels taken
+ * from each currency's `lastUpdate`, which land in July 2026 — NEWER than the
+ * genuine June readings the APIs actually publish. Ranking by period first
+ * would therefore let the hardcoded legacy snapshot outrank live data and
+ * silently freeze the scores, which is exactly the bug this app must not have.
+ *
+ * Only one tier is ever used per indicator. Mixing them would be worse than
+ * either alone: the newest row could be a real June figure while "previous"
+ * came from the fabricated July baseline, producing a momentum reading that is
+ * not merely wrong but backwards.
+ *
+ * Within a tier, one row per period (the most recently fetched), then the two
+ * newest periods — so "previous" is always a genuinely earlier reading from the
+ * same provider.
+ *
+ * Done in SQL rather than by loading the table and reducing in JS: indicator
+ * history grows by a row per indicator per month forever.
  */
 async function latestIndicatorRows(): Promise<IndicatorRow[]> {
   return prisma.$queryRaw<IndicatorRow[]>`
+    WITH tiered AS (
+      SELECT
+        v.*,
+        CASE v."source"
+          WHEN 'FRED' THEN 1
+          WHEN 'OECD' THEN 2
+          WHEN 'DERIVED' THEN 3
+          ELSE 4
+        END AS tier
+      FROM "IndicatorValue" v
+    ),
+    best AS (
+      SELECT "currencyCode", "indicatorKey", MIN(tier) AS tier
+      FROM tiered
+      GROUP BY "currencyCode", "indicatorKey"
+    ),
+    in_tier AS (
+      SELECT t.*
+      FROM tiered t
+      JOIN best b
+        ON b."currencyCode" = t."currencyCode"
+       AND b."indicatorKey" = t."indicatorKey"
+       AND b.tier = t.tier
+    ),
+    deduped AS (
+      SELECT
+        i.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY i."currencyCode", i."indicatorKey", i."periodEnd"
+          ORDER BY i."fetchedAt" DESC
+        ) AS same_period_rank
+      FROM in_tier i
+    )
     SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", rn
     FROM (
       SELECT
-        v."currencyCode",
-        v."indicatorKey",
-        v."value",
-        v."periodEnd",
-        v."nextRelease",
+        d."currencyCode",
+        d."indicatorKey",
+        d."value",
+        d."periodEnd",
+        d."nextRelease",
         ROW_NUMBER() OVER (
-          PARTITION BY v."currencyCode", v."indicatorKey"
-          ORDER BY v."periodEnd" DESC, v."fetchedAt" DESC
+          PARTITION BY d."currencyCode", d."indicatorKey"
+          ORDER BY d."periodEnd" DESC
         ) AS rn
-      FROM "IndicatorValue" v
+      FROM deduped d
+      WHERE d.same_period_rank = 1
     ) ranked
     WHERE rn <= 2
   `;

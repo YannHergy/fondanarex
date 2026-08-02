@@ -164,11 +164,11 @@ export const PREDICTION_RULES: PredictionRule[] = [
     { sourceIndicatorId: 'global_china_pmi', direction: 'bearish', targetIndicatorId: 'aud_employment_change', predictedDirection: 'bearish', confidence: 3, reason: 'Chine ralentit → exportations AUS ↓ → emploi sous pression', delayLabel: '~1 mois' },
 
     { sourceIndicatorId: 'aud_employment_change', direction: 'bullish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bullish', confidence: 4, reason: 'Emploi AUS fort = facteur déterminant pour la RBA hawkish', delayLabel: 'avant la réunion' },
-    { sourceIndicatorId: 'aud_employment_change', direction: 'bullish', targetIndicatorId: 'aud_cpi',         predictedDirection: 'bullish', confidence: 2, reason: 'Emploi fort → salaires → demande → prix', delayLabel: '~1-2 mois' },
+    { sourceIndicatorId: 'aud_employment_change', direction: 'bullish', targetIndicatorId: 'aud_cpi_quarterly',         predictedDirection: 'bullish', confidence: 2, reason: 'Emploi fort → salaires → demande → prix', delayLabel: '~1-2 mois' },
     { sourceIndicatorId: 'aud_employment_change', direction: 'bearish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bearish', confidence: 4, reason: 'Emploi AUS faible → RBA dovish probable', delayLabel: 'avant la réunion' },
 
-    { sourceIndicatorId: 'aud_cpi', direction: 'bullish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bullish', confidence: 5, reason: 'CPI AUS ↑ → RBA doit rester hawkish', delayLabel: 'avant la réunion' },
-    { sourceIndicatorId: 'aud_cpi', direction: 'bearish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bearish', confidence: 4, reason: 'CPI AUS ↓ → RBA peut baisser les taux', delayLabel: 'avant la réunion' },
+    { sourceIndicatorId: 'aud_cpi_quarterly', direction: 'bullish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bullish', confidence: 5, reason: 'CPI AUS ↑ → RBA doit rester hawkish', delayLabel: 'avant la réunion' },
+    { sourceIndicatorId: 'aud_cpi_quarterly', direction: 'bearish', targetIndicatorId: 'aud_rba_meeting', predictedDirection: 'bearish', confidence: 4, reason: 'CPI AUS ↓ → RBA peut baisser les taux', delayLabel: 'avant la réunion' },
 
     // ──────────────────────────── NZD ────────────────────────────
 

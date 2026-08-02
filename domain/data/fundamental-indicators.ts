@@ -18,6 +18,17 @@ export interface FundamentalIndicator {
     category: string;
     frequency: IndicatorFrequency;
     importance: IndicatorImportance;
+    /**
+     * True when a HIGHER print is bad news for the currency — unemployment and
+     * jobless claims. The prediction rules were written with `bullish` meaning
+     * "the economy improves" ("Emploi fort → moins de demandes de chômage"),
+     * while the raw print moves the other way, so without this flag every rule
+     * touching these four indicators resolved backwards.
+     *
+     * The cascade does NOT use this: the connection graph already models the
+     * relationship with `direction: 'inverse'` edges, and feeds on the raw sign.
+     */
+    higherIsBearish?: boolean;
     description: string;
 }
 
@@ -59,6 +70,10 @@ export const FUNDAMENTAL_INDICATORS: FundamentalIndicator[] = [
     { id: 'usd_pmi_composite', name: 'PMI Composite US', fullName: 'US ISM/S&P PMI Composite', country: 'US', currency: 'USD', level: 'signal', category: 'growth', frequency: 'monthly', importance: 4, description: 'PMI composite américain — synthèse de l\'activité économique.' },
     { id: 'usd_wages', name: 'Salaires US', fullName: 'US Average Hourly Earnings', country: 'US', currency: 'USD', level: 'signal', category: 'inflation', frequency: 'monthly', importance: 4, description: 'Croissance des salaires horaires moyens — signal d\'inflation secondaire.' },
     { id: 'usd_consumption', name: 'Consommation US', fullName: 'US Retail Sales & Consumer Spending', country: 'US', currency: 'USD', level: 'signal', category: 'growth', frequency: 'monthly', importance: 4, description: 'Ventes au détail et dépenses des consommateurs américains.' },
+    // Referenced as a target by eight prediction rules but absent from the
+    // legacy catalogue, so those predictions named an indicator that could
+    // never be published and therefore could only ever expire.
+    { id: 'usd_consumer_confidence', name: 'Confiance Conso. US', fullName: 'US Consumer Confidence (Conference Board)', country: 'US', currency: 'USD', level: 'signal', category: 'growth', frequency: 'monthly', importance: 3, description: 'Indice de confiance des ménages américains. Signal avancé de la consommation.' },
     { id: 'usd_yield_curve', name: 'Courbe Taux US', fullName: 'US Yield Curve (2Y-10Y Spread)', country: 'US', currency: 'USD', level: 'signal', category: 'monetary', frequency: 'weekly', importance: 4, description: 'Spread 2Y-10Y. Inversion = signal de récession, normalisation = optimisme.' },
     { id: 'usd_equity_markets', name: 'Actions US', fullName: 'US Equity Markets (S&P 500)', country: 'US', currency: 'USD', level: 'signal', category: 'risk', frequency: 'weekly', importance: 3, description: 'Performance des marchés actions US. Risk-on → USD peut faiblir vs devises risquées.' },
     { id: 'usd_housing', name: 'Immobilier US', fullName: 'US Housing Market (Starts, Permits)', country: 'US', currency: 'USD', level: 'signal', category: 'growth', frequency: 'monthly', importance: 3, description: 'Mises en chantier et permis de construire — indicateur avancé de l\'activité US.' },
@@ -71,7 +86,7 @@ export const FUNDAMENTAL_INDICATORS: FundamentalIndicator[] = [
     { id: 'usd_pce', name: 'PCE US', fullName: 'US Personal Consumption Expenditures', country: 'US', currency: 'USD', level: 'root', category: 'inflation', frequency: 'monthly', importance: 4, description: 'PCE Core — mesure d\'inflation préférée de la Fed (target 2%).' },
     { id: 'usd_fomc', name: 'FOMC', fullName: 'Federal Open Market Committee Meeting', country: 'US', currency: 'USD', level: 'root', category: 'monetary', frequency: 'event', importance: 5, description: 'Réunion FOMC. Décision de taux + statement + conférence de presse Powell.' },
     { id: 'usd_jolts', name: 'JOLTS', fullName: 'Job Openings and Labor Turnover Survey', country: 'US', currency: 'USD', level: 'root', category: 'employment', frequency: 'monthly', importance: 4, description: 'Offres d\'emploi ouvertes. Indicateur avancé du NFP.' },
-    { id: 'usd_initial_claims', name: 'Initial Claims', fullName: 'Initial Jobless Claims', country: 'US', currency: 'USD', level: 'root', category: 'employment', frequency: 'weekly', importance: 3, description: 'Nouvelles demandes d\'allocations chômage. Indicateur hebdomadaire du marché de l\'emploi.' },
+    { id: 'usd_initial_claims', higherIsBearish: true, name: 'Initial Claims', fullName: 'Initial Jobless Claims', country: 'US', currency: 'USD', level: 'root', category: 'employment', frequency: 'weekly', importance: 3, description: 'Nouvelles demandes d\'allocations chômage. Indicateur hebdomadaire du marché de l\'emploi.' },
     { id: 'usd_durable_goods', name: 'Biens Durables US', fullName: 'US Durable Goods Orders', country: 'US', currency: 'USD', level: 'root', category: 'growth', frequency: 'monthly', importance: 3, description: 'Commandes de biens durables — signal sur les dépenses d\'investissement.' },
     { id: 'usd_trade_balance', name: 'Balance Commerciale US', fullName: 'US Trade Balance', country: 'US', currency: 'USD', level: 'root', category: 'trade', frequency: 'monthly', importance: 3, description: 'Déficit commercial américain. Impact sur les flux de capitaux en USD.' },
 
@@ -106,7 +121,7 @@ export const FUNDAMENTAL_INDICATORS: FundamentalIndicator[] = [
     { id: 'eur_german_ifo', name: 'Ifo Allemagne', fullName: 'German Ifo Business Climate', country: 'EU', currency: 'EUR', level: 'root', category: 'growth', frequency: 'monthly', importance: 4, description: 'Confiance des entreprises allemandes. L\'Allemagne est le moteur de la zone euro.' },
     { id: 'eur_zew', name: 'ZEW Allemagne', fullName: 'German ZEW Economic Sentiment', country: 'EU', currency: 'EUR', level: 'root', category: 'growth', frequency: 'monthly', importance: 3, description: 'Sentiment économique des investisseurs allemands.' },
     { id: 'eur_trade_balance', name: 'Balance Commerciale EUR', fullName: 'Eurozone Trade Balance', country: 'EU', currency: 'EUR', level: 'root', category: 'trade', frequency: 'monthly', importance: 3, description: 'Balance commerciale zone euro — excédent structurel soutient l\'EUR.' },
-    { id: 'eur_unemployment', name: 'Chômage Zone Euro', fullName: 'Eurozone Unemployment Rate', country: 'EU', currency: 'EUR', level: 'root', category: 'employment', frequency: 'monthly', importance: 3, description: 'Taux de chômage de la zone euro.' },
+    { id: 'eur_unemployment', higherIsBearish: true, name: 'Chômage Zone Euro', fullName: 'Eurozone Unemployment Rate', country: 'EU', currency: 'EUR', level: 'root', category: 'employment', frequency: 'monthly', importance: 3, description: 'Taux de chômage de la zone euro.' },
 
     // ================================================================
     // GBP — Pound Sterling (BoE)
@@ -136,7 +151,7 @@ export const FUNDAMENTAL_INDICATORS: FundamentalIndicator[] = [
     { id: 'gbp_pmi_services', name: 'PMI Services UK', fullName: 'UK Services PMI', country: 'UK', currency: 'GBP', level: 'root', category: 'growth', frequency: 'monthly', importance: 4, description: 'PMI Services UK.' },
     { id: 'gbp_cpi', name: 'CPI UK', fullName: 'UK Consumer Price Index', country: 'UK', currency: 'GBP', level: 'root', category: 'inflation', frequency: 'monthly', importance: 5, description: 'CPI UK headline et core. Target BoE : 2%.' },
     { id: 'gbp_boe_meeting', name: 'Réunion BoE', fullName: 'Bank of England MPC Meeting', country: 'UK', currency: 'GBP', level: 'root', category: 'monetary', frequency: 'event', importance: 5, description: 'Décision de taux BoE + MPC minutes + vote (hawkish/dovish split).' },
-    { id: 'gbp_claimant_count', name: 'Claimant Count', fullName: 'UK Claimant Count Change', country: 'UK', currency: 'GBP', level: 'root', category: 'employment', frequency: 'monthly', importance: 4, description: 'Variation des demandeurs d\'allocations chômage UK.' },
+    { id: 'gbp_claimant_count', higherIsBearish: true, name: 'Claimant Count', fullName: 'UK Claimant Count Change', country: 'UK', currency: 'GBP', level: 'root', category: 'employment', frequency: 'monthly', importance: 4, description: 'Variation des demandeurs d\'allocations chômage UK.' },
     { id: 'gbp_gdp', name: 'PIB UK', fullName: 'UK GDP Monthly/Quarterly', country: 'UK', currency: 'GBP', level: 'root', category: 'growth', frequency: 'monthly', importance: 4, description: 'PIB UK (mensuel et trimestriel).' },
     { id: 'gbp_trade_balance', name: 'Balance Commerciale UK', fullName: 'UK Trade Balance', country: 'UK', currency: 'GBP', level: 'root', category: 'trade', frequency: 'monthly', importance: 3, description: 'Balance commerciale UK — déficit structurel post-Brexit.' },
 
@@ -287,7 +302,7 @@ export const FUNDAMENTAL_INDICATORS: FundamentalIndicator[] = [
     { id: 'chf_cpi', name: 'CPI Suisse', fullName: 'Switzerland Consumer Price Index', country: 'CH', currency: 'CHF', level: 'root', category: 'inflation', frequency: 'monthly', importance: 4, description: 'CPI suisse. Inflation historiquement très basse.' },
     { id: 'chf_snb_meeting', name: 'Réunion SNB', fullName: 'SNB Quarterly Policy Assessment', country: 'CH', currency: 'CHF', level: 'root', category: 'monetary', frequency: 'quarterly', importance: 5, description: 'Évaluation trimestrielle de la politique SNB. Décision de taux.' },
     { id: 'chf_gdp', name: 'PIB Suisse', fullName: 'Switzerland GDP (SECO)', country: 'CH', currency: 'CHF', level: 'root', category: 'growth', frequency: 'quarterly', importance: 4, description: 'PIB trimestriel suisse (SECO).' },
-    { id: 'chf_unemployment', name: 'Chômage Suisse', fullName: 'Switzerland Unemployment Rate', country: 'CH', currency: 'CHF', level: 'root', category: 'employment', frequency: 'monthly', importance: 3, description: 'Taux de chômage suisse (très bas, ~2-3%).' },
+    { id: 'chf_unemployment', higherIsBearish: true, name: 'Chômage Suisse', fullName: 'Switzerland Unemployment Rate', country: 'CH', currency: 'CHF', level: 'root', category: 'employment', frequency: 'monthly', importance: 3, description: 'Taux de chômage suisse (très bas, ~2-3%).' },
     { id: 'chf_trade_balance', name: 'Balance Commerciale CHF', fullName: 'Switzerland Trade Balance', country: 'CH', currency: 'CHF', level: 'root', category: 'trade', frequency: 'monthly', importance: 3, description: 'Balance commerciale suisse (excédent structurel).' },
 
     // ================================================================

@@ -90,6 +90,10 @@ export const FUNDAMENTAL_CONNECTIONS: FundamentalConnection[] = [
     { from: 'usd_wages',         to: 'usd_inflation',      weight: 4, direction: 'positive', delay: 'months', description: 'Salaires ↑ → coûts entreprises ↑ → inflation secondaire' },
     { from: 'usd_wages',         to: 'usd_labour_market',  weight: 4, direction: 'positive', delay: 'immediate', description: 'Salaires ↑ = signal d\'emploi tendu' },
     { from: 'usd_consumption',   to: 'usd_growth',         weight: 4, direction: 'positive', delay: 'immediate', description: 'Consommation = 70% du PIB américain' },
+    // Added with usd_consumer_confidence so the node is not an orphan in the
+    // gear graph. Confidence leading spending is the one relationship the
+    // index is actually used for; nothing further is asserted.
+    { from: 'usd_consumer_confidence', to: 'usd_consumption', weight: 3, direction: 'positive', delay: 'weeks', description: 'Moral des ménages → dépenses futures' },
     { from: 'usd_yield_curve',   to: 'usd_monetary_policy',weight: 4, direction: 'positive', delay: 'immediate', description: 'Courbe taux → signal anticipations politique Fed' },
     { from: 'usd_yield_curve',   to: 'usd_growth',         weight: 3, direction: 'positive', delay: 'months', description: 'Inversion courbe = signal de récession (décalage ~12-18 mois)' },
     { from: 'usd_housing',       to: 'usd_growth',         weight: 3, direction: 'positive', delay: 'months', description: 'Immobilier ↑ → effet richesse → consommation ↑' },

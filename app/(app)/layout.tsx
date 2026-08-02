@@ -1,7 +1,8 @@
+import { SetupRequired } from "@/components/setup-required";
 import { Sidebar } from "@/components/nav/sidebar";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
-import { requireUserId } from "@/lib/session";
+import { currentUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,13 +21,19 @@ export const dynamic = "force-dynamic";
 /**
  * Shell for every screen.
  *
- * `requireUserId` resolves the workspace user. Authentication is currently
- * disabled (see lib/session.ts) so this always succeeds unless the database is
- * unreachable — but the signature is unchanged, so restoring auth needs no edit
- * here.
+ * The database is resolved here rather than asserted. If it is unreachable —
+ * overwhelmingly because DATABASE_URL has not been set on the deployment yet —
+ * this renders instructions instead of throwing.
+ *
+ * That distinction matters: an exception in a LAYOUT is not caught by an
+ * `error.tsx` in the same segment, so it escapes to the platform and Netlify
+ * serves an opaque "A server error occurred" page with no indication of the
+ * cause. Handling it here keeps a misconfigured deploy self-explanatory.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const userId = await requireUserId();
+  const userId = await currentUserId();
+  if (!userId) return <SetupRequired />;
+
   const [settings, unreadAlerts] = await Promise.all([
     getSettings(),
     prisma.alert.count({ where: { userId, read: false, dismissed: false } }),

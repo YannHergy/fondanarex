@@ -107,13 +107,48 @@ class FxMacroDataError extends Error {
   }
 }
 
+/**
+ * Circuit breaker for authentication failures.
+ *
+ * The overview screen fans out to more than 70 requests (56 of them for the
+ * carry matrix alone). When the key is missing, expired or revoked, every one
+ * of those fails — and because only successful responses are cached, they all
+ * fail again on the very next render. That turns a billing problem into a
+ * multi-second page and a burst of pointless upstream traffic.
+ *
+ * A 401/403 trips the breaker: subsequent calls fail instantly for a cooldown
+ * window instead of going out. Only auth failures trip it — a timeout or a 500
+ * is transient and must stay retryable.
+ */
+const AUTH_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+let authFailedUntil = 0;
+let authFailureReason = "";
+
+function breakerOpen(): boolean {
+  return Date.now() < authFailedUntil;
+}
+
+function tripBreaker(reason: string): void {
+  authFailedUntil = Date.now() + AUTH_FAILURE_COOLDOWN_MS;
+  authFailureReason = reason;
+}
+
 async function fxFetch<T>(path: string, revalidate: number): Promise<T> {
   const key = process.env.FXMACRODATA_API_KEY ?? "";
   if (!key) throw new FxMacroDataError("FXMACRODATA_API_KEY is not configured");
 
+  if (breakerOpen()) {
+    throw new FxMacroDataError(`FXMacroData unavailable: ${authFailureReason}`);
+  }
+
   const separator = path.includes("?") ? "&" : "?";
   const response = await fetch(`${BASE}${path}${separator}api_key=${encodeURIComponent(key)}`, {
     next: { revalidate },
+    // The overview screen fans out to 70+ of these. Without a deadline, one
+    // unresponsive upstream request holds the whole page render open until the
+    // serverless function is killed, turning a degraded panel into a failed
+    // page. Callers already treat a rejection as "panel unavailable".
+    signal: AbortSignal.timeout(5_000),
   });
 
   const data: unknown = await response.json().catch(() => null);
@@ -123,7 +158,15 @@ async function fxFetch<T>(path: string, revalidate: number): Promise<T> {
         ? ((data as { detail?: string; error?: string }).detail ??
           (data as { error?: string }).error)
         : null;
-    throw new FxMacroDataError(detail ?? `FXMacroData responded ${response.status}`);
+    const message = detail ?? `FXMacroData responded ${response.status}`;
+
+    // 401/403 means the key itself is bad — retrying the other 69 requests of
+    // this page render cannot succeed.
+    if (response.status === 401 || response.status === 403) {
+      tripBreaker(message);
+    }
+
+    throw new FxMacroDataError(message);
   }
   return data as T;
 }

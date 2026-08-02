@@ -37,13 +37,28 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+/** Module-scoped singleton. See getClient() for why this must exist. */
+let client: PrismaClient | undefined;
+
 function getClient(): PrismaClient {
   // Reused across hot reloads in development; without this every edit opens a
   // new pool and Neon starts refusing connections.
-  const existing = globalForPrisma.prisma;
-  if (existing) return existing;
+  const hotReloaded = globalForPrisma.prisma;
+  if (hotReloaded) return hotReloaded;
 
-  const client = createClient();
+  // The module-scoped cache is NOT a development-only nicety — it is the whole
+  // point in production.
+  //
+  // `prisma` below is a Proxy whose `get` trap calls this function, so it runs
+  // on EVERY property access: `prisma.user`, `prisma.alert`, `prisma.currency`.
+  // While this cached only in development, each of those accesses constructed a
+  // fresh PrismaClient with its own Neon connection pool, so a single page
+  // render opened and abandoned a dozen WebSocket connections to Postgres. That
+  // added seconds to every request and is the kind of thing that pushes a
+  // serverless function past its execution limit.
+  if (client) return client;
+
+  client = createClient();
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = client;
   }

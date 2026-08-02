@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { RefreshButton } from "@/app/(app)/_components/refresh-button";
+import { AccountsStatusBar } from "@/components/accounts-status-bar";
 import { Card, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -143,6 +144,10 @@ export default async function DashboardPage() {
           </div>
         </PageHeader>
       </div>
+
+      {/* Account status strip, as on the legacy dashboard: drawdown state must
+       * be visible while analysing, not only on the accounts screen. */}
+      <AccountsStatusBar userId={userId} />
 
       {sorted.length === 0 ? (
         <Card>

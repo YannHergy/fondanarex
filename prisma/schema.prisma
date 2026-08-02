@@ -565,10 +565,21 @@ model Attachment {
   /// Ordering within its parent
   position  Int     @default(0)
 
-  // Exactly one of these should be set.
+  // Exactly one of these is set, UNLESS the row is staged (see stagingKey).
   tradeId       String?
   planSetupId   String?
   setupReviewId String?
+
+  /// Set while a multi-timeframe capture is held in the Graphiques staging
+  /// area before being promoted onto a PlanSetup. Holds the pair, e.g.
+  /// "EUR/USD". A row with a stagingKey has no parent yet, by design: the
+  /// legacy screen kept these per-pair in IndexedDB so a half-finished
+  /// analysis survived a reload, and dropping that would lose real work.
+  stagingKey String? @db.VarChar(16)
+  /// TradingView interval the capture was taken on: "M", "W", "D", "240"…
+  timeframe  String? @db.VarChar(8)
+  /// The capture the trader designated as the entry.
+  isEntry    Boolean @default(false)
 
   createdAt DateTime @default(now())
 
@@ -581,6 +592,7 @@ model Attachment {
   @@index([tradeId])
   @@index([planSetupId])
   @@index([setupReviewId])
+  @@index([userId, stagingKey])
 }
 
 // ============================================================================

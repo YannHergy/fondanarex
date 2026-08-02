@@ -151,6 +151,75 @@ export function anthropicConfigured(): boolean {
   return (process.env.ANTHROPIC_API_KEY ?? "").length > 0;
 }
 
+/**
+ * Structured Claude call against an arbitrary schema.
+ *
+ * `callClaude` below is bound to the briefing's per-currency bias shape. This
+ * one takes the JSON Schema and a Zod validator, for callers that need a
+ * different result — the weekly plan's scenarios and week-ahead, which are not
+ * currency verdicts.
+ *
+ * The schema is enforced by the API, and the Zod pass is not redundant: it
+ * proves the parsed value matches what the CALLER expects, so a schema and a
+ * type drifting apart is a caught error rather than a runtime surprise.
+ */
+export async function callClaudeStructured<T>(options: {
+  system: string;
+  prompt: string;
+  schema: object;
+  validate: (value: unknown) => T | null;
+  maxTokens?: number;
+}): Promise<{ data: T | null; error: string | null; inputTokens: number; outputTokens: number }> {
+  const model = CLAUDE_PRICING.model;
+
+  if (!anthropicConfigured()) {
+    return { data: null, error: "ANTHROPIC_API_KEY absente", inputTokens: 0, outputTokens: 0 };
+  }
+
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  try {
+    const stream = client.messages.stream({
+      model,
+      max_tokens: options.maxTokens ?? 2000,
+      system: options.system,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: options.schema } },
+      messages: [{ role: "user", content: options.prompt }],
+    } as Parameters<typeof client.messages.stream>[0]);
+
+    const message = await stream.finalMessage();
+    const usage = { inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens };
+
+    if (message.stop_reason === "refusal") {
+      return { data: null, error: "Requête refusée par le modèle", ...usage };
+    }
+    if (message.stop_reason === "max_tokens") {
+      return { data: null, error: "Réponse tronquée (max_tokens)", ...usage };
+    }
+
+    const text = message.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+
+    const parsed = extractJson(text);
+    if (!parsed) return { data: null, error: "Réponse illisible", ...usage };
+
+    const data = options.validate(parsed);
+    return data
+      ? { data, error: null, ...usage }
+      : { data: null, error: "Réponse hors schéma", ...usage };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Erreur Anthropic",
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+}
+
 export async function callClaude(options: {
   system: string;
   prompt: string;

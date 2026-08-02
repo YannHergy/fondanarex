@@ -125,7 +125,7 @@ export default async function OverviewPage() {
                 </Card>
               }
             >
-              <CalendarPanel />
+              <CalendarPanel userId={userId} />
             </Suspense>
 
             <Suspense

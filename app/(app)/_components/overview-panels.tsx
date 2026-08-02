@@ -1,6 +1,10 @@
+import Link from "next/link";
+
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { LocalTime } from "@/app/(app)/_components/local-time";
+import { FxSessions } from "@/app/(app)/_components/fx-sessions";
+import { getSessionStatuses } from "@/domain/market/sessions";
+import { getUpcomingEvents } from "@/lib/weekly-events";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import type { CurrencyWithScore } from "@/domain/types";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
@@ -44,13 +48,6 @@ async function settle<T>(promise: Promise<T>): Promise<T | null> {
   } catch {
     return null;
   }
-}
-
-function formatCountdown(minutes: number): string {
-  if (minutes < 60) return `${minutes}min`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest > 0 ? `${hours}h${String(rest).padStart(2, "0")}` : `${hours}h`;
 }
 
 // ── Risk sentiment ─────────────────────────────────────────────────────────
@@ -100,46 +97,16 @@ export async function RiskPanel() {
 
 // ── FX sessions ────────────────────────────────────────────────────────────
 
-export async function SessionsPanel() {
-  const sessions = fx.isConfigured() ? await settle(fx.getSessions()) : null;
-
-  return (
-    <Card>
-      <div className="text-muted mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon name="schedule" size={16} />
-          <h2 className="text-xs font-bold tracking-widest uppercase">Sessions FX en direct</h2>
-        </div>
-        <LocalTime />
-      </div>
-      {sessions?.length ? (
-        <div className="grid grid-cols-4 gap-2">
-          {sessions.map((s) => (
-            <div
-              key={s.name}
-              className={cn(
-                "rounded-lg border py-2 text-center",
-                s.isOpen ? "bg-brand-green/10 border-brand-green/30" : "bg-panel border-border-app",
-              )}
-            >
-              <p className="text-fg text-[10px] font-bold">{s.name}</p>
-              <p className={cn("font-mono text-[9px]", s.isOpen ? "text-brand-green" : "text-subtle")}>
-                {s.isOpen ? "Ouverte" : "Fermée"}
-              </p>
-              {s.isOpen && s.closesInMin != null ? (
-                <p className="text-subtle text-[8px]">ferme dans {formatCountdown(s.closesInMin)}</p>
-              ) : null}
-              {!s.isOpen && s.opensInMin != null ? (
-                <p className="text-subtle text-[8px]">ouvre dans {formatCountdown(s.opensInMin)}</p>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Unavailable />
-      )}
-    </Card>
-  );
+/**
+ * Session hours are computed locally from each venue's timezone — see
+ * domain/market/sessions.ts. This panel used to fetch them from FXMacroData,
+ * which made a panel that cannot fail depend on a subscription that can.
+ *
+ * The server renders the first value so the markup is complete without
+ * JavaScript; the client component then keeps the countdowns ticking.
+ */
+export function SessionsPanel() {
+  return <FxSessions initial={getSessionStatuses(new Date())} />;
 }
 
 // ── Carry matrix ───────────────────────────────────────────────────────────
@@ -252,39 +219,62 @@ export async function CarryMatrix({ currencies }: { currencies: CurrencyWithScor
 
 // ── Calendar and announcements ─────────────────────────────────────────────
 
-export async function CalendarPanel() {
-  const entries = fx.isConfigured()
-    ? await settle(
-        Promise.all(CURRENCY_CODES.map((c) => fx.getCalendar(c))).then((all) =>
-          all.flat().slice(0, 8),
-        ),
-      )
-    : null;
+/**
+ * Upcoming releases, read from the user's own WeeklyEvent rows rather than a
+ * third-party calendar. These are the events they actually track and annotate
+ * in Calendrier, so the overview and the calendar can no longer disagree.
+ */
+export async function CalendarPanel({ userId }: { userId: string }) {
+  const events = await getUpcomingEvents(userId, 8);
 
   return (
     <Card>
       <CardTitle icon="calendar_month">Prochaines publications</CardTitle>
-      {entries?.length ? (
+      {events.length > 0 ? (
         <ul className="space-y-1.5">
-          {entries.map((e, i) => (
+          {events.map((event) => (
             <li
-              key={`${e.currency}-${e.indicator}-${i}`}
-              className="border-border-app flex items-center justify-between border-b py-1.5 text-xs last:border-0"
+              key={event.id}
+              className="border-border-app flex items-center gap-2 border-b py-1.5 text-xs last:border-0"
             >
-              <span className="text-subtle w-20 shrink-0 font-mono">
-                {e.date} {e.time}
+              <span className="text-subtle w-24 shrink-0 font-mono">
+                {event.scheduledAt.toISOString().slice(5, 10).replace("-", "/")}{" "}
+                {event.scheduledAt.toISOString().slice(11, 16)}
               </span>
-              <span className="text-fg flex-1 font-bold">
-                {e.currency} — {e.indicator}
+              <span className="text-fg min-w-0 flex-1 truncate font-bold">
+                {event.currencyCode} — {event.name}
               </span>
-              {e.importance ? (
-                <span className="text-subtle text-[10px] uppercase">{e.importance}</span>
-              ) : null}
+              <span
+                className={cn(
+                  "shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                  event.importance === "HIGH"
+                    ? "text-brand-red border-brand-red/40 bg-brand-red/10"
+                    : event.importance === "MEDIUM"
+                      ? "text-brand-amber border-brand-amber/40 bg-brand-amber/10"
+                      : "text-muted border-border-app",
+                )}
+              >
+                {event.importance === "HIGH"
+                  ? "haute"
+                  : event.importance === "MEDIUM"
+                    ? "moyenne"
+                    : "basse"}
+              </span>
             </li>
           ))}
         </ul>
       ) : (
-        <Unavailable />
+        <div>
+          <p className="text-subtle text-xs leading-relaxed">
+            Aucune publication à venir enregistrée.
+          </p>
+          <Link
+            href="/calendrier"
+            className="text-brand-blue mt-2 inline-flex items-center gap-1 text-xs hover:underline"
+          >
+            Ajouter des événements <Icon name="arrow_forward" size={12} />
+          </Link>
+        </div>
       )}
     </Card>
   );

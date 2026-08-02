@@ -116,3 +116,22 @@ export function toSummarisable(event: WeeklyEventRow): SummarisableEvent {
 export function weekBounds(weekKey: string): { start: Date; end: Date } {
   return getWeekRange(weekKey);
 }
+
+/**
+ * The next scheduled events that have not yet been published.
+ *
+ * Powers the overview's "upcoming releases" panel, which previously came from a
+ * third-party calendar. Reading the user's own rows means the overview and the
+ * Calendrier screen can never disagree, and it works without any subscription.
+ */
+export async function getUpcomingEvents(
+  userId: string,
+  limit = 8,
+): Promise<WeeklyEventRow[]> {
+  const events = await prisma.weeklyEvent.findMany({
+    where: { userId, actual: null, scheduledAt: { gte: new Date() } },
+    orderBy: { scheduledAt: "asc" },
+    take: limit,
+  });
+  return events.map(toRow);
+}

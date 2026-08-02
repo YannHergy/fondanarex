@@ -326,7 +326,9 @@ export async function getWeekTradeStats(
 
   const trades = await prisma.trade.findMany({
     where: {
-      account: { userId },
+      // Trade.userId, not the account relation: accountId is nullable, so
+      // going through it would drop trades entered without an account.
+      userId,
       closedAt: { gte: start, lt: end, not: null },
     },
     select: { pnl: true },

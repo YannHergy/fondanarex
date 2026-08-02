@@ -23,9 +23,11 @@ export default async function GraphiquesPage({
     getForecastInstruments(),
     getScoredCurrencyList(userId),
     // Open positions only — a closed trade carries no exposure, so warning
-    // about a correlation with it would be noise.
+    // about a correlation with it would be noise. Scoped by Trade.userId, not
+    // through the account relation: accountId is nullable, so a trade entered
+    // without one would be silently invisible to the exposure warning.
     prisma.trade.findMany({
-      where: { account: { userId }, closedAt: null },
+      where: { userId, closedAt: null },
       select: { id: true, instrument: true, direction: true },
       take: 50,
     }),

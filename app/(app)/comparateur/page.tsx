@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { IndicatorViews } from "@/app/(app)/comparateur/_components/indicator-views";
+import { CurrencyProfileCard } from "@/app/(app)/comparateur/_components/profile-card";
+import { ScoreRadar } from "@/app/(app)/comparateur/_components/radar";
+import { RelativeStrengthMatrix } from "@/app/(app)/comparateur/_components/strength-matrix";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
 import { getIndicatorDisplay } from "@/domain/scoring";
+import type { ComparedIndicator } from "@/domain/scoring/comparison";
 import type { CurrencyWithScore } from "@/domain/types";
 import { getMarketContext, getScoredCurrencies } from "@/lib/currencies";
 import { scoreTextClass, scoreVerdict } from "@/lib/score-display";
@@ -99,6 +104,32 @@ export default async function ComparatorPage({
     );
   }
 
+  const currencyList = CURRENCY_CODES.map((code) => currencies[code]).filter(
+    (currency): currency is NonNullable<typeof currency> => Boolean(currency),
+  );
+
+  /**
+   * The macro rows as compared indicators.
+   *
+   * The scale each pair is drawn against is their own larger magnitude, so a
+   * 0.2 % difference on a policy rate is as visible as a 20-point difference
+   * on a PMI. A single shared scale would flatten every rate comparison to
+   * nothing.
+   */
+  const comparedIndicators: ComparedIndicator[] = MACRO_ROWS.map((row) => {
+    const base = Number(a[row.key] ?? 0);
+    const quote = Number(b[row.key] ?? 0);
+
+    return {
+      label: row.label,
+      base,
+      quote,
+      max: Math.max(Math.abs(base), Math.abs(quote), 0.1),
+      unit: row.unit,
+      lowerIsBetter: !row.higherIsBetter,
+    };
+  });
+
   const spread = a.scores.total - b.scores.total;
   // The pair convention is BASE/QUOTE: a positive spread means the base is the
   // stronger currency, so the pair reads as a buy.
@@ -165,6 +196,19 @@ export default async function ComparatorPage({
           </div>
         </div>
       </Card>
+
+      <ScoreRadar
+        axes={AXES.map((axis) => ({
+          key: axis.key,
+          label: axis.label,
+          base: a.scores[axis.key],
+          quote: b.scores[axis.key],
+        }))}
+        base={a.code}
+        quote={b.code}
+      />
+
+      <IndicatorViews indicators={comparedIndicators} base={a.code} quote={b.code} />
 
       <Card>
         <CardTitle icon="radar">Familles d&apos;indicateurs</CardTitle>
@@ -300,6 +344,14 @@ export default async function ComparatorPage({
           <DriversCard key={currency.code} currency={currency} ctx={marketContext} />
         ))}
       </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {[a, b].map((currency) => (
+          <CurrencyProfileCard key={currency.code} currency={currency} />
+        ))}
+      </div>
+
+      <RelativeStrengthMatrix currencies={currencyList} />
     </div>
   );
 }

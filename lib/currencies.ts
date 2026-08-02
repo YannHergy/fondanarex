@@ -292,6 +292,29 @@ export const getCurrencies = cache(
   },
 );
 
+/**
+ * The value each indicator would have WITHOUT any manual override — i.e. what
+ * the APIs currently supply.
+ *
+ * The admin screen shows this next to an overridden field so it is always
+ * visible what a manual entry is replacing. Without it, a stale correction
+ * entered months ago is indistinguishable from live data.
+ */
+export const getApiValues = cache(
+  async (): Promise<Record<string, Record<string, number>>> => {
+    const rows = await latestIndicatorRows();
+    const result: Record<string, Record<string, number>> = {};
+
+    for (const row of rows) {
+      if (Number(row.rn) !== 1) continue;
+      const forCurrency = (result[row.currencyCode] ??= {});
+      forCurrency[row.indicatorKey] = Number(row.value);
+    }
+
+    return result;
+  },
+);
+
 // ── Market context ─────────────────────────────────────────────────────────
 
 /** camelCase domain field -> snake_case storage key. */

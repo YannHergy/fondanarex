@@ -6,6 +6,7 @@ import { useOptimistic, useTransition } from "react";
 
 import { setSidebarCollapsed, setTheme } from "@/app/(app)/preferences-actions";
 import { Icon } from "@/components/ui/icon";
+import { LiveRefresh } from "@/components/live-refresh";
 import { NAV_ITEMS, isActiveRoute } from "@/components/nav/nav-items";
 import { cn } from "@/lib/utils";
 
@@ -125,6 +126,12 @@ export function Sidebar({
       </nav>
 
       <div className="border-border-app space-y-0.5 border-t p-2">
+        {/* Mounted once in the shell, so every screen re-reads its server data
+         * on an interval without a manual reload. */}
+        <div className={cn("flex justify-center py-1.5", optimisticCollapsed && "px-0")}>
+          <LiveRefresh label={optimisticCollapsed ? "" : "En direct"} />
+        </div>
+
         <button
           type="button"
           onClick={toggleTheme}

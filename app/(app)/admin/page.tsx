@@ -1,15 +1,140 @@
 import type { Metadata } from "next";
 
-import { PendingView } from "@/components/ui/pending-view";
+import { CurrencyEditor, type EditableField } from "@/app/(app)/admin/_components/currency-editor";
+import { DangerZone } from "@/app/(app)/admin/_components/danger-zone";
+import { MarketContextEditor } from "@/app/(app)/admin/_components/market-context-editor";
+import { Card, PageHeader } from "@/components/ui/card";
+import { Icon } from "@/components/ui/icon";
+import { MARKET_FIELDS } from "@/domain/market-context";
+import { getApiValues, getMarketContext, getScoredCurrencies } from "@/lib/currencies";
+import { prisma } from "@/lib/prisma";
+import { requireUserId } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Admin données" };
 
-export default function Page() {
+/** Fields exposed for manual correction, with their input step and unit. */
+const FIELD_SPECS = [
+  { key: "interestRate", label: "Taux directeur", unit: "%", step: "0.01" },
+  { key: "gdpQoQ", label: "PIB QoQ", unit: "%", step: "0.1" },
+  { key: "pmiManufacturing", label: "PMI manufacturier", unit: "", step: "0.1" },
+  { key: "pmiServices", label: "PMI services", unit: "", step: "0.1" },
+  { key: "cpi", label: "CPI", unit: "%", step: "0.1" },
+  { key: "coreCpi", label: "CPI sous-jacent", unit: "%", step: "0.1" },
+  { key: "ppi", label: "PPI", unit: "%", step: "0.1" },
+  { key: "unemployment", label: "Chômage", unit: "%", step: "0.1" },
+  { key: "retailSales", label: "Ventes au détail", unit: "%", step: "0.1" },
+  { key: "wagePPI", label: "Salaires", unit: "%", step: "0.01" },
+  { key: "tradeBalance", label: "Balance commerciale", unit: "Mds", step: "0.1" },
+  { key: "currentAccount", label: "Compte courant", unit: "Mds", step: "0.1" },
+  { key: "consumerConfidence", label: "Confiance ménages", unit: "", step: "0.1" },
+  { key: "nfp", label: "NFP", unit: "k", step: "1" },
+  { key: "corePce", label: "Core PCE", unit: "%", step: "0.1" },
+  { key: "zew", label: "ZEW", unit: "", step: "0.1" },
+  { key: "ifo", label: "ifo", unit: "", step: "0.1" },
+] as const;
+
+/** Indicators that only exist for certain currencies. */
+const CURRENCY_SPECIFIC: Record<string, readonly string[]> = {
+  nfp: ["USD"],
+  corePce: ["USD"],
+  zew: ["EUR"],
+  ifo: ["EUR"],
+};
+
+export default async function AdminPage() {
+  const userId = await requireUserId();
+
+  const [currencies, marketContext, apiValues, overrides, counts] = await Promise.all([
+    getScoredCurrencies(userId),
+    getMarketContext(userId),
+    getApiValues(),
+    prisma.indicatorOverride.findMany({ where: { userId } }),
+    Promise.all([
+      prisma.indicatorOverride.count({ where: { userId } }),
+      prisma.currencyNote.count({ where: { userId } }),
+      prisma.marketContextValue.count({ where: { userId } }),
+    ]),
+  ]);
+
+  const overrideSet = new Set(overrides.map((o) => `${o.currencyCode}:${o.indicatorKey}`));
+
+  const editors = Object.values(currencies).map((currency) => {
+    const record = currency as unknown as Record<string, unknown>;
+
+    const fields: EditableField[] = FIELD_SPECS.filter((spec) => {
+      const restricted = CURRENCY_SPECIFIC[spec.key];
+      return !restricted || restricted.includes(currency.code);
+    }).map((spec) => {
+      const value = record[spec.key];
+      return {
+        key: spec.key,
+        label: spec.label,
+        unit: spec.unit,
+        step: spec.step,
+        value: typeof value === "number" ? value : null,
+        overridden: overrideSet.has(`${currency.code}:${spec.key}`),
+        sourceValue: apiValues[currency.code]?.[spec.key] ?? null,
+      };
+    });
+
+    return {
+      code: currency.code,
+      name: currency.name,
+      score: currency.scores.total,
+      stance: currency.stance,
+      geopoliticalRisks: currency.geopoliticalRisks,
+      qualitativeAnalysis: currency.qualitativeAnalysis,
+      eventsToWatch: currency.eventsToWatch,
+      fields,
+    };
+  });
+
+  const contextValues: Record<string, number | null> = {};
+  for (const field of MARKET_FIELDS) {
+    const key = field.key as string;
+    const value = (marketContext as unknown as Record<string, unknown>)[key];
+    contextValues[key] = typeof value === "number" ? value : null;
+  }
+
+  const [overrideCount, noteCount, contextCount] = counts;
+
   return (
-    <PendingView
-      title="Admin données"
-      legacyComponent="Admin.tsx (920 lignes)"
-      summary="Saisie manuelle des indicateurs et du contexte de marché, et réinitialisation des données."
-    />
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-5 md:p-6">
+      <PageHeader
+        title="Admin données"
+        subtitle="Corrections manuelles et contexte de marché"
+      />
+
+      <Card className="border-brand-blue/30 bg-brand-blue/5">
+        <div className="flex items-start gap-2.5">
+          <Icon name="shield" size={16} className="text-brand-blue mt-0.5 shrink-0" />
+          <p className="text-muted text-sm leading-relaxed">
+            Vos corrections sont stockées séparément des données API. Une synchronisation
+            automatique écrit uniquement les valeurs des sources et{" "}
+            <strong>ne peut pas écraser une saisie manuelle</strong> — la correction gagne
+            toujours à la lecture. Videz un champ pour redonner la main à l&apos;API.
+          </p>
+        </div>
+      </Card>
+
+      <MarketContextEditor values={contextValues} lastUpdate={marketContext.lastUpdate} />
+
+      <div className="space-y-2">
+        <h2 className="text-subtle font-mono text-[10px] tracking-widest uppercase">
+          Devises ({editors.length})
+        </h2>
+        {editors.map((data) => (
+          <CurrencyEditor key={data.code} data={data} />
+        ))}
+      </div>
+
+      <DangerZone
+        counts={{
+          overrides: overrideCount ?? 0,
+          notes: noteCount ?? 0,
+          context: contextCount ?? 0,
+        }}
+      />
+    </div>
   );
 }

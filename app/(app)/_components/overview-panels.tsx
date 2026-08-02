@@ -6,6 +6,8 @@ import { FxSessions } from "@/app/(app)/_components/fx-sessions";
 import { getSessionStatuses } from "@/domain/market/sessions";
 import { getUpcomingEvents } from "@/lib/weekly-events";
 import * as fx from "@/lib/integrations/fxmacrodata";
+import { localRiskSentiment } from "@/domain/market-context/scorers";
+import type { MarketContext } from "@/domain/types";
 import type { CurrencyWithScore } from "@/domain/types";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
 
@@ -52,44 +54,71 @@ async function settle<T>(promise: Promise<T>): Promise<T | null> {
 
 // ── Risk sentiment ─────────────────────────────────────────────────────────
 
-export async function RiskPanel() {
-  const risk = fx.isConfigured() ? await settle(fx.getRiskSentiment()) : null;
+export async function RiskPanel({ context }: { context: MarketContext }) {
+  const remote = fx.isConfigured() ? await settle(fx.getRiskSentiment()) : null;
+
+  // FXMacroData first when it answers, our own VIX otherwise. The VIX IS what
+  // decides risk-on/risk-off, and it is already part of the market context the
+  // scoring engine consumes — so with the subscription revoked there is no
+  // reason to leave the panel blank on data we hold.
+  const local = remote ? null : localRiskSentiment(context);
+
+  const status = remote?.status ?? local?.status ?? null;
+  const detail = remote
+    ? `Score : ${remote.score > 0 ? "+" : ""}${remote.score}`
+    : (local?.rationale ?? null);
 
   return (
     <Card
       className={cn(
-        risk?.status === "Risk Off"
+        status === "Risk Off"
           ? "bg-brand-red/10 border-brand-red/30"
-          : risk?.status === "Risk On"
+          : status === "Risk On"
             ? "bg-brand-green/10 border-brand-green/30"
             : undefined,
       )}
     >
       <CardTitle icon="monitoring">Sentiment de marché</CardTitle>
-      {risk ? (
+      {status ? (
         <div className="flex items-center gap-3">
           <Icon
-            name={risk.status === "Risk On" ? "trending_up" : "trending_down"}
+            name={
+              status === "Risk On"
+                ? "trending_up"
+                : status === "Risk Off"
+                  ? "trending_down"
+                  : "trending_flat"
+            }
             size={28}
-            className={risk.status === "Risk On" ? "text-brand-green" : "text-brand-red"}
+            className={
+              status === "Risk On"
+                ? "text-brand-green"
+                : status === "Risk Off"
+                  ? "text-brand-red"
+                  : "text-subtle"
+            }
           />
           <div>
             <p
               className={cn(
                 "text-2xl font-black",
-                risk.status === "Risk On" ? "text-brand-green" : "text-brand-red",
+                status === "Risk On"
+                  ? "text-brand-green"
+                  : status === "Risk Off"
+                    ? "text-brand-red"
+                    : "text-muted",
               )}
             >
-              {risk.status}
+              {status}
             </p>
-            <p className="text-subtle font-mono text-xs">
-              Score : {risk.score > 0 ? "+" : ""}
-              {risk.score}
-            </p>
+            <p className="text-subtle font-mono text-xs">{detail}</p>
+            {local ? (
+              <p className="text-subtle text-[10px]">Calculé localement</p>
+            ) : null}
           </div>
         </div>
       ) : (
-        <Unavailable />
+        <Unavailable reason="Saisissez le VIX dans Admin pour calculer le sentiment sans FXMacroData." />
       )}
     </Card>
   );

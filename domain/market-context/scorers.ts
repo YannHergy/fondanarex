@@ -304,3 +304,52 @@ export function scoreRetail(value: number | null): number | null {
     // ±1% MoM is a significant move
     return pctScore(value, 1);
 }
+
+// ── Local risk sentiment ───────────────────────────────────────────────────
+
+export type RiskStatus = 'Risk On' | 'Risk Off' | 'Neutre';
+
+export interface LocalRiskSentiment {
+    status: RiskStatus;
+    /** -10..+10, positive meaning risk-off. */
+    intensity: number;
+    vix: number;
+    vixPrev: number | null;
+    rationale: string;
+}
+
+/**
+ * Risk sentiment derived from the VIX we already hold.
+ *
+ * The overview reads this from FXMacroData, whose subscription is revoked, so
+ * the panel has been blank. The VIX is the input that decides risk-on/risk-off
+ * in the first place, and it is already part of the market context the scoring
+ * engine consumes — so when it has been entered, there is no reason to leave
+ * the panel empty waiting on a third party.
+ *
+ * Returns null when no VIX has been entered. That is honestly "unknown", not
+ * "neutral": claiming a neutral market on no data is worse than saying nothing.
+ */
+export function localRiskSentiment(ctx: MarketContext): LocalRiskSentiment | null {
+    const intensity = riskOffIntensity(ctx);
+    if (intensity === null || ctx.vix === null) return null;
+
+    const status: RiskStatus = intensity >= 4 ? 'Risk Off' : intensity <= -4 ? 'Risk On' : 'Neutre';
+
+    const direction =
+        ctx.vixPrev === null
+            ? ''
+            : ctx.vix - ctx.vixPrev > 2
+              ? ', en hausse rapide'
+              : ctx.vix - ctx.vixPrev < -2
+                ? ', en repli rapide'
+                : '';
+
+    return {
+        status,
+        intensity,
+        vix: ctx.vix,
+        vixPrev: ctx.vixPrev,
+        rationale: `VIX à ${ctx.vix.toFixed(1)}${direction}`,
+    };
+}

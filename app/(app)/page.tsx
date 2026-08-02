@@ -13,7 +13,7 @@ import {
 } from "@/app/(app)/_components/overview-panels";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
-import { getScoredCurrencyList } from "@/lib/currencies";
+import { getMarketContext, getScoredCurrencyList } from "@/lib/currencies";
 import { scoreBgClass, scoreTextClass, scoreVerdict } from "@/lib/score-display";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,10 @@ export const metadata: Metadata = { title: "Vue d'ensemble" };
  */
 export default async function OverviewPage() {
   const userId = await requireUserId();
-  const currencies = await getScoredCurrencyList(userId);
+  const [currencies, context] = await Promise.all([
+    getScoredCurrencyList(userId),
+    getMarketContext(userId),
+  ]);
   const ranked = [...currencies].sort((a, b) => b.scores.total - a.scores.total);
 
   return (
@@ -50,7 +53,7 @@ export default async function OverviewPage() {
             </Card>
           }
         >
-          <RiskPanel />
+          <RiskPanel context={context} />
         </Suspense>
 
         <Suspense

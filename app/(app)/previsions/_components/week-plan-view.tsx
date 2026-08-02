@@ -255,7 +255,13 @@ export function WeekPlanView({
                         </span>
                       ) : null}
                       <span className="text-subtle ml-auto font-mono">
-                        {setup.entryZone || "—"} → {setup.tp || "—"} / {setup.sl || "—"}
+                        {setup.entryZone || "—"}
+                        <Icon
+                          name="arrow_right_alt"
+                          size={12}
+                          className="mx-0.5 inline align-text-bottom"
+                        />
+                        {setup.tp || "—"} / {setup.sl || "—"}
                       </span>
                     </li>
                   );

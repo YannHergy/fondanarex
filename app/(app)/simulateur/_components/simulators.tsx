@@ -315,7 +315,7 @@ export function CompoundSimulator({ defaultCapital }: { defaultCapital: number }
           hint={`${result.profitPct.toFixed(1)} %`}
         />
         <Stat
-          label="Trades → cible"
+          label="Trades jusqu'à la cible"
           value={result.tradesToTarget === null ? "jamais" : String(result.tradesToTarget)}
           hint={
             result.weeksToTarget === null
@@ -325,7 +325,7 @@ export function CompoundSimulator({ defaultCapital }: { defaultCapital: number }
           tone={result.tradesToTarget === null ? "text-brand-red" : "text-fg"}
         />
         <Stat
-          label="Pertes → drawdown"
+          label="Pertes avant drawdown"
           value={String(result.tradesToBreachDrawdown)}
           hint={`limite ${maxDrawdownPct} %`}
           tone="text-brand-amber"
@@ -488,7 +488,7 @@ export function BreakevenSimulator({ defaultCapital }: { defaultCapital: number 
           <span className="flex items-center gap-1.5">
             <span className="bg-brand-blue inline-block h-0.5 w-4" /> Fractionnée
           </span>
-          <span className="ml-auto">Axe X : fréquence de la seconde entrée (0 → 100 %)</span>
+          <span className="ml-auto">Axe X : fréquence de la seconde entrée (de 0 à 100 %)</span>
         </div>
       </div>
     </Card>

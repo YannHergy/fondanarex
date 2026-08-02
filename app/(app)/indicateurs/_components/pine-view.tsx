@@ -209,12 +209,30 @@ export function PineView({
       <Card className="border-brand-blue/30 bg-brand-blue/5">
         <div className="flex items-start gap-2.5">
           <Icon name="info" size={16} className="text-brand-blue mt-0.5 shrink-0" />
-          <p className="text-muted text-sm leading-relaxed">
-            Copiez le code généré, puis dans TradingView : <strong>Éditeur Pine</strong> →
-            collez → <strong>Enregistrer</strong> → <strong>Ajouter au graphique</strong>. Les
-            heures sont en <strong>UTC</strong> : un graphique réglé sur Paris affichera les
-            lignes une ou deux heures plus tard selon la saison.
-          </p>
+          <div className="text-muted text-sm leading-relaxed">
+            <p className="mb-1.5">Copiez le code généré, puis dans TradingView :</p>
+            <ol className="mb-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              {["Éditeur Pine", "Coller", "Enregistrer", "Ajouter au graphique"].map(
+                (step, index) => (
+                  <li key={step} className="flex items-center gap-1.5">
+                    {index > 0 ? (
+                      <Icon
+                        name="arrow_forward"
+                        size={13}
+                        className="text-subtle"
+                        aria-label="puis"
+                      />
+                    ) : null}
+                    <strong className="text-fg">{step}</strong>
+                  </li>
+                ),
+              )}
+            </ol>
+            <p>
+              Les heures sont en <strong>UTC</strong> : un graphique réglé sur Paris affichera les
+              lignes une ou deux heures plus tard selon la saison.
+            </p>
+          </div>
         </div>
       </Card>
 

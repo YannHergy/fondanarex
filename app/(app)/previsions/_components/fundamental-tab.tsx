@@ -303,11 +303,21 @@ export function FundamentalTab({
                           ) : null}
                         </p>
                         <p className="text-muted">
-                          <span className="text-brand-green">↑ </span>
+                          <Icon
+                            name="arrow_upward"
+                            size={11}
+                            className="text-brand-green mr-1 inline align-text-bottom"
+                            aria-label="scénario haussier"
+                          />
                           {event.scenarioBullish}
                         </p>
                         <p className="text-muted">
-                          <span className="text-brand-red">↓ </span>
+                          <Icon
+                            name="arrow_downward"
+                            size={11}
+                            className="text-brand-red mr-1 inline align-text-bottom"
+                            aria-label="scénario baissier"
+                          />
                           {event.scenarioBearish}
                         </p>
                         <p className={cn("font-semibold", CONCLUSION_STYLE[event.conclusionType])}>

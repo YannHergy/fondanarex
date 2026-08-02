@@ -74,7 +74,9 @@ export function EventRow({
       <span className="text-fg min-w-0 flex-1 truncate text-sm">{values.name}</span>
 
       <span className="text-subtle hidden shrink-0 font-mono text-[11px] md:inline">
-        {values.previous || "—"} → {values.actual || values.forecast || "—"}
+        {values.previous || "—"}
+        <Icon name="arrow_right_alt" size={12} className="mx-0.5 inline align-text-bottom" />
+        {values.actual || values.forecast || "—"}
       </span>
 
       {impact ? (

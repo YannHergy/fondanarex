@@ -16,7 +16,7 @@ const STEPS = [
   },
   {
     title: "Renseigner les variables sur Netlify",
-    body: "Site settings → Environment variables : DATABASE_URL (pooled) et DIRECT_URL (directe). Le build n'en a pas besoin, mais chaque requête si.",
+    body: "Site settings, puis Environment variables : DATABASE_URL (pooled) et DIRECT_URL (directe). Le build n'en a pas besoin, mais chaque requête si.",
   },
   {
     title: "Appliquer les migrations et les données de référence",

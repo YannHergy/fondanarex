@@ -316,7 +316,12 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
                     />
                     <div className="min-w-0 flex-1">
                       <p className="text-fg font-medium">
-                        {outgoing ? "→ " : "← "}
+                        <Icon
+                          name={outgoing ? "arrow_forward" : "arrow_back"}
+                          size={12}
+                          className="mr-1 inline align-text-bottom"
+                          aria-label={outgoing ? "influence" : "influencé par"}
+                        />
                         {other?.indicator.name ?? otherId}
                       </p>
                       <p className="text-muted mt-0.5 leading-relaxed">

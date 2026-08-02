@@ -257,7 +257,13 @@ export function SurpriseTracker({
                                       : "text-brand-red",
                                   )}
                                 >
-                                  → réel :{" "}
+                                  <Icon
+                                    name="arrow_right_alt"
+                                    size={13}
+                                    className="mr-0.5 inline align-text-bottom"
+                                    aria-label="résultat"
+                                  />
+                                  réel :{" "}
                                   {prediction.resolvedDirection === "bullish"
                                     ? "hausse"
                                     : "baisse"}

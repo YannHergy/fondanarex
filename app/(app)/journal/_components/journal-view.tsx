@@ -671,7 +671,7 @@ function TradeDetail({
           <Row label="Swap" value={trade.swap === null ? "—" : String(trade.swap)} />
           <Row
             label="Émotions"
-            value={[trade.emotionBefore, trade.emotionAfter].filter(Boolean).join(" → ") || "—"}
+            value={[trade.emotionBefore, trade.emotionAfter].filter(Boolean).join(" puis ") || "—"}
           />
         </dl>
 

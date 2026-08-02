@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { provisionUser } from "@/lib/bootstrap";
 
 /**
- * ⚠️  AUTHENTICATION IS CURRENTLY DISABLED.
+ * AUTHENTICATION IS CURRENTLY DISABLED.
  *
  * The app runs as a single implicit user: anyone who can reach the deployment
  * gets the same workspace, with no sign-in. This is a deliberate, temporary

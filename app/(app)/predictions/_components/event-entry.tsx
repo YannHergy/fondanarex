@@ -324,16 +324,23 @@ export function EventEntry({ events }: { events: FundamentalEventRow[] }) {
                     >
                       <span className="text-muted truncate">
                         {prediction.targetIndicatorName}
-                        <span
+                        <Icon
+                          name={
+                            prediction.predictedDirection === "bullish"
+                              ? "arrow_upward"
+                              : "arrow_downward"
+                          }
+                          size={12}
                           className={cn(
-                            "ml-1.5 font-bold",
+                            "ml-1 inline align-text-bottom",
                             prediction.predictedDirection === "bullish"
                               ? "text-brand-green"
                               : "text-brand-red",
                           )}
-                        >
-                          {prediction.predictedDirection === "bullish" ? "↑" : "↓"}
-                        </span>
+                          aria-label={
+                            prediction.predictedDirection === "bullish" ? "hausse" : "baisse"
+                          }
+                        />
                       </span>
                       <Confidence value={prediction.confidence} className="shrink-0" />
                     </li>

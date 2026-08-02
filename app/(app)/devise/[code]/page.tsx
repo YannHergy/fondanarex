@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { InflationPanel } from "@/app/(app)/devise/[code]/_components/inflation-panel";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -264,6 +265,13 @@ export default async function CurrencyDetailPage({
         </Card>
 
         <div className="space-y-4">
+          <InflationPanel
+            cpi={currency.cpi}
+            previousCpi={
+              typeof currency.previousData.cpi === "number" ? currency.previousData.cpi : null
+            }
+          />
+
           <Card>
             <CardTitle icon="radar">Familles d&apos;indicateurs</CardTitle>
             <div className="space-y-2.5">

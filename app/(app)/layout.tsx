@@ -1,3 +1,4 @@
+import { LiveRefresh } from "@/components/live-refresh";
 import { SetupRequired } from "@/components/setup-required";
 import { Sidebar } from "@/components/nav/sidebar";
 import { prisma } from "@/lib/prisma";
@@ -52,6 +53,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           settings.sidebarCollapsed ? "ml-14" : "ml-14 md:ml-56",
         )}
       >
+        {/* Every screen re-reads the database on an interval, so a figure that
+         * changes upstream appears without a manual reload. `router.refresh()`
+         * preserves client state, scroll and focus, so nothing jumps under the
+         * cursor and the TradingView widget is not torn down. */}
+        <div className="pointer-events-none fixed top-4 right-32 z-30 hidden sm:block">
+          <LiveRefresh intervalMs={45_000} />
+        </div>
+
         {children}
       </main>
     </div>

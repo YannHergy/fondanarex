@@ -1,0 +1,71 @@
+name: Refresh macro data
+
+# The scores are only as fresh as IndicatorValue, and nothing writes to that
+# table on its own. This is the scheduler the app was built to expect.
+#
+# GitHub Actions rather than a Netlify scheduled function: the OECD needs
+# roughly 30 seconds of deliberate spacing across its datasets, which exceeds
+# Netlify's 26-second synchronous ceiling. Here each dataset is a separate step
+# with a sleep between, and the whole job has minutes.
+#
+# Requires two repository secrets (Settings -> Secrets and variables -> Actions):
+#   SITE_URL      https://your-site.netlify.app
+#   CRON_SECRET   the same value as the CRON_SECRET environment variable
+
+on:
+  schedule:
+    # 06:10 and 18:10 UTC. These are monthly and quarterly series — polling
+    # faster than the publication calendar gains nothing and only spends quota.
+    - cron: "10 6,18 * * *"
+  # So a run can be triggered by hand after fixing a key.
+  workflow_dispatch:
+
+concurrency:
+  # Never let two refreshes overlap: they would race on the same rows and
+  # double the load on rate-limited upstreams.
+  group: refresh-macro
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh OECD datasets one at a time
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -u
+          if [ -z "${SITE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "SITE_URL or CRON_SECRET is not set — configure the repository secrets."
+            exit 1
+          fi
+
+          failed=0
+
+          for dataset in cpi coreCpi unemployment interestRate gdpQoQ; do
+            echo "── $dataset ──"
+            # --fail-with-body so a non-2xx is an error but the body is still
+            # printed; without it a 403 from a revoked key looks like success.
+            if ! curl --silent --show-error --fail-with-body --max-time 60 \
+              "$SITE_URL/api/cron/refresh-macro?secret=$CRON_SECRET&dataset=$dataset&fred=0"; then
+              echo "  ^ failed"
+              failed=1
+            fi
+            echo
+            # The OECD answers a bare 500 as readily as a 429 when throttled,
+            # so the spacing is not optional.
+            sleep 20
+          done
+
+          echo "── FRED and remaining series ──"
+          if ! curl --silent --show-error --fail-with-body --max-time 90 \
+            "$SITE_URL/api/cron/refresh-macro?secret=$CRON_SECRET"; then
+            echo "  ^ failed"
+            failed=1
+          fi
+          echo
+
+          # Surface a partial failure rather than passing quietly: a schedule
+          # that reports green while writing nothing is worse than none.
+          exit $failed

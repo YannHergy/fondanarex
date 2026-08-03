@@ -1,9 +1,18 @@
 import type { Metadata } from "next";
 
 import { AccountCard } from "@/app/(app)/comptes/_components/account-card";
+import { ComparisonTable } from "@/app/(app)/comptes/_components/comparison-table";
+import { EntryChecker } from "@/app/(app)/comptes/_components/entry-checker";
+import { EquityProjection } from "@/app/(app)/comptes/_components/equity-projection";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { drawdownRemaining, riskPerTrade } from "@/domain/accounts/metrics";
+import {
+  drawdownRemaining,
+  riskPerTrade,
+  setupsPerWeek,
+  weightedRR,
+  weightedWinRate,
+} from "@/domain/accounts/metrics";
 import { getTradingAccounts } from "@/lib/accounts";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -96,6 +105,45 @@ export default async function AccountsPage() {
           <AccountCard key={account.id} account={account} />
         ))}
       </div>
+
+      {active.length > 0 ? (
+        <>
+          <EntryChecker
+            accounts={active.map((account) => ({
+              id: account.id,
+              name: account.name,
+              color: account.color,
+              style: account.style,
+              allowedEntries: [...account.allowedEntries],
+            }))}
+          />
+
+          <EquityProjection
+            accounts={active.map((account) => ({
+              id: account.id,
+              name: account.name,
+              color: account.color,
+              initialCapital: account.initialCapital,
+              currentCapital: account.currentCapital,
+              riskPct: account.riskPct,
+              maxDDPct: account.maxDDPct,
+              targetPct: account.targetPct,
+              setupsPerWeek: setupsPerWeek(account),
+              winRatePct: weightedWinRate(account),
+              rr: weightedRR(account),
+            }))}
+          />
+
+          <ComparisonTable
+            accounts={active.map((account) => ({
+              ...account,
+              id: account.id,
+              name: account.name,
+              color: account.color,
+            }))}
+          />
+        </>
+      ) : null}
 
       {accounts.length === 0 ? (
         <Card>

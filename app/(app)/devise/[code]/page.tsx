@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
@@ -261,25 +262,14 @@ export default async function CurrencyDetailPage({
        * shorter score table leaves the other 1/3 empty below it. */}
 
       {/* Everything here is deliberately OUTSIDE the score: yield curve,
-       * COT and rate differentials are FXMacroData enrichments (backend
-       * already written in lib/integrations/fxmacrodata.ts, not yet
-       * called from this page — shown as placeholders), and the three
+       * COT and rate differentials are FXMacroData enrichments, now wired
+       * to the real API (see complementary-data.tsx), and the three
        * qualitative cards are notes, not computed indicators. Grouping
        * them together frees the rest of the page for Actualités &
        * Sentiment instead of splitting this content across the bottom. */}
+      <ComplementaryData code={currency.code} />
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardTitle icon="show_chart">Courbe des taux</CardTitle>
-          <p className="text-subtle text-sm">Bientôt disponible.</p>
-        </Card>
-        <Card>
-          <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
-          <p className="text-subtle text-sm">Bientôt disponible.</p>
-        </Card>
-        <Card>
-          <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
-          <p className="text-subtle text-sm">Bientôt disponible.</p>
-        </Card>
         <Card>
           <CardTitle icon="public">Risques géopolitiques</CardTitle>
           <p className="text-muted text-sm leading-relaxed">

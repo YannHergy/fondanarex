@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { EventForm } from "@/app/(app)/calendrier/_components/event-form";
 import { EventRow } from "@/app/(app)/calendrier/_components/event-row";
+import { ExportPineButton } from "@/app/(app)/calendrier/_components/export-pine-button";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -86,6 +87,13 @@ export default async function CalendarPage({
   const focusScore = filterCurrency ? (currencies[filterCurrency]?.scores.total ?? 50) : 50;
   const interpretation = filterCurrency ? getInterpretation(summary, focusScore) : null;
 
+  const pineEvents = events.map((event) => ({
+    currencyCode: event.currencyCode,
+    name: event.name,
+    date: dateToStr(event.scheduledAt),
+    time: displayTime(event.scheduledAt),
+  }));
+
   const weekDates = getWeekDates(weekKey);
   const byDay = new Map<string, WeeklyEventRow[]>();
   for (const date of weekDates) byDay.set(dateToStr(date), []);
@@ -109,7 +117,7 @@ export default async function CalendarPage({
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-5 md:p-6">
       <PageHeader title="Calendrier économique" subtitle={`Semaine ${weekKey}`}>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <Link
             href={query({ semaine: prevWeekKey(weekKey) })}
             aria-label="Semaine précédente"
@@ -130,6 +138,7 @@ export default async function CalendarPage({
           >
             <Icon name="chevron_right" size={16} />
           </Link>
+          <ExportPineButton events={pineEvents} />
         </div>
       </PageHeader>
 

@@ -52,79 +52,88 @@ function SignalRow({ signal, favorite }: { signal: PairSignal; favorite: boolean
     >
       <FavoriteToggle pair={signal.pair} favorite={favorite} />
 
-      <div className="w-24 shrink-0">
-        <p className="text-fg font-mono text-sm font-bold">
-          <span style={{ color: CURRENCY_COLOR_VAR[signal.base as never] }}>{signal.base}</span>
-          <span className="text-subtle">/</span>
-          <span style={{ color: CURRENCY_COLOR_VAR[signal.quote as never] }}>{signal.quote}</span>
-        </p>
-        <p className="text-subtle text-[10px]">{signal.group}</p>
-      </div>
-
-      <div className="text-subtle hidden w-28 shrink-0 font-mono text-[11px] sm:block">
-        {signal.baseScore} vs {signal.quoteScore}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        {/* Bar grows from the centre: right for a buy, left for a sell. */}
-        <div className="bg-panel relative h-1.5 overflow-hidden rounded-full">
-          <div
-            className={cn(
-              "absolute top-0 h-full",
-              signal.diff > 0 ? "bg-brand-green" : signal.diff < 0 ? "bg-brand-red" : "bg-brand-steel",
-            )}
-            style={{
-              width: `${Math.min(50, (Math.abs(signal.diff) / 60) * 50)}%`,
-              ...(signal.diff < 0 ? { right: "50%" } : { left: "50%" }),
-            }}
-          />
-          <div className="bg-border-strong absolute top-0 left-1/2 h-full w-px" />
-        </div>
-      </div>
-
-      <div className="tabular w-14 shrink-0 text-right font-mono text-sm font-bold">
-        <span
-          className={
-            signal.diff > 0 ? "text-brand-green" : signal.diff < 0 ? "text-brand-red" : "text-muted"
-          }
-        >
-          {signal.diff > 0 ? "+" : ""}
-          {signal.diff}
-        </span>
-      </div>
-
-      <div className="hidden w-16 shrink-0 items-center gap-0.5 md:flex" title={`Conviction ${signal.conviction}/5`}>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "h-1.5 w-1.5 rounded-full",
-              i < signal.conviction ? "bg-brand-blue" : "bg-panel",
-            )}
-          />
-        ))}
-      </div>
-
-      {signal.hasUpcomingNews ? (
-        <Icon
-          name="campaign"
-          size={14}
-          className="text-brand-amber shrink-0"
-          label="Publication à fort impact dans les 24 h"
-        />
-      ) : (
-        <span className="w-3.5 shrink-0" />
-      )}
-
-      <span
-        className={cn(
-          "flex w-24 shrink-0 items-center justify-center gap-1 rounded border px-1.5 py-1 text-[10px] font-bold tracking-wide",
-          style.badge,
-        )}
+      {/* Everything except the favourite star lives inside the link, so the
+       * whole row opens this pair in the Comparateur — but the star (its own
+       * clickable control) stays outside, since nesting a button inside an
+       * anchor is invalid and would fire both on click. */}
+      <Link
+        href={`/comparateur?a=${signal.base}&b=${signal.quote}`}
+        className="flex min-w-0 flex-1 items-center gap-3"
       >
-        <Icon name={style.icon} size={11} />
-        {signal.recommendation}
-      </span>
+        <div className="w-24 shrink-0">
+          <p className="text-fg font-mono text-sm font-bold">
+            <span style={{ color: CURRENCY_COLOR_VAR[signal.base as never] }}>{signal.base}</span>
+            <span className="text-subtle">/</span>
+            <span style={{ color: CURRENCY_COLOR_VAR[signal.quote as never] }}>{signal.quote}</span>
+          </p>
+          <p className="text-subtle text-[10px]">{signal.group}</p>
+        </div>
+
+        <div className="text-subtle hidden w-28 shrink-0 font-mono text-[11px] sm:block">
+          {signal.baseScore} vs {signal.quoteScore}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          {/* Bar grows from the centre: right for a buy, left for a sell. */}
+          <div className="bg-panel relative h-1.5 overflow-hidden rounded-full">
+            <div
+              className={cn(
+                "absolute top-0 h-full",
+                signal.diff > 0 ? "bg-brand-green" : signal.diff < 0 ? "bg-brand-red" : "bg-brand-steel",
+              )}
+              style={{
+                width: `${Math.min(50, (Math.abs(signal.diff) / 60) * 50)}%`,
+                ...(signal.diff < 0 ? { right: "50%" } : { left: "50%" }),
+              }}
+            />
+            <div className="bg-border-strong absolute top-0 left-1/2 h-full w-px" />
+          </div>
+        </div>
+
+        <div className="tabular w-14 shrink-0 text-right font-mono text-sm font-bold">
+          <span
+            className={
+              signal.diff > 0 ? "text-brand-green" : signal.diff < 0 ? "text-brand-red" : "text-muted"
+            }
+          >
+            {signal.diff > 0 ? "+" : ""}
+            {signal.diff}
+          </span>
+        </div>
+
+        <div className="hidden w-16 shrink-0 items-center gap-0.5 md:flex" title={`Conviction ${signal.conviction}/5`}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <span
+              key={i}
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                i < signal.conviction ? "bg-brand-blue" : "bg-panel",
+              )}
+            />
+          ))}
+        </div>
+
+        {signal.hasUpcomingNews ? (
+          <Icon
+            name="campaign"
+            size={14}
+            className="text-brand-amber shrink-0"
+            label="Publication à fort impact dans les 24 h"
+          />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+
+        <span
+          className={cn(
+            "flex w-24 shrink-0 items-center justify-center gap-1 rounded border px-1.5 py-1 text-[10px] font-bold tracking-wide",
+            style.badge,
+          )}
+        >
+          <Icon name={style.icon} size={11} />
+          {signal.recommendation}
+        </span>
+      </Link>
     </div>
   );
 }

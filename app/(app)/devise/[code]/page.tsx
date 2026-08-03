@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { InflationPanel } from "@/app/(app)/devise/[code]/_components/inflation-panel";
+import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -28,17 +29,6 @@ export async function generateMetadata({
  * inside App.tsx, so it could not be linked to, bookmarked, or reached with the
  * back button, and picking a currency destroyed the state of every sibling view.
  */
-
-/** Radar axes, in the legacy display order, with French labels. */
-const AXES = [
-  { key: "monetary", label: "Politique monétaire" },
-  { key: "growth", label: "Croissance" },
-  { key: "inflation", label: "Inflation" },
-  { key: "employment", label: "Emploi" },
-  { key: "pmi", label: "PMI" },
-  { key: "trade", label: "Commerce extérieur" },
-  { key: "sentiment", label: "Sentiment" },
-] as const;
 
 /** Macro fields shown in the data grid, with their units. */
 const MACRO_FIELDS = [
@@ -70,12 +60,6 @@ function scoreBar(score: number | null): { width: string; className: string } {
   if (score === 0) return { width: "2%", className: "bg-brand-steel" };
   if (score > -4) return { width, className: "bg-brand-red/60" };
   return { width, className: "bg-brand-red" };
-}
-
-function axisColor(value: number): string {
-  if (value >= 6) return "bg-brand-green";
-  if (value >= 4) return "bg-brand-amber";
-  return "bg-brand-red";
 }
 
 export default async function CurrencyDetailPage({
@@ -161,7 +145,7 @@ export default async function CurrencyDetailPage({
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-1">
           <CardTitle icon="analytics">Décomposition du score</CardTitle>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -264,60 +248,42 @@ export default async function CurrencyDetailPage({
           ) : null}
         </Card>
 
-        <div className="space-y-4">
-          <InflationPanel
-            cpi={currency.cpi}
-            previousCpi={
-              typeof currency.previousData.cpi === "number" ? currency.previousData.cpi : null
-            }
-          />
+        <div className="space-y-4 lg:col-span-2">
+          {/* Currency-specific categories — see indicator-category-grid.tsx.
+           * Replaces the old generic 7-axis bar list: JPY/CHF have no PMI or
+           * employment card at all, AUD/NZD get a commodity + China-demand
+           * card that USD/EUR/GBP never show. */}
+          <IndicatorCategoryGrid currency={currency} marketContext={marketContext} />
 
-          <Card>
-            <CardTitle icon="radar">Familles d&apos;indicateurs</CardTitle>
-            <div className="space-y-2.5">
-              {AXES.map((axis) => {
-                const value = scores[axis.key];
-                return (
-                  <div key={axis.key}>
-                    <div className="mb-1 flex items-baseline justify-between">
-                      <span className="text-muted text-xs">{axis.label}</span>
-                      <span className="text-fg tabular font-mono text-xs font-semibold">
-                        {value.toFixed(1)}
-                        <span className="text-subtle">/10</span>
-                      </span>
-                    </div>
-                    <div className="bg-panel h-1.5 overflow-hidden rounded-full">
-                      <div
-                        className={cn("h-full rounded-full", axisColor(value))}
-                        style={{ width: `${Math.max(0, Math.min(100, value * 10))}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <InflationPanel
+              cpi={currency.cpi}
+              previousCpi={
+                typeof currency.previousData.cpi === "number" ? currency.previousData.cpi : null
+              }
+            />
 
-          <Card>
-            <CardTitle icon="event">Prochaines publications</CardTitle>
-            {Object.keys(currency.nextReleases).length > 0 ? (
-              <ul className="space-y-1">
-                {Object.entries(currency.nextReleases)
-                  .sort(([, a], [, b]) => a.localeCompare(b))
-                  .slice(0, 8)
-                  .map(([key, date]) => (
-                    <li key={key} className="flex items-center justify-between text-xs">
-                      <span className="text-muted">
-                        {MACRO_FIELDS.find((f) => f.key === key)?.label ?? key}
-                      </span>
-                      <span className="text-subtle font-mono">{date}</span>
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="text-subtle text-xs">Aucune date enregistrée.</p>
-            )}
-          </Card>
+            <Card>
+              <CardTitle icon="event">Prochaines publications</CardTitle>
+              {Object.keys(currency.nextReleases).length > 0 ? (
+                <ul className="space-y-1">
+                  {Object.entries(currency.nextReleases)
+                    .sort(([, a], [, b]) => a.localeCompare(b))
+                    .slice(0, 8)
+                    .map(([key, date]) => (
+                      <li key={key} className="flex items-center justify-between text-xs">
+                        <span className="text-muted">
+                          {MACRO_FIELDS.find((f) => f.key === key)?.label ?? key}
+                        </span>
+                        <span className="text-subtle font-mono">{date}</span>
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <p className="text-subtle text-xs">Aucune date enregistrée.</p>
+              )}
+            </Card>
+          </div>
         </div>
       </div>
 
@@ -354,6 +320,63 @@ export default async function CurrencyDetailPage({
             );
           })}
         </div>
+      </Card>
+
+      {/* ── Données complémentaires — hors calcul du score ──────────────────
+       * Forme uniquement pour l'instant : ces trois cartes attendent le
+       * branchement de fx.getYieldCurve() / fx.getCOT() / fx.getRateDifferentials()
+       * (déjà écrits dans lib/integrations/fxmacrodata.ts, pas encore appelés
+       * depuis cette page). Ne pas les confondre avec les indicateurs du score
+       * ci-dessus : celles-ci n'entrent dans aucun calcul. */}
+      <div>
+        <h2 className="text-subtle mb-3 flex items-center gap-2 text-xs font-bold tracking-widest uppercase">
+          <Icon name="info" size={14} />
+          Données complémentaires — hors calcul du score
+        </h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Card>
+            <CardTitle icon="show_chart">Courbe des taux</CardTitle>
+            <p className="text-subtle text-sm">Bientôt disponible.</p>
+          </Card>
+          <Card>
+            <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
+            <p className="text-subtle text-sm">Bientôt disponible.</p>
+          </Card>
+          <Card>
+            <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
+            <p className="text-subtle text-sm">Bientôt disponible.</p>
+          </Card>
+        </div>
+      </div>
+
+      {/* ── Actualités & Sentiment ───────────────────────────────────────────
+       * Forme uniquement : pas encore branché sur Marketaux/Finnhub pour cette
+       * page (existe pour DIPper-In-FONda, pas encore porté ici). */}
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <CardTitle icon="feed" className="mb-0">
+            Actualités &amp; Sentiment
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled
+              className="border-border-app text-subtle flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold opacity-50"
+            >
+              <Icon name="insights" size={13} />
+              Sentiment du jour
+            </button>
+            <button
+              type="button"
+              disabled
+              className="border-border-app text-subtle flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold opacity-50"
+            >
+              <Icon name="refresh" size={13} />
+              Actualiser
+            </button>
+          </div>
+        </div>
+        <p className="text-subtle text-sm">Bientôt disponible.</p>
       </Card>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

@@ -247,63 +247,67 @@ export default async function CurrencyDetailPage({
           ) : null}
         </Card>
 
-        <div className="space-y-4 lg:col-span-2">
+        <div className="lg:col-span-2">
           {/* Currency-specific categories — see indicator-category-grid.tsx.
            * Replaces the old generic 7-axis bar list: JPY/CHF have no PMI or
            * employment card at all, AUD/NZD get a commodity + China-demand
            * card that USD/EUR/GBP never show. */}
           <IndicatorCategoryGrid currency={currency} marketContext={marketContext} />
-
-          {/* Everything here is deliberately OUTSIDE the score: yield curve,
-           * COT and rate differentials are FXMacroData enrichments (backend
-           * already written in lib/integrations/fxmacrodata.ts, not yet
-           * called from this page — shown as placeholders), and the three
-           * qualitative cards are notes, not computed indicators. Grouping
-           * them together frees the rest of the page for Actualités &
-           * Sentiment instead of splitting this content across the bottom. */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Card>
-              <CardTitle icon="show_chart">Courbe des taux</CardTitle>
-              <p className="text-subtle text-sm">Bientôt disponible.</p>
-            </Card>
-            <Card>
-              <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
-              <p className="text-subtle text-sm">Bientôt disponible.</p>
-            </Card>
-            <Card>
-              <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
-              <p className="text-subtle text-sm">Bientôt disponible.</p>
-            </Card>
-            <Card>
-              <CardTitle icon="public">Risques géopolitiques</CardTitle>
-              <p className="text-muted text-sm leading-relaxed">
-                {currency.geopoliticalRisks || (
-                  <span className="text-subtle">Aucune note. Modifiable dans Admin données.</span>
-                )}
-              </p>
-            </Card>
-            <Card>
-              <CardTitle icon="visibility">Événements à surveiller</CardTitle>
-              {currency.eventsToWatch.length > 0 ? (
-                <ul className="text-muted list-inside list-disc space-y-1 text-sm">
-                  {currency.eventsToWatch.map((event) => (
-                    <li key={event}>{event}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-subtle text-sm">Aucun événement enregistré.</p>
-              )}
-            </Card>
-            <Card>
-              <CardTitle icon="edit_note">Analyse qualitative</CardTitle>
-              <p className="text-muted text-sm leading-relaxed">
-                {currency.qualitativeAnalysis || (
-                  <span className="text-subtle">Aucune analyse. Modifiable dans Admin données.</span>
-                )}
-              </p>
-            </Card>
-          </div>
         </div>
+      </div>
+
+      {/* Full page width from here — kept OUTSIDE the 3-column grid above so
+       * it is not squeezed into the same 2/3 as the category cards while the
+       * shorter score table leaves the other 1/3 empty below it. */}
+
+      {/* Everything here is deliberately OUTSIDE the score: yield curve,
+       * COT and rate differentials are FXMacroData enrichments (backend
+       * already written in lib/integrations/fxmacrodata.ts, not yet
+       * called from this page — shown as placeholders), and the three
+       * qualitative cards are notes, not computed indicators. Grouping
+       * them together frees the rest of the page for Actualités &
+       * Sentiment instead of splitting this content across the bottom. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card>
+          <CardTitle icon="show_chart">Courbe des taux</CardTitle>
+          <p className="text-subtle text-sm">Bientôt disponible.</p>
+        </Card>
+        <Card>
+          <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
+          <p className="text-subtle text-sm">Bientôt disponible.</p>
+        </Card>
+        <Card>
+          <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
+          <p className="text-subtle text-sm">Bientôt disponible.</p>
+        </Card>
+        <Card>
+          <CardTitle icon="public">Risques géopolitiques</CardTitle>
+          <p className="text-muted text-sm leading-relaxed">
+            {currency.geopoliticalRisks || (
+              <span className="text-subtle">Aucune note. Modifiable dans Admin données.</span>
+            )}
+          </p>
+        </Card>
+        <Card>
+          <CardTitle icon="visibility">Événements à surveiller</CardTitle>
+          {currency.eventsToWatch.length > 0 ? (
+            <ul className="text-muted list-inside list-disc space-y-1 text-sm">
+              {currency.eventsToWatch.map((event) => (
+                <li key={event}>{event}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-subtle text-sm">Aucun événement enregistré.</p>
+          )}
+        </Card>
+        <Card>
+          <CardTitle icon="edit_note">Analyse qualitative</CardTitle>
+          <p className="text-muted text-sm leading-relaxed">
+            {currency.qualitativeAnalysis || (
+              <span className="text-subtle">Aucune analyse. Modifiable dans Admin données.</span>
+            )}
+          </p>
+        </Card>
       </div>
 
       <Card>

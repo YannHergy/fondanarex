@@ -147,6 +147,15 @@ export default async function ComparatorPage({
   const pairBias = spread > 5 ? "Achat" : spread < -5 ? "Vente" : "Neutre";
   const pairTone =
     spread > 5 ? "text-brand-green" : spread < -5 ? "text-brand-red" : "text-brand-amber";
+  // Same 0-100 lean as generatePairInsight (actions.ts) — the dominance bar and
+  // the AI narrative must agree on what the score is.
+  const pairScore = Math.max(0, Math.min(100, 50 + spread / 1.5));
+  const pairPanelBg =
+    spread > 5
+      ? "border-brand-green/30 bg-brand-green/5"
+      : spread < -5
+        ? "border-brand-red/30 bg-brand-red/5"
+        : "border-border-app";
 
   const recordA = a as unknown as Record<string, unknown>;
   const recordB = b as unknown as Record<string, unknown>;
@@ -208,20 +217,59 @@ export default async function ComparatorPage({
         </div>
       </Card>
 
-      <Card>
-        <PairInsight baseCode={a.code} quoteCode={b.code} />
-      </Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <Card className={cn("flex h-full flex-col items-center justify-center gap-4 p-8 text-center", pairPanelBg)}>
+            <p className="text-subtle text-[10px] font-black tracking-[0.3em] uppercase opacity-70">
+              Pair Alpha Verdict
+            </p>
+            <p className={cn("text-6xl font-black tracking-tighter", pairTone)}>
+              {pairBias.toUpperCase()}
+            </p>
+            <p className="tabular text-fg font-mono text-lg font-bold opacity-90">
+              {a.code}/{b.code} : {pairScore.toFixed(1)}
+            </p>
 
-      <ScoreRadar
-        axes={AXES.map((axis) => ({
-          key: axis.key,
-          label: axis.label,
-          base: a.scores[axis.key],
-          quote: b.scores[axis.key],
-        }))}
-        base={a.code}
-        quote={b.code}
-      />
+            <div className="w-full space-y-2">
+              <div className="text-subtle flex justify-between text-[10px] font-black tracking-widest uppercase">
+                <span>Rel. Strength</span>
+                <span>{pairScore >= 50 ? a.code : b.code} Dominance</span>
+              </div>
+              <div className="bg-panel border-border-app relative h-4 w-full overflow-hidden rounded-full border">
+                <div className="bg-border-strong absolute top-0 bottom-0 left-1/2 z-10 w-px" />
+                <div
+                  className={cn(
+                    "absolute top-0 h-full rounded-full",
+                    pairScore >= 50 ? "bg-brand-green" : "bg-brand-red",
+                  )}
+                  style={
+                    pairScore >= 50
+                      ? { left: "50%", width: `${(pairScore - 50) * 2}%` }
+                      : { right: "50%", width: `${(50 - pairScore) * 2}%` }
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="w-full">
+              <PairInsight baseCode={a.code} quoteCode={b.code} />
+            </div>
+          </Card>
+        </div>
+
+        <div className="lg:col-span-8">
+          <ScoreRadar
+            axes={AXES.map((axis) => ({
+              key: axis.key,
+              label: axis.label,
+              base: a.scores[axis.key],
+              quote: b.scores[axis.key],
+            }))}
+            base={a.code}
+            quote={b.code}
+          />
+        </div>
+      </div>
 
       <IndicatorViews indicators={comparedIndicators} base={a.code} quote={b.code} />
 

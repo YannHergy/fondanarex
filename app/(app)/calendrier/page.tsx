@@ -28,11 +28,21 @@ import {
 
 export const metadata: Metadata = { title: "Calendrier" };
 
-const DAY_LABELS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-
 /** Renders a stored instant as HH:MM UTC — the clock events are entered in. */
 function displayTime(date: Date): string {
   return date.toISOString().slice(11, 16);
+}
+
+/** "Lundi 3 août 2026" — French locale lower-cases both words by default. */
+function frenchLongDate(date: Date): string {
+  const formatted = date.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return formatted.replace(/(^|\s)\p{L}/gu, (letter) => letter.toUpperCase());
 }
 
 function toFormValues(event: WeeklyEventRow) {
@@ -117,28 +127,36 @@ export default async function CalendarPage({
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-5 md:p-6">
       <PageHeader title="Calendrier économique" subtitle={`Semaine ${weekKey}`}>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <Link
-            href={query({ semaine: prevWeekKey(weekKey) })}
-            aria-label="Semaine précédente"
-            className="border-border-app text-muted hover:text-fg rounded-lg border p-1.5 transition-colors"
-          >
-            <Icon name="chevron_left" size={16} />
-          </Link>
-          <Link
-            href={query({ semaine: getWeekKey(new Date()) })}
-            className="border-border-app text-muted hover:text-fg rounded-lg border px-3 py-1.5 text-xs transition-colors"
-          >
-            Cette semaine
-          </Link>
-          <Link
-            href={query({ semaine: nextWeekKey(weekKey) })}
-            aria-label="Semaine suivante"
-            className="border-border-app text-muted hover:text-fg rounded-lg border p-1.5 transition-colors"
-          >
-            <Icon name="chevron_right" size={16} />
-          </Link>
-          <ExportPineButton events={pineEvents} />
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <span className="border-brand-blue/40 bg-brand-blue/10 text-brand-blue flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold">
+              <Icon name="filter_alt" size={13} />
+              Filtre actif : {filterCurrency ?? "Toutes devises"}
+            </span>
+            <ExportPineButton events={pineEvents} />
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Link
+              href={query({ semaine: prevWeekKey(weekKey) })}
+              aria-label="Semaine précédente"
+              className="border-border-app text-muted hover:text-fg rounded-lg border p-1.5 transition-colors"
+            >
+              <Icon name="chevron_left" size={16} />
+            </Link>
+            <Link
+              href={query({ semaine: getWeekKey(new Date()) })}
+              className="border-border-app text-muted hover:text-fg rounded-lg border px-3 py-1.5 text-xs transition-colors"
+            >
+              Cette semaine
+            </Link>
+            <Link
+              href={query({ semaine: nextWeekKey(weekKey) })}
+              aria-label="Semaine suivante"
+              className="border-border-app text-muted hover:text-fg rounded-lg border p-1.5 transition-colors"
+            >
+              <Icon name="chevron_right" size={16} />
+            </Link>
+          </div>
         </div>
       </PageHeader>
 
@@ -229,23 +247,24 @@ export default async function CalendarPage({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
-          {weekDates.map((date, index) => {
+          {weekDates.map((date) => {
             const key = dateToStr(date);
             const dayEvents = byDay.get(key) ?? [];
             return (
-              <Card key={key}>
-                <div className="mb-2 flex items-baseline justify-between">
-                  <h2 className="text-fg text-sm font-semibold">
-                    {DAY_LABELS[index]}{" "}
-                    <span className="text-subtle font-mono text-xs">{key}</span>
-                  </h2>
-                  <span className="text-subtle text-[10px]">
+              <div key={key}>
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="border-border-app text-fg flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-bold">
+                    <Icon name="calendar_month" size={15} className="text-brand-blue" />
+                    {frenchLongDate(date)}
+                  </span>
+                  <div className="bg-border-app h-px flex-1" />
+                  <span className="text-subtle shrink-0 text-[10px]">
                     {dayEvents.length} événement{dayEvents.length > 1 ? "s" : ""}
                   </span>
                 </div>
 
                 {dayEvents.length === 0 ? (
-                  <p className="text-subtle text-xs">Aucun événement.</p>
+                  <p className="text-subtle px-1 text-xs">Aucun événement.</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {dayEvents.map((event) => (
@@ -259,7 +278,7 @@ export default async function CalendarPage({
                     ))}
                   </ul>
                 )}
-              </Card>
+              </div>
             );
           })}
         </div>

@@ -55,47 +55,51 @@ export function EventRow({
   return (
     <li
       className={cn(
-        "border-border-app hover:bg-panel flex items-center gap-3 rounded-lg border p-2.5 transition-colors",
+        "border-border-app hover:bg-panel/60 flex items-center gap-3 rounded-lg border p-3 transition-colors",
         !published && "opacity-80",
       )}
     >
-      <span className="text-subtle w-12 shrink-0 font-mono text-xs">{displayTime}</span>
+      <span className="text-subtle w-12 shrink-0 font-mono text-sm">{displayTime}</span>
       <CurrencyBadge code={values.currencyCode} size="sm" />
 
-      <span
-        className={cn(
-          "hidden shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase sm:inline",
-          IMPORTANCE_STYLE[values.importance],
-        )}
-      >
-        {IMPORTANCE_LABEL[values.importance]}
-      </span>
-
-      <span className="text-fg min-w-0 flex-1 truncate text-sm">{values.name}</span>
-
-      <span className="text-subtle hidden shrink-0 font-mono text-[11px] md:inline">
-        {values.previous || "—"}
-        <Icon name="arrow_right_alt" size={12} className="mx-0.5 inline align-text-bottom" />
-        {values.actual || values.forecast || "—"}
-      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-fg truncate text-sm font-bold">{values.name}</p>
+        <span
+          className={cn(
+            "mt-1 inline-block rounded border px-1.5 py-0.5 text-[9px] font-bold tracking-wide uppercase",
+            IMPORTANCE_STYLE[values.importance],
+          )}
+        >
+          {IMPORTANCE_LABEL[values.importance]}
+        </span>
+      </div>
 
       {impact ? (
-        <span className={cn("hidden w-24 shrink-0 text-right text-xs sm:inline", impact.className)}>
+        <span className={cn("hidden shrink-0 text-right text-xs sm:inline", impact.className)}>
           {impact.label}
         </span>
-      ) : (
-        <span className="text-subtle hidden w-24 shrink-0 text-right text-xs sm:inline">
-          en attente
-        </span>
-      )}
+      ) : null}
 
       {values.pipsVariation ? (
-        <span className="tabular text-subtle w-14 shrink-0 text-right font-mono text-xs">
+        <span className="tabular text-subtle hidden w-14 shrink-0 text-right font-mono text-xs md:inline">
           {values.pipsVariation} p
         </span>
-      ) : (
-        <span className="w-14 shrink-0" />
-      )}
+      ) : null}
+
+      {/* Boxed précédent/prévision pair — mirrors the DIPper-In-FONda calendar,
+       * two labelled values side by side rather than an inline arrow. */}
+      <div className="border-border-app bg-panel hidden shrink-0 items-center divide-x rounded-lg border sm:flex">
+        <div className="px-3 py-1 text-center">
+          <p className="text-subtle text-[8px] tracking-widest uppercase">Précédent</p>
+          <p className="text-fg tabular font-mono text-sm font-semibold">{values.previous || "—"}</p>
+        </div>
+        <div className="border-border-app px-3 py-1 text-center">
+          <p className="text-subtle text-[8px] tracking-widest uppercase">Prévision</p>
+          <p className="text-brand-blue tabular font-mono text-sm font-semibold">
+            {values.actual || values.forecast || "—"}
+          </p>
+        </div>
+      </div>
 
       <button
         type="button"

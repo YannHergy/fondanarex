@@ -50,3 +50,6 @@ next-env.d.ts
 
 # prisma generated client
 /lib/generated/
+
+# Local Netlify folder
+.netlify

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { FavoriteToggle } from "@/app/(app)/signaux/_components/favorite-toggle";
 import { MarketBanner } from "@/app/(app)/signaux/_components/market-banner";
+import { SignalFilters } from "@/app/(app)/signaux/_components/signal-filters";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { buildPairSignals, type PairSignal, type Recommendation } from "@/domain/signals/pairs";
@@ -131,17 +132,24 @@ function SignalRow({ signal, favorite }: { signal: PairSignal; favorite: boolean
 export default async function SignalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filtre?: string }>;
+  searchParams: Promise<{
+    filtre?: string;
+    devise?: string;
+    direction?: string;
+    conviction?: string;
+    groupe?: string;
+  }>;
 }) {
   const userId = await requireUserId();
-  const [{ filtre }, currencies, favorites, pairsWithNews] = await Promise.all([
-    searchParams,
-    getScoredCurrencies(userId),
-    prisma.favoritePair.findMany({ where: { userId }, select: { instrument: true } }),
-    // High-impact releases in the next 24 h downgrade a marginal signal to
-    // "wait" — the release can move the pair further than the edge is worth.
-    getCurrenciesWithUpcomingNews(userId),
-  ]);
+  const [{ filtre, devise, direction, conviction, groupe }, currencies, favorites, pairsWithNews] =
+    await Promise.all([
+      searchParams,
+      getScoredCurrencies(userId),
+      prisma.favoritePair.findMany({ where: { userId }, select: { instrument: true } }),
+      // High-impact releases in the next 24 h downgrade a marginal signal to
+      // "wait" — the release can move the pair further than the edge is worth.
+      getCurrenciesWithUpcomingNews(userId),
+    ]);
 
   const scores: Record<string, number> = {};
   for (const currency of Object.values(currencies)) {
@@ -155,7 +163,30 @@ export default async function SignalsPage({
   const actionable = signals.filter(
     (s) => s.recommendation === "ACHETEUR" || s.recommendation === "VENDEUR",
   );
-  const visible = showFavorites ? signals.filter((s) => favoriteSet.has(s.pair)) : signals;
+  const minConviction = conviction ? Number(conviction) : 0;
+
+  const filtered = signals.filter((s) => {
+    if (devise && s.base !== devise && s.quote !== devise) return false;
+    if (direction && s.recommendation !== direction) return false;
+    if (minConviction && s.conviction < minConviction) return false;
+    if (groupe && s.group !== groupe) return false;
+    return true;
+  });
+  const visible = showFavorites ? filtered.filter((s) => favoriteSet.has(s.pair)) : filtered;
+
+  // Preserves the devise/direction/conviction/groupe filters when toggling
+  // "Toutes les paires" / "Favoris" — otherwise switching the favourites view
+  // silently discarded whatever else was selected above it.
+  function hrefFor(nextFiltre: "all" | "favoris") {
+    const params = new URLSearchParams();
+    if (devise) params.set("devise", devise);
+    if (direction) params.set("direction", direction);
+    if (conviction) params.set("conviction", conviction);
+    if (groupe) params.set("groupe", groupe);
+    if (nextFiltre === "favoris") params.set("filtre", "favoris");
+    const qs = params.toString();
+    return qs ? `/signaux?${qs}` : "/signaux";
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-5 md:p-6">
@@ -171,7 +202,7 @@ export default async function SignalsPage({
         }))}
       />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         {[
           { label: "Paires suivies", value: signals.length, tone: "text-fg" },
           {
@@ -189,6 +220,16 @@ export default async function SignalsPage({
             value: signals.filter((s) => s.recommendation === "ATTENDRE").length,
             tone: "text-brand-amber",
           },
+          {
+            label: "Neutre",
+            value: signals.filter((s) => s.recommendation === "NEUTRE").length,
+            tone: "text-muted",
+          },
+          {
+            label: "4★+ conviction",
+            value: signals.filter((s) => s.conviction >= 4).length,
+            tone: "text-brand-blue",
+          },
         ].map((stat) => (
           <Card key={stat.label} className="p-4">
             <p className="text-subtle font-mono text-[10px] tracking-widest uppercase">
@@ -201,30 +242,34 @@ export default async function SignalsPage({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href="/signaux"
-          className={cn(
-            "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-            !showFavorites
-              ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
-              : "border-border-app text-muted hover:text-fg",
-          )}
-        >
-          Toutes les paires
-        </Link>
-        <Link
-          href="/signaux?filtre=favoris"
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-            showFavorites
-              ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
-              : "border-border-app text-muted hover:text-fg",
-          )}
-        >
-          <Icon name="star" size={13} filled={showFavorites} />
-          Favoris ({favoriteSet.size})
-        </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={hrefFor("all")}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              !showFavorites
+                ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                : "border-border-app text-muted hover:text-fg",
+            )}
+          >
+            Toutes les paires
+          </Link>
+          <Link
+            href={hrefFor("favoris")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              showFavorites
+                ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                : "border-border-app text-muted hover:text-fg",
+            )}
+          >
+            <Icon name="star" size={13} filled={showFavorites} />
+            Favoris ({favoriteSet.size})
+          </Link>
+        </div>
+
+        <SignalFilters />
       </div>
 
       {actionable.length > 0 && !showFavorites ? (

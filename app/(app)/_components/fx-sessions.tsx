@@ -68,7 +68,6 @@ export function FxSessions({ initial }: { initial: SessionStatus[] }) {
             >
               {session.isOpen ? "Ouverte" : "Fermée"}
             </p>
-            <p className="text-subtle font-mono text-[9px]">{session.localTime}</p>
             {session.isOpen && session.closesInMin != null ? (
               <p className="text-subtle text-[8px]">ferme dans {formatCountdown(session.closesInMin)}</p>
             ) : null}

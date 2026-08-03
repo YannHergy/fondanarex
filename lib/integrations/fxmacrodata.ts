@@ -177,12 +177,28 @@ async function fxFetch<T>(path: string, revalidate: number): Promise<T> {
 
   const data: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const detail =
+    // A 4xx from a plain lookup ("unsupported indicator") answers with
+    // `detail` as a string. A 422 from a bad query parameter — the bug that
+    // motivated this — answers with `detail` as an ARRAY of FastAPI
+    // validation objects (`{type, loc, msg, ...}`), which `Error`'s
+    // constructor silently stringifies to the useless "[object Object]"
+    // if passed directly. Both shapes are normalised to a string here.
+    const rawDetail =
       data && typeof data === "object"
-        ? ((data as { detail?: string; error?: string }).detail ??
-          (data as { error?: string }).error)
+        ? ((data as { detail?: unknown; error?: unknown }).detail ??
+          (data as { error?: unknown }).error)
         : null;
-    const message = detail ?? `FXMacroData responded ${response.status}`;
+
+    let message: string;
+    if (typeof rawDetail === "string") {
+      message = rawDetail;
+    } else if (Array.isArray(rawDetail)) {
+      message = rawDetail
+        .map((entry) => (entry && typeof entry === "object" && "msg" in entry ? String((entry as { msg: unknown }).msg) : JSON.stringify(entry)))
+        .join("; ");
+    } else {
+      message = `FXMacroData responded ${response.status}`;
+    }
 
     // 401/403 means the key itself is bad — retrying the other 69 requests of
     // this page render cannot succeed.
@@ -381,13 +397,17 @@ export interface IndicatorHistory {
  * newest first — reversed here so a chart can draw left-to-right without
  * its caller having to remember which way this particular endpoint sorts).
  *
- * `limit` is generous by default: USD's policy rate alone has 137 decisions
- * since 1990, and monthly CPI series run into the hundreds of points.
+ * `limit` defaults to 100 — FXMacroData's `/announcements` endpoint hard-caps
+ * it there (a value above 100 fails with HTTP 422, not a truncated result),
+ * so for series with more history than that (USD's policy rate has 137
+ * decisions since 1990, monthly CPI series run into the hundreds) only the
+ * most recent 100 points are returned unless pagination via `offset` is
+ * added later.
  */
 export async function getIndicatorHistory(
   currency: CurrencyCode,
   field: string,
-  limit = 500,
+  limit = 100,
 ): Promise<IndicatorHistory> {
   const slug = HISTORY_SLUGS[field];
   if (!slug) throw new FxMacroDataError(`No FXMacroData slug for field "${field}"`);

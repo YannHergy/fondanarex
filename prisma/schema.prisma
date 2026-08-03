@@ -73,6 +73,7 @@ model User {
   scoreSnaps   ScoreSnapshot[]
   mtAccounts   MetaApiAccount[]
   favorites    FavoritePair[]
+  pairInsights ComparatorInsight[]
 }
 
 model Account {
@@ -1016,6 +1017,26 @@ model FavoritePair {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, instrument])
+}
+
+// ============================================================================
+// COMPARATOR AI INSIGHT — usage log, doubles as the weekly quota counter
+//
+// The legacy Comparator's "Expert AI Insight" button had no rate limit at
+// all — every click was a paid Claude call. Fine for one person; not fine
+// once dozens of users share the same API key. One row per generated
+// insight; the quota check is a COUNT over the last 7 days.
+// ============================================================================
+
+model ComparatorInsight {
+  id        String   @id @default(cuid())
+  userId    String
+  pair      String   @db.VarChar(8)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { IndicatorViews } from "@/app/(app)/comparateur/_components/indicator-views";
+import { PairInsight } from "@/app/(app)/comparateur/_components/pair-insight";
 import { CurrencyProfileCard } from "@/app/(app)/comparateur/_components/profile-card";
 import { ScoreRadar } from "@/app/(app)/comparateur/_components/radar";
 import { RelativeStrengthMatrix } from "@/app/(app)/comparateur/_components/strength-matrix";
@@ -28,16 +29,24 @@ const AXES = [
   { key: "sentiment", label: "Sentiment" },
 ] as const;
 
+/**
+ * `max` is the realistic ceiling of the indicator, not the larger of the two
+ * values being compared. A policy rate of 3.75 % is not "off the chart" the
+ * way a PMI of 65 is — drawing it against the pair's own magnitude made a
+ * modest rate look maxed out. Left undefined for tradeBalance and
+ * consumerConfidence, whose units are not a bounded percentage and vary too
+ * much by currency for one shared ceiling to mean anything.
+ */
 const MACRO_ROWS = [
-  { key: "interestRate", label: "Taux directeur", unit: "%", higherIsBetter: true },
-  { key: "cpi", label: "Inflation (CPI)", unit: "%", higherIsBetter: false },
-  { key: "coreCpi", label: "Inflation sous-jacente", unit: "%", higherIsBetter: false },
-  { key: "gdpQoQ", label: "PIB (trimestriel)", unit: "%", higherIsBetter: true },
-  { key: "unemployment", label: "Chômage", unit: "%", higherIsBetter: false },
-  { key: "pmiManufacturing", label: "PMI manufacturier", unit: "", higherIsBetter: true },
-  { key: "pmiServices", label: "PMI services", unit: "", higherIsBetter: true },
-  { key: "retailSales", label: "Ventes au détail", unit: "%", higherIsBetter: true },
-  { key: "wagePPI", label: "Salaires", unit: "%", higherIsBetter: true },
+  { key: "interestRate", label: "Taux directeur", unit: "%", higherIsBetter: true, max: 10 },
+  { key: "cpi", label: "Inflation (CPI)", unit: "%", higherIsBetter: false, max: 8 },
+  { key: "coreCpi", label: "Inflation sous-jacente", unit: "%", higherIsBetter: false, max: 8 },
+  { key: "gdpQoQ", label: "PIB (trimestriel)", unit: "%", higherIsBetter: true, max: 3 },
+  { key: "unemployment", label: "Chômage", unit: "%", higherIsBetter: false, max: 12 },
+  { key: "pmiManufacturing", label: "PMI manufacturier", unit: "", higherIsBetter: true, max: 65 },
+  { key: "pmiServices", label: "PMI services", unit: "", higherIsBetter: true, max: 65 },
+  { key: "retailSales", label: "Ventes au détail", unit: "%", higherIsBetter: true, max: 5 },
+  { key: "wagePPI", label: "Salaires", unit: "%", higherIsBetter: true, max: 6 },
   { key: "tradeBalance", label: "Balance commerciale", unit: "", higherIsBetter: true },
   { key: "consumerConfidence", label: "Confiance des ménages", unit: "", higherIsBetter: true },
 ] as const;
@@ -111,20 +120,22 @@ export default async function ComparatorPage({
   /**
    * The macro rows as compared indicators.
    *
-   * The scale each pair is drawn against is their own larger magnitude, so a
-   * 0.2 % difference on a policy rate is as visible as a 20-point difference
-   * on a PMI. A single shared scale would flatten every rate comparison to
-   * nothing.
+   * Rows with a realistic ceiling (`row.max`) are drawn against it, so a
+   * policy rate of 3.75 % fills well under half its bar instead of reading as
+   * "maxed out". Rows without one (trade balance, consumer confidence — not a
+   * bounded percentage) fall back to the pair's own larger magnitude, so a
+   * small difference is still visible rather than flattened to nothing.
    */
   const comparedIndicators: ComparedIndicator[] = MACRO_ROWS.map((row) => {
     const base = Number(a[row.key] ?? 0);
     const quote = Number(b[row.key] ?? 0);
+    const max = "max" in row ? row.max : Math.max(Math.abs(base), Math.abs(quote), 0.1);
 
     return {
       label: row.label,
       base,
       quote,
-      max: Math.max(Math.abs(base), Math.abs(quote), 0.1),
+      max,
       unit: row.unit,
       lowerIsBetter: !row.higherIsBetter,
     };
@@ -195,6 +206,10 @@ export default async function ComparatorPage({
             <p className="text-subtle mt-1 text-[10px]">Écart de score</p>
           </div>
         </div>
+      </Card>
+
+      <Card>
+        <PairInsight baseCode={a.code} quoteCode={b.code} />
       </Card>
 
       <ScoreRadar

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { InflationPanel } from "@/app/(app)/devise/[code]/_components/inflation-panel";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
@@ -255,33 +254,53 @@ export default async function CurrencyDetailPage({
            * card that USD/EUR/GBP never show. */}
           <IndicatorCategoryGrid currency={currency} marketContext={marketContext} />
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <InflationPanel
-              cpi={currency.cpi}
-              previousCpi={
-                typeof currency.previousData.cpi === "number" ? currency.previousData.cpi : null
-              }
-            />
-
+          {/* Everything here is deliberately OUTSIDE the score: yield curve,
+           * COT and rate differentials are FXMacroData enrichments (backend
+           * already written in lib/integrations/fxmacrodata.ts, not yet
+           * called from this page — shown as placeholders), and the three
+           * qualitative cards are notes, not computed indicators. Grouping
+           * them together frees the rest of the page for Actualités &
+           * Sentiment instead of splitting this content across the bottom. */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Card>
-              <CardTitle icon="event">Prochaines publications</CardTitle>
-              {Object.keys(currency.nextReleases).length > 0 ? (
-                <ul className="space-y-1">
-                  {Object.entries(currency.nextReleases)
-                    .sort(([, a], [, b]) => a.localeCompare(b))
-                    .slice(0, 8)
-                    .map(([key, date]) => (
-                      <li key={key} className="flex items-center justify-between text-xs">
-                        <span className="text-muted">
-                          {MACRO_FIELDS.find((f) => f.key === key)?.label ?? key}
-                        </span>
-                        <span className="text-subtle font-mono">{date}</span>
-                      </li>
-                    ))}
+              <CardTitle icon="show_chart">Courbe des taux</CardTitle>
+              <p className="text-subtle text-sm">Bientôt disponible.</p>
+            </Card>
+            <Card>
+              <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
+              <p className="text-subtle text-sm">Bientôt disponible.</p>
+            </Card>
+            <Card>
+              <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
+              <p className="text-subtle text-sm">Bientôt disponible.</p>
+            </Card>
+            <Card>
+              <CardTitle icon="public">Risques géopolitiques</CardTitle>
+              <p className="text-muted text-sm leading-relaxed">
+                {currency.geopoliticalRisks || (
+                  <span className="text-subtle">Aucune note. Modifiable dans Admin données.</span>
+                )}
+              </p>
+            </Card>
+            <Card>
+              <CardTitle icon="visibility">Événements à surveiller</CardTitle>
+              {currency.eventsToWatch.length > 0 ? (
+                <ul className="text-muted list-inside list-disc space-y-1 text-sm">
+                  {currency.eventsToWatch.map((event) => (
+                    <li key={event}>{event}</li>
+                  ))}
                 </ul>
               ) : (
-                <p className="text-subtle text-xs">Aucune date enregistrée.</p>
+                <p className="text-subtle text-sm">Aucun événement enregistré.</p>
               )}
+            </Card>
+            <Card>
+              <CardTitle icon="edit_note">Analyse qualitative</CardTitle>
+              <p className="text-muted text-sm leading-relaxed">
+                {currency.qualitativeAnalysis || (
+                  <span className="text-subtle">Aucune analyse. Modifiable dans Admin données.</span>
+                )}
+              </p>
             </Card>
           </div>
         </div>
@@ -322,34 +341,9 @@ export default async function CurrencyDetailPage({
         </div>
       </Card>
 
-      {/* ── Données complémentaires — hors calcul du score ──────────────────
-       * Forme uniquement pour l'instant : ces trois cartes attendent le
-       * branchement de fx.getYieldCurve() / fx.getCOT() / fx.getRateDifferentials()
-       * (déjà écrits dans lib/integrations/fxmacrodata.ts, pas encore appelés
-       * depuis cette page). Ne pas les confondre avec les indicateurs du score
-       * ci-dessus : celles-ci n'entrent dans aucun calcul. */}
-      <div>
-        <h2 className="text-subtle mb-3 flex items-center gap-2 text-xs font-bold tracking-widest uppercase">
-          <Icon name="info" size={14} />
-          Données complémentaires — hors calcul du score
-        </h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card>
-            <CardTitle icon="show_chart">Courbe des taux</CardTitle>
-            <p className="text-subtle text-sm">Bientôt disponible.</p>
-          </Card>
-          <Card>
-            <CardTitle icon="groups">COT — Positionnement spéculatif</CardTitle>
-            <p className="text-subtle text-sm">Bientôt disponible.</p>
-          </Card>
-          <Card>
-            <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
-            <p className="text-subtle text-sm">Bientôt disponible.</p>
-          </Card>
-        </div>
-      </div>
-
       {/* ── Actualités & Sentiment ───────────────────────────────────────────
+       * The only thing left in this bottom section now that the yield curve /
+       * COT / differentials / qualitative notes moved up next to the score.
        * Forme uniquement : pas encore branché sur Marketaux/Finnhub pour cette
        * page (existe pour DIPper-In-FONda, pas encore porté ici). */}
       <Card>
@@ -376,39 +370,10 @@ export default async function CurrencyDetailPage({
             </button>
           </div>
         </div>
-        <p className="text-subtle text-sm">Bientôt disponible.</p>
+        <div className="flex min-h-[220px] items-center justify-center">
+          <p className="text-subtle text-sm">Bientôt disponible.</p>
+        </div>
       </Card>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardTitle icon="public">Risques géopolitiques</CardTitle>
-          <p className="text-muted text-sm leading-relaxed">
-            {currency.geopoliticalRisks || (
-              <span className="text-subtle">Aucune note. Modifiable dans Admin données.</span>
-            )}
-          </p>
-        </Card>
-        <Card>
-          <CardTitle icon="visibility">Événements à surveiller</CardTitle>
-          {currency.eventsToWatch.length > 0 ? (
-            <ul className="text-muted list-inside list-disc space-y-1 text-sm">
-              {currency.eventsToWatch.map((event) => (
-                <li key={event}>{event}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-subtle text-sm">Aucun événement enregistré.</p>
-          )}
-        </Card>
-        <Card>
-          <CardTitle icon="edit_note">Analyse qualitative</CardTitle>
-          <p className="text-muted text-sm leading-relaxed">
-            {currency.qualitativeAnalysis || (
-              <span className="text-subtle">Aucune analyse. Modifiable dans Admin données.</span>
-            )}
-          </p>
-        </Card>
-      </div>
     </div>
   );
 }

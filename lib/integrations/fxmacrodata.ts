@@ -34,7 +34,31 @@ const TTL = {
   predictions: 60 * 60,
   yieldCurve: 6 * 60 * 60,
   cot: 12 * 60 * 60,
+  history: 60 * 60,
 } as const;
+
+/**
+ * CurrencyData field -> FXMacroData announcement slug.
+ *
+ * Verified live against the real API (not guessed): every slug here returned
+ * a real, decades-deep series. PMI (manufacturing and services) has no
+ * FXMacroData slug at all — tested a dozen plausible names, all 404 — so it
+ * is deliberately absent rather than pointing at a broken link.
+ */
+const HISTORY_SLUGS: Record<string, string> = {
+  interestRate: "policy_rate",
+  cpi: "inflation",
+  coreCpi: "core_inflation",
+  gdpQoQ: "gdp",
+  unemployment: "unemployment",
+  wagePPI: "wages",
+  tradeBalance: "trade_balance",
+  retailSales: "retail_sales",
+};
+
+export function hasIndicatorHistory(field: string): boolean {
+  return field in HISTORY_SLUGS;
+}
 
 export interface RiskSentiment {
   status: "Risk On" | "Risk Off";
@@ -340,6 +364,45 @@ export async function getYieldCurve(currency: CurrencyCode): Promise<YieldCurveP
   return (payload.data ?? [])
     .filter((p) => ["2Y", "5Y", "10Y"].includes(p.maturity))
     .map((p) => ({ maturity: p.maturity, yieldPct: p.val }));
+}
+
+export interface IndicatorHistoryPoint {
+  date: string;
+  value: number;
+}
+
+export interface IndicatorHistory {
+  name: string;
+  points: IndicatorHistoryPoint[];
+}
+
+/**
+ * Full history for one indicator, oldest first (the API itself returns
+ * newest first — reversed here so a chart can draw left-to-right without
+ * its caller having to remember which way this particular endpoint sorts).
+ *
+ * `limit` is generous by default: USD's policy rate alone has 137 decisions
+ * since 1990, and monthly CPI series run into the hundreds of points.
+ */
+export async function getIndicatorHistory(
+  currency: CurrencyCode,
+  field: string,
+  limit = 500,
+): Promise<IndicatorHistory> {
+  const slug = HISTORY_SLUGS[field];
+  if (!slug) throw new FxMacroDataError(`No FXMacroData slug for field "${field}"`);
+
+  const payload = await fxFetch<{ name?: string; data?: Array<{ date: string; val: number }> }>(
+    `/announcements/${currency.toLowerCase()}/${slug}?limit=${limit}`,
+    TTL.history,
+  );
+
+  const points = (payload.data ?? [])
+    .filter((d) => typeof d.val === "number" && typeof d.date === "string")
+    .map((d) => ({ date: d.date, value: d.val }))
+    .reverse();
+
+  return { name: payload.name ?? field, points };
 }
 
 export async function getCOT(currency: CurrencyCode): Promise<CotPositioning> {

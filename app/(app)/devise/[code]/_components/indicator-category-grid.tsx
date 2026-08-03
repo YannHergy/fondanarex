@@ -1,8 +1,11 @@
+import Link from "next/link";
+
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { getCurrencyProfile, indicatorKind } from "@/domain/data/currency-weights";
 import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
+import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
 import { cn } from "@/lib/utils";
 
 /**
@@ -92,11 +95,13 @@ export function IndicatorCategoryGrid({
               const previous = field ? currency.previousData[field] : undefined;
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
+              const clickable = field && hasIndicatorHistory(field);
 
-              return (
-                <div key={indicator.id} className="border-border-app rounded-lg border p-3">
-                  <p className="text-subtle text-[10px] font-bold tracking-wide uppercase">
+              const content = (
+                <>
+                  <p className="text-subtle flex items-center justify-between gap-1 text-[10px] font-bold tracking-wide uppercase">
                     {indicator.nom}
+                    {clickable ? <Icon name="show_chart" size={11} className="text-brand-blue shrink-0" /> : null}
                   </p>
                   <p
                     className={cn(
@@ -122,6 +127,25 @@ export function IndicatorCategoryGrid({
                     Prochaine : {nextDate ?? "—"}
                     {stale ? " ⚠ À MAJ" : ""}
                   </span>
+                </>
+              );
+
+              // Only clickable when FXMacroData actually has a historical
+              // series for this field (see HISTORY_SLUGS in fxmacrodata.ts) —
+              // PMI and the currency-specific indicators (fer, chine, risque...)
+              // have none, so their cards stay plain rather than link to a
+              // page with nothing to show.
+              return clickable ? (
+                <Link
+                  key={indicator.id}
+                  href={`/devise/${currency.code.toLowerCase()}/indicateur/${field}`}
+                  className="border-border-app hover:border-brand-blue/40 hover:bg-panel block rounded-lg border p-3 transition-colors"
+                >
+                  {content}
+                </Link>
+              ) : (
+                <div key={indicator.id} className="border-border-app rounded-lg border p-3">
+                  {content}
                 </div>
               );
             })}

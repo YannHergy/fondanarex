@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { FavoriteToggle } from "@/app/(app)/signaux/_components/favorite-toggle";
+import { MarketBanner } from "@/app/(app)/signaux/_components/market-banner";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { buildPairSignals, type PairSignal, type Recommendation } from "@/domain/signals/pairs";
@@ -161,6 +162,13 @@ export default async function SignalsPage({
       <PageHeader
         title="Signaux live"
         subtitle="Écart de score fondamental entre les deux jambes de chaque paire"
+      />
+
+      <MarketBanner
+        currencies={Object.values(currencies).map((currency) => ({
+          code: currency.code,
+          score: currency.scores.total,
+        }))}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

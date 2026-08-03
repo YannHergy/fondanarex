@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AccountCard } from "@/app/(app)/comptes/_components/account-card";
+import { AddAccountButton } from "@/app/(app)/comptes/_components/add-account";
 import { ComparisonTable } from "@/app/(app)/comptes/_components/comparison-table";
 import { EntryChecker } from "@/app/(app)/comptes/_components/entry-checker";
 import { EquityProjection } from "@/app/(app)/comptes/_components/equity-projection";
@@ -37,7 +38,9 @@ export default async function AccountsPage() {
       <PageHeader
         title="Comptes de trading"
         subtitle={`${active.length} compte(s) actif(s) sur ${accounts.length}`}
-      />
+      >
+        <AddAccountButton />
+      </PageHeader>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card className="p-4">
@@ -91,11 +94,10 @@ export default async function AccountsPage() {
         <div className="flex items-start gap-2.5">
           <Icon name="info" size={16} className="text-brand-blue mt-0.5 shrink-0" />
           <p className="text-muted text-sm leading-relaxed">
-            Les comptes étaient un tableau figé dans le code source de
-            l&apos;ancienne application, seul le capital courant étant modifiable. Ce sont des
-            données personnelles — capital, limites de drawdown, setups autorisés — donc ils sont
-            désormais modifiables sans redéploiement. L&apos;espérance affichée exclut les entrées
-            sans statistiques mesurées plutôt que de les compter comme nulles.
+            L&apos;espérance et le taux de réussite sont pondérés par la fréquence
+            d&apos;apparition de chaque entrée autorisée. Les entrées sans historique mesuré sont
+            exclues du calcul plutôt que comptées comme nulles — un tiret signifie
+            &laquo; pas assez de données &raquo;, pas &laquo; zéro &raquo;.
           </p>
         </div>
       </Card>
@@ -148,8 +150,7 @@ export default async function AccountsPage() {
       {accounts.length === 0 ? (
         <Card>
           <p className="text-muted text-sm">
-            Aucun compte. Les comptes par défaut sont créés automatiquement à la première
-            connexion.
+            Aucun compte. Ajoutez-en un pour commencer à suivre votre capital et vos limites.
           </p>
         </Card>
       ) : null}

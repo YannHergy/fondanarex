@@ -54,45 +54,6 @@ const DEFAULT_ACCOUNTS = [
       EntryType.GOLDEN_ENTRY,
     ],
   },
-  {
-    // Funded at 10k but traded as a 5k account, hence useRealCapital: false.
-    slot: 3,
-    name: "Compte 3",
-    initialCapital: 10000,
-    tradingCapital: 5000,
-    useRealCapital: false,
-    maxDDPct: 5,
-    targetPct: 8,
-    riskPct: 0.4,
-    style: AccountStyle.DAY_SWING,
-    color: "#22c55e",
-    allowedEntries: [
-      EntryType.A2_ENTRY,
-      EntryType.A21_ENTRY,
-      EntryType.A22_ENTRY,
-      EntryType.GOLDEN_ENTRY,
-    ],
-  },
-  {
-    slot: 4,
-    name: "Compte 4",
-    initialCapital: 6000,
-    tradingCapital: 5000,
-    useRealCapital: false,
-    maxDDPct: 6,
-    targetPct: 8,
-    riskPct: 0.4,
-    style: AccountStyle.SCALPING,
-    color: "#f59e0b",
-    allowedEntries: [
-      EntryType.M2_ENTRY,
-      EntryType.A12_ENTRY,
-      EntryType.A2_ENTRY,
-      EntryType.A21_ENTRY,
-      EntryType.A22_ENTRY,
-      EntryType.GOLDEN_ENTRY,
-    ],
-  },
 ] as const;
 
 /**

@@ -5,6 +5,7 @@ import {
   CompoundSimulator,
   RiskCalculator,
 } from "@/app/(app)/simulateur/_components/simulators";
+import { TradeByTradeSimulator } from "@/app/(app)/simulateur/_components/trade-by-trade";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { prisma } from "@/lib/prisma";
@@ -62,6 +63,14 @@ export default async function SimulatorPage() {
       />
 
       <CompoundSimulator defaultCapital={settings.riskCapital} />
+
+      <TradeByTradeSimulator
+        defaults={{
+          capital: settings.riskCapital,
+          riskPct: settings.riskPct,
+          rr: settings.riskRR,
+        }}
+      />
 
       <BreakevenSimulator defaultCapital={settings.riskCapital} />
     </div>

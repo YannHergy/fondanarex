@@ -23,6 +23,8 @@ export interface TradingAccountRow extends AccountConfig {
   color: string;
   style: "SCALPING" | "DAY_SWING";
   isActive: boolean;
+  /** Trades recorded against this account, so a delete can say what survives. */
+  tradeCount: number;
 }
 
 export const getTradingAccounts = cache(
@@ -30,6 +32,7 @@ export const getTradingAccounts = cache(
     const accounts = await prisma.tradingAccount.findMany({
       where: { userId },
       orderBy: { slot: "asc" },
+      include: { _count: { select: { trades: true } } },
     });
 
     return accounts.map((account) => ({
@@ -37,6 +40,7 @@ export const getTradingAccounts = cache(
       slot: account.slot,
       name: account.name,
       color: account.color,
+      tradeCount: account._count.trades,
       style: account.style as TradingAccountRow["style"],
       isActive: account.isActive,
       initialCapital: Number(account.initialCapital),

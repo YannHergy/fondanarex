@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { adjustAccountCapital, saveTradingAccount } from "@/app/(app)/comptes/actions";
+import { DeleteAccountButton } from "@/app/(app)/comptes/_components/add-account";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -88,7 +89,10 @@ export function AccountCard({ account }: { account: TradingAccountRow }) {
     "bg-panel border-border-app text-fg focus:border-brand-blue tabular w-full rounded-lg border px-2 py-1 font-mono text-sm outline-none";
 
   return (
-    <Card className={cn(health === "breached" && "border-brand-red/50")}>
+    <Card
+      id={`account-${account.id}`}
+      className={cn("scroll-mt-6", health === "breached" && "border-brand-red/50")}
+    >
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5">
           <span
@@ -116,6 +120,12 @@ export function AccountCard({ account }: { account: TradingAccountRow }) {
           >
             {style.label}
           </span>
+
+          <DeleteAccountButton
+            accountId={account.id}
+            accountName={account.name}
+            tradeCount={account.tradeCount ?? 0}
+          />
           <button
             type="button"
             onClick={() => {

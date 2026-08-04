@@ -67,6 +67,29 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       { key: "consumerConfidence", status: "MISMATCH", reference: "-17" },
     ],
   },
+  USD: {
+    checkedOn: "2026-08-04",
+    items: [
+      { key: "interestRate", status: "MATCH", reference: "3.75" },
+      { key: "cpi", status: "MATCH", reference: "3.5" },
+      { key: "unemployment", status: "MATCH", reference: "4.2" },
+      { key: "nfp", status: "MATCH", reference: "57 k" },
+      { key: "tradeBalance", status: "MATCH", reference: "-77.59" },
+      { key: "retailSales", status: "MATCH", reference: "0.2" },
+      // Notre carte est libellée « PMI Services (ISM) » et vaut 54 : c'est la
+      // ligne « PMI non manufacturier » de Trading Economics (54, préc. 54.5),
+      // pas sa ligne « Services PMI » à 53.6 qui vient de S&P Global.
+      { key: "pmiServices", status: "MATCH", reference: "54 (ISM non manuf.)" },
+      // Même donnée que TE, convention différente : les États-Unis publient
+      // leur PIB en rythme annualisé (1.5 = notre 0.37 trimestriel × 4), et
+      // notre pct_change_yoy vaut 2.1, exactement la « croissance annuelle »
+      // affichée par TE. Voir le point ouvert sur le barème scoreGdp.
+      { key: "gdpQoQ", status: "MATCH", reference: "1.5 annualisé = 0.37 QoQ" },
+      { key: "pmiManufacturing", status: "MISMATCH", reference: "53.9" },
+      { key: "currentAccount", status: "MISMATCH", reference: "-227" },
+      { key: "consumerConfidence", status: "MISMATCH", reference: "55.2" },
+    ],
+  },
   CAD: {
     checkedOn: "2026-08-04",
     items: [

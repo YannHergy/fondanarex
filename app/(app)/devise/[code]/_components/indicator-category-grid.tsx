@@ -79,7 +79,7 @@ export function IndicatorCategoryGrid({
   }).filter((category) => category.indicators.length > 0);
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
       {populated.map((category) => (
         <Card key={category.key}>
           <CardTitle icon={category.icon}>{category.label}</CardTitle>

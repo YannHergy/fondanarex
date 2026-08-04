@@ -470,6 +470,27 @@ export interface FxMacroDatapoint {
   latestPeriod: string;
   /** Period label of `previous`, or null when only one observation exists. */
   previousPeriod: string | null;
+  /** Expected date of the next publication, or null when FXMacroData has none queued. */
+  nextRelease: string | null;
+}
+
+/**
+ * The next scheduled publication for one indicator, from FXMacroData's own
+ * forecast/calendar store rather than a guess derived from the last period
+ * (a quarterly GDP print is not reliably "last period + 3 months" — meeting
+ * dates and revisions shift it).
+ */
+async function fetchNextRelease(currency: CurrencyCode, field: string): Promise<string | null> {
+  const slug = HISTORY_SLUGS[field];
+  if (!slug) return null;
+
+  const payload = await fxFetch<{ data?: Array<{ date: string; announcement_timing: string }> }>(
+    `/predictions/${currency.toLowerCase()}/${slug}`,
+    TTL.predictions,
+  );
+
+  const upcoming = (payload.data ?? []).find((d) => d.announcement_timing === "future");
+  return upcoming?.date ?? null;
 }
 
 export interface FxMacroCoreResult {
@@ -506,10 +527,16 @@ async function fetchCorePoint(
   const slug = HISTORY_SLUGS[field];
   if (!slug) return null;
 
-  const payload = await fxFetch<{ data?: RawAnnouncement[] }>(
-    `/announcements/${currency.toLowerCase()}/${slug}?limit=2`,
-    TTL.announcements,
-  );
+  // Fired together: the current reading and the next-release date are
+  // independent lookups, and a failure on the (best-effort) prediction call
+  // must not lose the reading itself.
+  const [payload, nextRelease] = await Promise.all([
+    fxFetch<{ data?: RawAnnouncement[] }>(
+      `/announcements/${currency.toLowerCase()}/${slug}?limit=2`,
+      TTL.announcements,
+    ),
+    fetchNextRelease(currency, field).catch(() => null),
+  ]);
 
   const points = (payload.data ?? [])
     .filter((d) => typeof d.date === "string")
@@ -524,6 +551,7 @@ async function fetchCorePoint(
     previous: prior?.value ?? latest.value,
     latestPeriod: latest.date,
     previousPeriod: prior?.date ?? null,
+    nextRelease,
   };
 }
 

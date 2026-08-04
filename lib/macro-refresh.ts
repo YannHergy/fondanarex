@@ -54,6 +54,15 @@ interface PendingRow {
   period: string;
   periodEnd: Date;
   source: IndicatorSource;
+  /**
+   * Expected date of the next publication. OECD/FRED never supply one — the
+   * UI simply shows no date for those rows, as it always has. FXMacroData's
+   * own forecast calendar does, and omitting it here would have been a
+   * regression: switching an indicator's source loses the "Prochaine : ..."
+   * date the seeded MANUAL row happened to carry, for no reason other than
+   * the new row never being asked for one.
+   */
+  nextRelease?: Date | null;
 }
 
 /**
@@ -77,7 +86,12 @@ async function writeRows(rows: PendingRow[]): Promise<number> {
         },
       },
       create: { ...row, fetchedAt: new Date() },
-      update: { value: row.value, periodEnd: row.periodEnd, fetchedAt: new Date() },
+      update: {
+        value: row.value,
+        periodEnd: row.periodEnd,
+        fetchedAt: new Date(),
+        ...(row.nextRelease !== undefined ? { nextRelease: row.nextRelease } : {}),
+      },
     });
     written += 1;
   }
@@ -251,6 +265,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         period: periodLabel(point.latestPeriod),
         periodEnd: end,
         source: IndicatorSource.FXMACRODATA,
+        nextRelease: point.nextRelease ? periodEnd(point.nextRelease) : null,
       });
 
       // Same reasoning as OECD/FRED: persist the prior reading so momentum

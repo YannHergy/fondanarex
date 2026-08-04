@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { CheckDot } from "@/app/(app)/devise/[code]/_components/check-dot";
 import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
+import { EditableValue } from "@/app/(app)/devise/[code]/_components/editable-value";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
@@ -329,10 +330,12 @@ export default async function CurrencyDetailPage({
                     </span>
                   ) : null}
                 </p>
-                <p className="text-fg tabular font-mono text-sm font-semibold">
-                  {value.toFixed(2)}
-                  {field.unit ? <span className="text-subtle ml-0.5">{field.unit}</span> : null}
-                </p>
+                <EditableValue
+                  code={currency.code}
+                  field={field.key}
+                  value={value}
+                  unit={field.unit}
+                />
                 {delta !== null ? (
                   <p
                     className={cn(

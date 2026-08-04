@@ -43,6 +43,18 @@ const EDITABLE_INDICATORS = [
   "corePce",
   "zew",
   "ifo",
+  // Champs ajoutés avec leurs sources respectives (FXMacroData, Yahoo,
+  // e-Stat). Éditables au même titre que les autres : une source
+  // automatique peut se tromper, et la correction manuelle reste
+  // prioritaire à la lecture.
+  "employmentChange",
+  "commodityPrice",
+  "oilPrice",
+  "chinaDemand",
+  "riskSentiment",
+  "tokyoCpi",
+  "usSpillover",
+  "eurChf",
 ] as const;
 
 const overridesSchema = z.object({

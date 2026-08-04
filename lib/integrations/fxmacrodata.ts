@@ -61,6 +61,11 @@ const HISTORY_SLUGS: Record<string, string> = {
   // there is no oil series for the CAD and no dairy series for the NZD, so
   // those two keep no source and stay flagged for manual entry.
   commodityPrice: "commodity_prices",
+  // AUD, CAD and NZD only — the three profiles that weight an employment
+  // CHANGE rather than the unemployment rate. The slug is `employment` (an
+  // employed-population level), not `employment_change`, which 404s for every
+  // currency; the move is derived from it in FIELD_EXTRACTORS.
+  employmentChange: "employment",
 };
 
 export function hasIndicatorHistory(field: string): boolean {
@@ -72,6 +77,7 @@ interface RawAnnouncement {
   val: number;
   pct_change_qoq?: number;
   pct_change_yoy?: number;
+  change_from_previous?: number;
 }
 
 /**
@@ -99,15 +105,35 @@ interface RawAnnouncement {
  * is what avoids silently writing a GDP level into a field the scoring
  * engine treats as a small percentage.
  */
-const FIELD_EXTRACTORS: Record<string, (point: RawAnnouncement) => number | null> = {
+const FIELD_EXTRACTORS: Record<
+  string,
+  (point: RawAnnouncement, currency: CurrencyCode) => number | null
+> = {
   gdpQoQ: (p) => (typeof p.pct_change_qoq === "number" ? p.pct_change_qoq : null),
   tradeBalance: (p) => (typeof p.val === "number" ? p.val / 1000 : null),
   commodityPrice: (p) => (typeof p.pct_change_yoy === "number" ? p.pct_change_yoy : null),
+
+  // `employment`'s `val` is the employed-population LEVEL (14.8 million for
+  // Australia), never what the engine wants. It wants the MOVE, and in two
+  // different units depending on the country — scoreEmploymentChangeValue
+  // reads thousands of jobs for the AUD/CAD (>50 is a very strong month),
+  // while the NZD branch reads a quarterly percentage (pctScore(v, 1)),
+  // because Stats NZ publishes it that way and the engine mirrors that.
+  employmentChange: (p, currency) => {
+    if (currency === "NZD") {
+      return typeof p.pct_change_qoq === "number" ? p.pct_change_qoq : null;
+    }
+    return typeof p.change_from_previous === "number" ? p.change_from_previous / 1000 : null;
+  },
 };
 
-function extractFieldValue(field: string, point: RawAnnouncement): number | null {
+function extractFieldValue(
+  field: string,
+  point: RawAnnouncement,
+  currency: CurrencyCode,
+): number | null {
   const extractor = FIELD_EXTRACTORS[field];
-  if (extractor) return extractor(point);
+  if (extractor) return extractor(point, currency);
   return typeof point.val === "number" ? point.val : null;
 }
 
@@ -470,7 +496,7 @@ export async function getIndicatorHistory(
 
   const points = (payload.data ?? [])
     .filter((d) => typeof d.date === "string")
-    .map((d) => ({ date: d.date, value: extractFieldValue(field, d) }))
+    .map((d) => ({ date: d.date, value: extractFieldValue(field, d, currency) }))
     .filter((d): d is IndicatorHistoryPoint => d.value !== null)
     .reverse();
 
@@ -535,6 +561,7 @@ const CORE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
   { field: "unemployment", label: "Chômage" },
   { field: "tradeBalance", label: "Balance commerciale" },
   { field: "commodityPrice", label: "Matières premières" },
+  { field: "employmentChange", label: "Emploi (variation)" },
 ];
 
 async function fetchCorePoint(
@@ -557,7 +584,7 @@ async function fetchCorePoint(
 
   const points = (payload.data ?? [])
     .filter((d) => typeof d.date === "string")
-    .map((d) => ({ date: d.date, value: extractFieldValue(field, d) }))
+    .map((d) => ({ date: d.date, value: extractFieldValue(field, d, currency) }))
     .filter((d): d is { date: string; value: number } => d.value !== null);
 
   const [latest, prior] = points;

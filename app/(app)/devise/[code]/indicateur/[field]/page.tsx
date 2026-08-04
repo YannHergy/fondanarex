@@ -26,7 +26,19 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   wagePPI: { label: "Salaires", unit: "%" },
   tradeBalance: { label: "Balance commerciale", unit: "" },
   retailSales: { label: "Ventes au détail", unit: "%" },
+  // Stored as a year-on-year percentage, not the raw RBA index level — see
+  // FIELD_EXTRACTORS in fxmacrodata.ts.
+  commodityPrice: { label: "Matières premières", unit: "%" },
+  // Thousands of jobs for the AUD and the CAD, a quarterly percentage for the
+  // NZD, which is why the unit is resolved per currency below.
+  employmentChange: { label: "Emploi", unit: "" },
 };
+
+/** The NZD publishes its employment move as a %, the AUD and CAD in thousands. */
+function unitFor(field: string, code: string, fallback: string): string {
+  if (field !== "employmentChange") return fallback;
+  return code === "NZD" ? "%" : "k";
+}
 
 export async function generateMetadata({
   params,
@@ -85,7 +97,7 @@ export default async function IndicatorHistoryPage({
             Historique indisponible : {error}
           </p>
         ) : history && history.points.length > 0 ? (
-          <HistoryChart points={history.points} unit={meta.unit} />
+          <HistoryChart points={history.points} unit={unitFor(field, upperCode, meta.unit)} />
         ) : (
           <p className="text-subtle text-sm">Aucune donnée historique trouvée.</p>
         )}

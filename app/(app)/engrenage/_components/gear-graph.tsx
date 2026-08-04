@@ -16,13 +16,30 @@ import {
 } from "@/domain/fundamental/graph";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
 
-/** Node fill per level, deepest cause to final verdict. */
-const LEVEL_STYLE: Record<IndicatorLevel, { fill: string; stroke: string }> = {
-  king: { fill: "var(--color-brand-cyan)", stroke: "var(--color-brand-cyan)" },
-  pillar: { fill: "var(--color-brand-blue)", stroke: "var(--color-brand-blue)" },
-  driver: { fill: "var(--color-brand-green)", stroke: "var(--color-brand-green)" },
-  signal: { fill: "var(--color-brand-amber)", stroke: "var(--color-brand-amber)" },
-  root: { fill: "var(--color-brand-steel)", stroke: "var(--color-brand-steel)" },
+/**
+ * Node fill per level, deepest cause to final verdict.
+ *
+ * Fixed hex values rather than the app's brand tokens: this is a five-step
+ * scale where the ORDER must read at a glance — amber at the top narrowing
+ * down to green at the roots. The brand palette has no such ordered ramp, and
+ * borrowing five of its accents produced colours that looked unrelated to each
+ * other. `text` is the label colour that stays legible on each fill.
+ */
+const LEVEL_STYLE: Record<IndicatorLevel, { fill: string; stroke: string; text: string }> = {
+  king: { fill: "#f5a623", stroke: "#f5c842", text: "#1a1a2e" },
+  pillar: { fill: "#e53e3e", stroke: "#fc8181", text: "#ffffff" },
+  driver: { fill: "#4299e1", stroke: "#63b3ed", text: "#ffffff" },
+  signal: { fill: "#9f7aea", stroke: "#b794f4", text: "#ffffff" },
+  root: { fill: "#48bb78", stroke: "#68d391", text: "#1a1a2e" },
+};
+
+/** Filled discs, sized by level — the top of the chain reads largest. */
+const LEVEL_RADIUS: Record<IndicatorLevel, number> = {
+  king: 30,
+  pillar: 27,
+  driver: 26,
+  signal: 25,
+  root: 24,
 };
 
 const FILTER_LABELS: Record<FilterMode, string> = {
@@ -38,8 +55,12 @@ const DELAY_LABELS = {
   months: "quelques mois",
 } as const;
 
-const WIDTH = 1000;
-const ROW_HEIGHT = 110;
+const WIDTH = 1400;
+const ROW_HEIGHT = 150;
+/** Marge gauche laissée aux libellés de couche, qui sinon passent sous les nœuds. */
+const PAD_LEFT = 150;
+/** Marge droite, pour que le dernier nœud d'une rangée ne soit pas coupé. */
+const PAD_RIGHT = 40;
 
 export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
   const [currency, setCurrency] = useState(defaultCurrency);
@@ -72,7 +93,10 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
   const xy = (id: string) => {
     const position = positionById.get(id);
     if (!position) return null;
-    return { x: position.x * WIDTH, y: position.row * ROW_HEIGHT + ROW_HEIGHT / 2 };
+    return {
+      x: PAD_LEFT + position.x * (WIDTH - PAD_LEFT - PAD_RIGHT),
+      y: position.row * ROW_HEIGHT + ROW_HEIGHT / 2,
+    };
   };
 
   return (
@@ -100,6 +124,20 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
             ))}
           </div>
 
+          <div className="ml-auto flex flex-wrap items-center gap-2.5">
+            {LEVEL_ORDER.map((level) => (
+              <span key={level} className="flex items-center gap-1.5 text-[10px]">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: LEVEL_STYLE[level].fill }}
+                />
+                <span className="text-muted tracking-wide uppercase">{LEVEL_LABELS[level]}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select
               value={mode}
@@ -142,14 +180,14 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
         <div className="overflow-x-auto">
           <svg
             viewBox={`0 0 ${WIDTH} ${height}`}
-            className="h-auto w-full min-w-[900px]"
+            className="h-auto w-full min-w-[1200px]"
             role="img"
             aria-label={`Graphe des connexions fondamentales pour ${currency}`}
           >
             {LEVEL_ORDER.map((level, row) => (
               <g key={level}>
                 <line
-                  x1={0}
+                  x1={PAD_LEFT - 20}
                   x2={WIDTH}
                   y1={row * ROW_HEIGHT}
                   y2={row * ROW_HEIGHT}
@@ -158,7 +196,7 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
                 />
                 <text
                   x={6}
-                  y={row * ROW_HEIGHT + 14}
+                  y={row * ROW_HEIGHT + ROW_HEIGHT / 2 + 4}
                   className="fill-[var(--color-text-subtle)] text-[10px] uppercase"
                   style={{ fontSize: 10, letterSpacing: "0.1em" }}
                 >
@@ -208,7 +246,13 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
               const isSelected = position.id === selectedId;
               const isHighlighted = highlighted?.has(position.id) ?? false;
               const dimmed = selectedId !== null && !isHighlighted;
-              const radius = position.level === "king" ? 11 : position.level === "pillar" ? 9 : 7;
+              const radius = LEVEL_RADIUS[position.level];
+              // How many other indicators this one feeds or is fed by — the
+              // count shown on the badge, which is what makes a hub visible
+              // without clicking through every node.
+              const degree = connections.filter(
+                (c) => c.from === position.id || c.to === position.id,
+              ).length;
 
               return (
                 <g
@@ -230,19 +274,33 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
                   <circle
                     r={radius}
                     fill={style.fill}
-                    fillOpacity={isSelected ? 1 : 0.25}
                     stroke={style.stroke}
-                    strokeWidth={isSelected ? 2.5 : 1.2}
+                    strokeWidth={isSelected ? 3 : 1}
                   />
+
+                  {/* Libellé DANS le disque : le graphe compte jusqu'à quinze
+                   * nœuds par rangée, et des étiquettes posées dessous se
+                   * chevauchaient dès que deux nœuds étaient proches. */}
                   <text
-                    y={radius + 11}
                     textAnchor="middle"
-                    className="fill-[var(--color-text-muted)]"
-                    style={{ fontSize: 9 }}
+                    dominantBaseline="middle"
+                    fill={style.text}
+                    style={{ fontSize: 8.5, fontWeight: 600, pointerEvents: "none" }}
                   >
-                    {position.indicator.name.length > 18
-                      ? `${position.indicator.name.slice(0, 17)}…`
+                    {position.indicator.name.length > 13
+                      ? `${position.indicator.name.slice(0, 12)}…`
                       : position.indicator.name}
+                  </text>
+
+                  {/* Nombre de liaisons, en haut à droite du disque. */}
+                  <text
+                    x={radius - 2}
+                    y={-radius + 4}
+                    textAnchor="start"
+                    fill={style.fill}
+                    style={{ fontSize: 10, fontWeight: 700, pointerEvents: "none" }}
+                  >
+                    {degree}
                   </text>
                 </g>
               );
@@ -251,18 +309,6 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          {LEVEL_ORDER.map((level) => (
-            <span key={level} className="flex items-center gap-1.5 text-[10px]">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{
-                  backgroundColor: LEVEL_STYLE[level].fill,
-                  opacity: 0.6,
-                }}
-              />
-              <span className="text-muted">{LEVEL_LABELS[level]}</span>
-            </span>
-          ))}
           <span className="text-subtle ml-auto text-[10px]">
             Trait plein = relation positive · pointillé = relation inverse · épaisseur = poids
           </span>

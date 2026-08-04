@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { saveRiskDefaults } from "@/app/(app)/simulateur/actions";
+import { Slider } from "@/app/(app)/simulateur/_components/slider";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { simulateBreakeven } from "@/domain/risk/breakeven";
@@ -270,16 +271,30 @@ export function CompoundSimulator({ defaultCapital }: { defaultCapital: number }
     <Card>
       <CardTitle icon="trending_up">Projection composée</CardTitle>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Field label="Capital" value={capital} onChange={setCapital} step="500" />
-        <Field label="Risque" value={riskPct} onChange={setRiskPct} step="0.1" suffix="%" />
-        <Field label="Objectif" value={rr} onChange={setRr} step="0.5" suffix="R" />
-        <Field label="Taux de réussite" value={winRatePct} onChange={setWinRatePct} step="1" suffix="%" />
-        <Field label="Trades/semaine" value={tradesPerWeek} onChange={setTradesPerWeek} step="1" />
-        <Field label="Mois" value={months} onChange={setMonths} step="1" />
-        <Field label="Cible" value={targetPct} onChange={setTargetPct} step="1" suffix="%" />
-        <Field label="Drawdown max" value={maxDrawdownPct} onChange={setMaxDrawdownPct} step="0.5" suffix="%" />
-        <Field label="Drawdown/jour" value={dailyDrawdownPct} onChange={setDailyDrawdownPct} step="0.1" suffix="%" />
+      {/* Curseurs plutot que champs numeriques : ces parametres se reglent
+       * par exploration — on cherche l'effet d'un risque un peu plus haut ou
+       * d'un win rate un peu plus bas — et taper une valeur casse ce geste.
+       * Les bornes encadrent aussi les saisies absurdes qu'un champ libre
+       * acceptait (un risque a 80 %, un R:R a 200). */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Slider
+          label="Capital initial"
+          value={capital}
+          min={1000}
+          max={200000}
+          step={1000}
+          suffix="$"
+          format={(v) => v.toLocaleString("fr-FR")}
+          onChange={setCapital}
+        />
+        <Slider label="Risque par trade" value={riskPct} min={0.1} max={5} step={0.1} suffix="%" onChange={setRiskPct} />
+        <Slider label="Risk:Reward (1:X)" value={rr} min={0.5} max={10} step={0.5} onChange={setRr} />
+        <Slider label="Taux de réussite" value={winRatePct} min={5} max={95} step={1} suffix="%" onChange={setWinRatePct} />
+        <Slider label="Trades / semaine" value={tradesPerWeek} min={1} max={40} step={1} onChange={setTradesPerWeek} />
+        <Slider label="Durée" value={months} min={1} max={36} step={1} suffix="mois" onChange={setMonths} />
+        <Slider label="Objectif de profit" value={targetPct} min={1} max={50} step={0.5} suffix="%" onChange={setTargetPct} />
+        <Slider label="Drawdown max" value={maxDrawdownPct} min={1} max={30} step={0.5} suffix="%" onChange={setMaxDrawdownPct} />
+        <Slider label="Drawdown / jour" value={dailyDrawdownPct} min={0.1} max={10} step={0.1} suffix="%" onChange={setDailyDrawdownPct} />
       </div>
 
       {shrinking && positiveExpectancy ? (

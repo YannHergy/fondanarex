@@ -104,6 +104,26 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       { key: "consumerConfidence", status: "MISMATCH", reference: "47.6" },
     ],
   },
+  CHF: {
+    checkedOn: "2026-08-04",
+    items: [
+      { key: "interestRate", status: "MATCH", reference: "0" },
+      { key: "retailSales", status: "MATCH", reference: "0.2" },
+      // FXMacroData étiquette cette série « Inflation, YOY » mais sert en
+      // réalité la variation MENSUELLE : -0.1 / 0.0 / 0.2 correspond au
+      // « taux d'inflation mensuel » de TE, pas à son taux annuel de 0.4.
+      // Son source_series_id vaut d'ailleurs UNKNOWN.
+      { key: "cpi", status: "MISMATCH", reference: "0.4 annuel (nous servons le mensuel)" },
+      // Mesure différente, pas erreur : FXMacroData sert le taux ILO
+      // harmonisé (5.18), TE le taux SECO des chômeurs inscrits (2.9), qui
+      // est celui que le marché cite pour la Suisse.
+      { key: "unemployment", status: "MISMATCH", reference: "2.9 (SECO inscrits)" },
+      { key: "gdpQoQ", status: "MISMATCH", reference: "0.4" },
+      { key: "pmiManufacturing", status: "MISMATCH", reference: "53.2" },
+      { key: "tradeBalance", status: "MISMATCH", reference: "3800 M" },
+      { key: "currentAccount", status: "MISMATCH", reference: "15544 M" },
+    ],
+  },
   JPY: {
     checkedOn: "2026-08-04",
     items: [

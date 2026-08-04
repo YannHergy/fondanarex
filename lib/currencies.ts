@@ -130,7 +130,20 @@ interface IndicatorRow {
  * Resolution is by SOURCE TIER FIRST, then by period — and that order is the
  * whole point:
  *
- *   FRED (1) > OECD (2) > DERIVED (3) > MANUAL (4)
+ *   FRED (1) > FXMACRODATA (2) > OECD (3) > DERIVED (4) > MANUAL (5)
+ *
+ * FXMacroData outranks OECD, not the other way around, and that took a real
+ * refresh run to discover: OECD answers 500 for most of its five datasets
+ * under normal load (its rate limiter, not an outage — see oecd.ts), so the
+ * table accumulates OECD rows that are occasionally years stale (JPY's CPI
+ * sat on a 2021 reading) sitting at a tier that would otherwise permanently
+ * block a fresher FXMacroData row for the same indicator, no matter how
+ * recent. FXMacroData carries policy rate, CPI, core CPI, GDP, unemployment
+ * and trade balance for all eight currencies reliably (confirmed live), so it
+ * sits second, below only FRED — which is authoritative for the USD when its
+ * key is configured, and otherwise never writes at all. PMI has no
+ * FXMacroData slug for any currency, so it is untouched by this and stays
+ * OECD/FRED-only.
  *
  * MANUAL here is the seeded legacy baseline, not user input; a user's manual
  * correction lives in IndicatorOverride and is applied later, outside this
@@ -159,9 +172,10 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         v.*,
         CASE v."source"
           WHEN 'FRED' THEN 1
-          WHEN 'OECD' THEN 2
-          WHEN 'DERIVED' THEN 3
-          ELSE 4
+          WHEN 'FXMACRODATA' THEN 2
+          WHEN 'OECD' THEN 3
+          WHEN 'DERIVED' THEN 4
+          ELSE 5
         END AS tier
       FROM "IndicatorValue" v
     ),

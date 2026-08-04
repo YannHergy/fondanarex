@@ -3,6 +3,10 @@ import "server-only";
 import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
+import {
+  fetchAllFxMacroCoreData,
+  isConfigured as fxMacroDataConfigured,
+} from "@/lib/integrations/fxmacrodata";
 import { prisma } from "@/lib/prisma";
 import { IndicatorSource } from "@/lib/generated/prisma/enums";
 
@@ -10,8 +14,10 @@ import { IndicatorSource } from "@/lib/generated/prisma/enums";
  * Macro data ingestion.
  *
  * This is what makes the scores live. It fetches the OECD (all eight
- * currencies) and FRED (the USD, at higher precision) and writes the readings
- * into IndicatorValue.
+ * currencies), FRED (the USD, at higher precision) and FXMacroData (policy
+ * rate, CPI, core CPI, GDP, unemployment and trade balance, all eight
+ * currencies — the indicators OECD/FRED were meant to cover but whose own
+ * automation has never run) and writes the readings into IndicatorValue.
  *
  * Two guarantees hold by construction:
  *
@@ -106,9 +112,10 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   const errors: string[] = [];
 
   const known = await knownCurrencyCodes();
-  const [oecdResults, fredResults] = await Promise.all([
+  const [oecdResults, fredResults, fxMacroResults] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
+    fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
   ]);
 
   // ── OECD: every currency ────────────────────────────────────────────────
@@ -215,6 +222,56 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     const written = await writeRows(rows);
 
     sources.push({ source: "FRED", label: series.field, written, error: null });
+  }
+
+  // ── FXMacroData: core indicators, every currency ────────────────────────
+  if (!fxMacroDataConfigured()) {
+    errors.push("FXMacroData: clé API absente");
+  }
+
+  for (const dataset of fxMacroResults) {
+    if (Object.keys(dataset.values).length === 0) {
+      const message = dataset.error ?? "aucune donnée";
+      errors.push(`FXMacroData ${dataset.label}: ${message}`);
+      sources.push({ source: "FXMACRODATA", label: dataset.label, written: 0, error: message });
+      continue;
+    }
+
+    const rows: PendingRow[] = [];
+    for (const [currencyCode, point] of Object.entries(dataset.values)) {
+      if (!known.has(currencyCode)) continue;
+
+      const end = periodEnd(point.latestPeriod);
+      if (!end) continue;
+
+      rows.push({
+        currencyCode,
+        indicatorKey: dataset.field,
+        value: point.current,
+        period: periodLabel(point.latestPeriod),
+        periodEnd: end,
+        source: IndicatorSource.FXMACRODATA,
+      });
+
+      // Same reasoning as OECD/FRED: persist the prior reading so momentum
+      // has something to compare against.
+      if (point.previousPeriod) {
+        const priorEnd = periodEnd(point.previousPeriod);
+        if (priorEnd) {
+          rows.push({
+            currencyCode,
+            indicatorKey: dataset.field,
+            value: point.previous,
+            period: periodLabel(point.previousPeriod),
+            periodEnd: priorEnd,
+            source: IndicatorSource.FXMACRODATA,
+          });
+        }
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "FXMACRODATA", label: dataset.label, written, error: dataset.error });
   }
 
   const written = sources.reduce((sum, s) => sum + s.written, 0);

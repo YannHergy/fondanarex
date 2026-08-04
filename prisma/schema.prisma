@@ -233,6 +233,7 @@ model Instrument {
 enum IndicatorSource {
   OECD
   FRED
+  FXMACRODATA
   MANUAL
   DERIVED
 }

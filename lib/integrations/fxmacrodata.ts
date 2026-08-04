@@ -60,6 +60,43 @@ export function hasIndicatorHistory(field: string): boolean {
   return field in HISTORY_SLUGS;
 }
 
+interface RawAnnouncement {
+  date: string;
+  val: number;
+  pct_change_qoq?: number;
+}
+
+/**
+ * Most `/announcements` slugs already report the number the scoring engine
+ * (and the history chart) want in `val` — CPI, core CPI, unemployment and the
+ * policy rate are all plain percentages or rates. Two are not, confirmed by
+ * inspecting a live response rather than assuming the field name matched its
+ * meaning:
+ *
+ *   - `gdp`'s `val` is the GDP LEVEL (chained dollars/local currency,
+ *     e.g. 6067.65 for the USD), not a quarter-over-quarter change. The
+ *     payload separately carries `pct_change_qoq` (e.g. 0.37), which is what
+ *     `gdpQoQ` actually means here.
+ *   - `trade_balance`'s `val` is in MILLIONS of the local currency
+ *     (e.g. -77585 for the USD), while every other trade balance figure in
+ *     this app — FRED's `transform: 'billions'`, the seeded MANUAL rows — is
+ *     in billions. Left unconverted this is off by a factor of 1000.
+ *
+ * Extracting per-field like this, instead of reading `val` unconditionally,
+ * is what avoids silently writing a GDP level into a field the scoring
+ * engine treats as a small percentage.
+ */
+const FIELD_EXTRACTORS: Record<string, (point: RawAnnouncement) => number | null> = {
+  gdpQoQ: (p) => (typeof p.pct_change_qoq === "number" ? p.pct_change_qoq : null),
+  tradeBalance: (p) => (typeof p.val === "number" ? p.val / 1000 : null),
+};
+
+function extractFieldValue(field: string, point: RawAnnouncement): number | null {
+  const extractor = FIELD_EXTRACTORS[field];
+  if (extractor) return extractor(point);
+  return typeof point.val === "number" ? point.val : null;
+}
+
 export interface RiskSentiment {
   status: "Risk On" | "Risk Off";
   score: number;
@@ -412,17 +449,120 @@ export async function getIndicatorHistory(
   const slug = HISTORY_SLUGS[field];
   if (!slug) throw new FxMacroDataError(`No FXMacroData slug for field "${field}"`);
 
-  const payload = await fxFetch<{ name?: string; data?: Array<{ date: string; val: number }> }>(
+  const payload = await fxFetch<{ name?: string; data?: RawAnnouncement[] }>(
     `/announcements/${currency.toLowerCase()}/${slug}?limit=${limit}`,
     TTL.history,
   );
 
   const points = (payload.data ?? [])
-    .filter((d) => typeof d.val === "number" && typeof d.date === "string")
-    .map((d) => ({ date: d.date, value: d.val }))
+    .filter((d) => typeof d.date === "string")
+    .map((d) => ({ date: d.date, value: extractFieldValue(field, d) }))
+    .filter((d): d is IndicatorHistoryPoint => d.value !== null)
     .reverse();
 
   return { name: payload.name ?? field, points };
+}
+
+export interface FxMacroDatapoint {
+  current: number;
+  previous: number;
+  /** Period label of `current`, as a full date: "2026-07-15". */
+  latestPeriod: string;
+  /** Period label of `previous`, or null when only one observation exists. */
+  previousPeriod: string | null;
+}
+
+export interface FxMacroCoreResult {
+  field: string;
+  label: string;
+  /** Currency code -> reading. Absent when that currency has no data for this field. */
+  values: Partial<Record<CurrencyCode, FxMacroDatapoint>>;
+  error: string | null;
+}
+
+/**
+ * The scoring engine's core indicators that FXMacroData reliably covers for
+ * all eight currencies: policy rate, CPI, core CPI, GDP and unemployment.
+ * Trade balance is included too — it works for seven of eight (CHF has no
+ * `trade_balance` slug, confirmed live) and that one gap simply leaves CHF's
+ * existing value untouched rather than failing the whole field.
+ *
+ * PMI is deliberately absent: FXMacroData has no PMI slug for any currency
+ * (see HISTORY_SLUGS), so it stays sourced from OECD/FRED as agreed.
+ */
+const CORE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
+  { field: "interestRate", label: "Taux directeur" },
+  { field: "cpi", label: "Inflation (CPI)" },
+  { field: "coreCpi", label: "Inflation sous-jacente" },
+  { field: "gdpQoQ", label: "PIB trimestriel" },
+  { field: "unemployment", label: "Chômage" },
+  { field: "tradeBalance", label: "Balance commerciale" },
+];
+
+async function fetchCorePoint(
+  currency: CurrencyCode,
+  field: string,
+): Promise<FxMacroDatapoint | null> {
+  const slug = HISTORY_SLUGS[field];
+  if (!slug) return null;
+
+  const payload = await fxFetch<{ data?: RawAnnouncement[] }>(
+    `/announcements/${currency.toLowerCase()}/${slug}?limit=2`,
+    TTL.announcements,
+  );
+
+  const points = (payload.data ?? [])
+    .filter((d) => typeof d.date === "string")
+    .map((d) => ({ date: d.date, value: extractFieldValue(field, d) }))
+    .filter((d): d is { date: string; value: number } => d.value !== null);
+
+  const [latest, prior] = points;
+  if (!latest) return null;
+
+  return {
+    current: latest.value,
+    previous: prior?.value ?? latest.value,
+    latestPeriod: latest.date,
+    previousPeriod: prior?.date ?? null,
+  };
+}
+
+/**
+ * Fetches the core dataset for every currency, one field at a time.
+ *
+ * A missing currency for a field (CHF trade balance, or any currency during
+ * an outage) resolves to that currency simply being absent from `values` —
+ * never a zero, so the write step below leaves the existing row alone instead
+ * of overwriting real data with a false reading.
+ */
+export async function fetchAllFxMacroCoreData(): Promise<FxMacroCoreResult[]> {
+  return Promise.all(
+    CORE_FIELDS.map(async ({ field, label }) => {
+      const settled = await Promise.allSettled(
+        CURRENCY_CODES.map(
+          async (currency) => [currency, await fetchCorePoint(currency, field)] as const,
+        ),
+      );
+
+      const values: Partial<Record<CurrencyCode, FxMacroDatapoint>> = {};
+      let succeeded = false;
+      let lastError: string | null = null;
+
+      for (const result of settled) {
+        if (result.status === "fulfilled") {
+          const [currency, point] = result.value;
+          if (point) {
+            values[currency] = point;
+            succeeded = true;
+          }
+        } else {
+          lastError = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        }
+      }
+
+      return { field, label, values, error: succeeded ? null : lastError };
+    }),
+  );
 }
 
 export async function getCOT(currency: CurrencyCode): Promise<CotPositioning> {

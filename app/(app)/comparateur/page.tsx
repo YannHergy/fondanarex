@@ -6,7 +6,6 @@ import { PairInsight } from "@/app/(app)/comparateur/_components/pair-insight";
 import { CurrencyProfileCard } from "@/app/(app)/comparateur/_components/profile-card";
 import { ScoreRadar } from "@/app/(app)/comparateur/_components/radar";
 import { ScoreScale } from "@/app/(app)/comparateur/_components/score-scale";
-import { RelativeStrengthMatrix } from "@/app/(app)/comparateur/_components/strength-matrix";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -417,7 +416,6 @@ export default async function ComparatorPage({
 
       <ScoreScale currencies={currencyList} />
 
-      <RelativeStrengthMatrix currencies={currencyList} />
     </div>
   );
 }

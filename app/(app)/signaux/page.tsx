@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { RelativeStrengthMatrix } from "@/app/(app)/comparateur/_components/strength-matrix";
 import { FavoriteToggle } from "@/app/(app)/signaux/_components/favorite-toggle";
 import { MarketBanner } from "@/app/(app)/signaux/_components/market-banner";
 import { SignalFilters } from "@/app/(app)/signaux/_components/signal-filters";
@@ -331,6 +332,8 @@ export default async function SignalsPage({
           );
         })
       )}
+
+      <RelativeStrengthMatrix currencies={Object.values(currencies)} />
 
       <Card className="border-brand-blue/30 bg-brand-blue/5">
         <div className="flex items-start gap-2.5">

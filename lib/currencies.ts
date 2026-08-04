@@ -242,12 +242,24 @@ function toIsoDate(date: Date): string {
  */
 export const getCurrencies = cache(
   async (userId: string): Promise<Record<string, CurrencyData>> => {
-    const [currencies, indicatorRows, overrides, notes] = await Promise.all([
+    const [currencies, indicatorRows, overrides, notes, checkRows] = await Promise.all([
       prisma.currency.findMany({ orderBy: { sortOrder: "asc" } }),
       latestIndicatorRows(),
       prisma.indicatorOverride.findMany({ where: { userId } }),
       prisma.currencyNote.findMany({ where: { userId } }),
+      prisma.indicatorCheck.findMany(),
     ]);
+
+    const checksByCode = new Map<string, CurrencyData["checks"]>();
+    for (const row of checkRows) {
+      const forCurrency = checksByCode.get(row.currencyCode) ?? {};
+      forCurrency[row.indicatorKey] = {
+        status: row.status,
+        reference: row.reference,
+        checkedOn: toIsoDate(row.checkedOn),
+      };
+      checksByCode.set(row.currencyCode, forCurrency);
+    }
 
     const noteByCode = new Map(notes.map((n) => [n.currencyCode, n]));
     const overrideByCode = new Map<string, Map<string, number>>();
@@ -314,6 +326,7 @@ export const getCurrencies = cache(
       data.previousData = previousData;
       data.dataSources = dataSources;
       data.staleFields = staleFields;
+      data.checks = checksByCode.get(currency.code) ?? {};
 
       result[currency.code] = data as unknown as CurrencyData;
     }

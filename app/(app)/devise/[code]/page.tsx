@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CheckDot } from "@/app/(app)/devise/[code]/_components/check-dot";
 import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
@@ -320,6 +321,7 @@ export default async function CurrencyDetailPage({
             return (
               <div key={field.key} className="border-border-app border-b py-2">
                 <p className="text-subtle flex items-center gap-1 text-[10px] tracking-wide uppercase">
+                  <CheckDot field={field.key} checks={currency.checks} />
                   {field.label}
                   {manualCheck ? (
                     <span title={MANUAL_CHECK_TITLE} className="text-brand-amber shrink-0">

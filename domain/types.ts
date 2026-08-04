@@ -111,6 +111,12 @@ export interface CurrencyData {
      * alone cannot tell you. Flagged for manual entry like an unconnected one.
      */
     staleFields: Record<string, boolean>;
+    /**
+     * Verdict of the last hand review against Trading Economics, per field.
+     * Absent when that indicator has never been reviewed — which is a third
+     * state, not a failure, and must render as neither green nor red.
+     */
+    checks: Record<string, { status: "MATCH" | "MISMATCH"; reference: string | null; checkedOn: string }>;
 }
 
 /** Score of a single indicator inside the weighted profile of a currency */

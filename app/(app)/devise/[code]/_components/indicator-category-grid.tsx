@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CheckDot } from "@/app/(app)/devise/[code]/_components/check-dot";
 import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -116,6 +117,7 @@ export function IndicatorCategoryGrid({
                 <>
                   <p className="text-subtle flex items-center justify-between gap-1 text-[10px] font-bold tracking-wide uppercase">
                     <span className="flex items-center gap-1">
+                      <CheckDot field={field} checks={currency.checks} />
                       {indicator.nom}
                       {manualCheck ? (
                         <span title={MANUAL_CHECK_TITLE} className="text-brand-amber shrink-0">

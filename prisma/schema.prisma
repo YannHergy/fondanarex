@@ -179,6 +179,7 @@ model Currency {
   sortOrder   Int              @default(0)
 
   indicatorValues IndicatorValue[]
+  indicatorChecks IndicatorCheck[]
   overrides       IndicatorOverride[]
   notes           CurrencyNote[]
   weeklyEvents    WeeklyEvent[]
@@ -274,6 +275,39 @@ model IndicatorValue {
 
   @@unique([currencyCode, indicatorKey, period, source])
   @@index([currencyCode, indicatorKey, periodEnd(sort: Desc)])
+}
+
+enum CheckStatus {
+  MATCH
+  MISMATCH
+}
+
+/// Result of comparing a displayed value against Trading Economics by hand.
+///
+/// Deliberately NOT computed: there is no Trading Economics feed in this app,
+/// so nothing here can be derived automatically. Each row is the verdict of an
+/// actual side-by-side review, recorded so the conclusion survives the
+/// conversation that produced it — otherwise every audit has to be redone from
+/// scratch to remember which figures were already trusted.
+///
+/// Global rather than per-user: an indicator either matches its published
+/// source or it does not, which is not a matter of opinion.
+model IndicatorCheck {
+  id String @id @default(cuid())
+
+  currencyCode String @db.VarChar(3)
+  indicatorKey String @db.VarChar(48)
+
+  status CheckStatus
+  /// The Trading Economics figure seen at the time, for the record.
+  reference String? @db.VarChar(64)
+  /// Date of the review, so an old verdict can be recognised as old.
+  checkedOn DateTime @db.Date
+
+  currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+
+  @@unique([currencyCode, indicatorKey])
+  @@index([currencyCode])
 }
 
 model IndicatorOverride {

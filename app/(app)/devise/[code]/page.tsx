@@ -310,7 +310,12 @@ export default async function CurrencyDetailPage({
             const previous = currency.previousData[field.key];
             const delta = typeof previous === "number" ? value - previous : null;
 
-            const manualCheck = needsManualCheck(field.key, currency.dataSources);
+            const manualCheck = needsManualCheck(
+              field.key,
+              currency.dataSources,
+              true,
+              currency.staleFields,
+            );
 
             return (
               <div key={field.key} className="border-border-app border-b py-2">

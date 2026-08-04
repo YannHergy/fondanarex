@@ -122,6 +122,7 @@ interface IndicatorRow {
   periodEnd: Date;
   nextRelease: Date | null;
   source: string;
+  sourceStale: boolean;
   rn: number;
 }
 
@@ -208,7 +209,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         ) AS same_period_rank
       FROM in_tier i
     )
-    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", "source", rn
+    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", "source", "sourceStale", rn
     FROM (
       SELECT
         d."currencyCode",
@@ -217,6 +218,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         d."periodEnd",
         d."nextRelease",
         d."source",
+        d."sourceStale",
         ROW_NUMBER() OVER (
           PARTITION BY d."currencyCode", d."indicatorKey"
           ORDER BY d."periodEnd" DESC
@@ -283,6 +285,7 @@ export const getCurrencies = cache(
       const nextReleases: Record<string, string> = {};
       const previousData: Record<string, number | string> = {};
       const dataSources: Record<string, string> = {};
+      const staleFields: Record<string, boolean> = {};
       let lastUpdate = "";
 
       for (const [key, row] of current) {
@@ -290,6 +293,7 @@ export const getCurrencies = cache(
         data[key] = Number(row.value);
         if (row.nextRelease) nextReleases[key] = toIsoDate(row.nextRelease);
         dataSources[key] = row.source;
+        if (row.sourceStale) staleFields[key] = true;
         const periodEnd = toIsoDate(row.periodEnd);
         if (periodEnd > lastUpdate) lastUpdate = periodEnd;
       }
@@ -309,6 +313,7 @@ export const getCurrencies = cache(
       data.nextReleases = nextReleases;
       data.previousData = previousData;
       data.dataSources = dataSources;
+      data.staleFields = staleFields;
 
       result[currency.code] = data as unknown as CurrencyData;
     }

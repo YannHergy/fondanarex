@@ -105,7 +105,12 @@ export function IndicatorCategoryGrid({
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
               const clickable = field && hasIndicatorHistory(field);
-              const manualCheck = needsManualCheck(field, currency.dataSources, display.available);
+              const manualCheck = needsManualCheck(
+                field,
+                currency.dataSources,
+                display.available,
+                currency.staleFields,
+              );
 
               const content = (
                 <>

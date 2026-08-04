@@ -512,6 +512,14 @@ export interface FxMacroDatapoint {
   previousPeriod: string | null;
   /** Expected date of the next publication, or null when FXMacroData has none queued. */
   nextRelease: string | null;
+  /**
+   * FXMacroData's own `data_quality.is_stale`, compared against each series'
+   * expected cadence rather than a fixed window. Trusted over any check we
+   * could run here: the GBP trade balance is published quarterly while the
+   * provider expects it monthly, so it was 126 days old with a next release
+   * still in the future — indistinguishable from fresh data from our side.
+   */
+  stale: boolean;
 }
 
 /**
@@ -575,7 +583,7 @@ async function fetchCorePoint(
   // independent lookups, and a failure on the (best-effort) prediction call
   // must not lose the reading itself.
   const [payload, nextRelease] = await Promise.all([
-    fxFetch<{ data?: RawAnnouncement[] }>(
+    fxFetch<{ data?: RawAnnouncement[]; data_quality?: { is_stale?: boolean } }>(
       `/announcements/${currency.toLowerCase()}/${slug}?limit=2`,
       TTL.announcements,
     ),
@@ -596,6 +604,7 @@ async function fetchCorePoint(
     latestPeriod: latest.date,
     previousPeriod: prior?.date ?? null,
     nextRelease,
+    stale: payload.data_quality?.is_stale === true,
   };
 }
 

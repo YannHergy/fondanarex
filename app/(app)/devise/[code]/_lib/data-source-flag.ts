@@ -11,7 +11,7 @@ const LIVE_SOURCES = new Set(["FXMACRODATA", "FRED", "MARKET"]);
 /**
  * Whether an indicator needs manual attention.
  *
- * Two distinct cases, both of which mean "nobody is refreshing this for you":
+ * Three distinct cases, all of which mean "nobody is refreshing this for you":
  *
  *   1. It HAS a value, but from a source that is not being refreshed
  *      (a seeded MANUAL row, or OECD whose automation has never run).
@@ -19,19 +19,25 @@ const LIVE_SOURCES = new Set(["FXMACRODATA", "FRED", "MARKET"]);
  *      profile but nothing feeds it, so the scoring engine drops its weight
  *      from the denominator. `available` is what carries that: an indicator
  *      with no mapped field (the exported-commodity ones for the CAD/NZD,
- *      China demand, risk sentiment) shows "—" and must be flagged, while a
- *      computed one with no field either (US spillover, derived from the USD
- *      score) is available and must NOT be.
+ *      China demand) shows "—" and must be flagged, while a computed one with
+ *      no field either (US spillover, derived from the USD score) is
+ *      available and must NOT be.
+ *   3. It comes from a live source, but that source reports the reading as
+ *      out of date. Without this the GBP trade balance looked perfectly
+ *      healthy — connected, next release in the future — while carrying a
+ *      figure 126 days old, and nothing on screen suggested checking it.
  */
 export function needsManualCheck(
   field: string | undefined,
   dataSources: Record<string, string>,
   available = true,
+  staleFields: Record<string, boolean> = {},
 ): boolean {
   if (!available) return true;
   if (!field) return false;
+  if (staleFields[field]) return true;
   return !LIVE_SOURCES.has(dataSources[field] ?? "");
 }
 
 export const MANUAL_CHECK_TITLE =
-  "Donnée non connectée à une source automatique (FXMacroData/FRED) — à vérifier ou recharger manuellement.";
+  "Donnée non connectée à une source automatique, ou signalée périmée par sa source — à récupérer manuellement.";

@@ -105,6 +105,12 @@ export interface CurrencyData {
      * IndicatorCategoryGrid's "needs a manual check" star.
      */
     dataSources: Record<string, string>;
+    /**
+     * Fields whose provider reports the reading as out of date. Connected to a
+     * live source, but the number itself has gone stale — which the source
+     * alone cannot tell you. Flagged for manual entry like an unconnected one.
+     */
+    staleFields: Record<string, boolean>;
 }
 
 /** Score of a single indicator inside the weighted profile of a currency */

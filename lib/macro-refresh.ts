@@ -64,6 +64,8 @@ interface PendingRow {
    * the new row never being asked for one.
    */
   nextRelease?: Date | null;
+  /** The provider reports this reading as out of date — see IndicatorValue.sourceStale. */
+  sourceStale?: boolean;
 }
 
 /**
@@ -92,6 +94,7 @@ async function writeRows(rows: PendingRow[]): Promise<number> {
         periodEnd: row.periodEnd,
         fetchedAt: new Date(),
         ...(row.nextRelease !== undefined ? { nextRelease: row.nextRelease } : {}),
+        ...(row.sourceStale !== undefined ? { sourceStale: row.sourceStale } : {}),
       },
     });
     written += 1;
@@ -268,6 +271,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         periodEnd: end,
         source: IndicatorSource.FXMACRODATA,
         nextRelease: point.nextRelease ? periodEnd(point.nextRelease) : null,
+        sourceStale: point.stale,
       });
 
       // Same reasoning as OECD/FRED: persist the prior reading so momentum

@@ -260,6 +260,14 @@ model IndicatorValue {
   /// Computed next publication date (computeNextRelease in unifiedDataService)
   nextRelease DateTime? @db.Date
 
+  /// The upstream provider itself reports this reading as out of date.
+  /// FXMacroData exposes `data_quality.is_stale`, computed against each
+  /// series' own expected cadence — which catches what a date comparison
+  /// here cannot: the GBP trade balance arrives quarterly while the
+  /// provider expects it monthly, so it sat 126 days old with a next
+  /// release still in the future and looked perfectly current.
+  sourceStale Boolean @default(false)
+
   fetchedAt DateTime @default(now())
 
   currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)

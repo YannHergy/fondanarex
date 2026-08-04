@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { RunBriefing } from "@/app/(app)/briefing/_components/run-briefing";
+import { VerdictTable } from "@/app/(app)/briefing/_components/verdict-table";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -11,6 +12,7 @@ import {
   groqConfigured,
   perplexityConfigured,
 } from "@/lib/integrations/llm";
+import { getScoredCurrencies } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -45,11 +47,16 @@ export default async function BriefingPage() {
   };
   const anyConfigured = providers.claude || providers.groq || providers.perplexity;
 
-  const session = await prisma.briefingSession.findFirst({
-    where: { userId },
-    orderBy: { startedAt: "desc" },
-    include: { messages: { orderBy: [{ round: "asc" }, { createdAt: "asc" }] } },
-  });
+  const [session, currencies] = await Promise.all([
+    prisma.briefingSession.findFirst({
+      where: { userId },
+      orderBy: { startedAt: "desc" },
+      include: { messages: { orderBy: [{ round: "asc" }, { createdAt: "asc" }] } },
+    }),
+    // Le verdict IA se lit en regard de notre score : c'est l'ecart entre les
+    // deux qui informe, pas chacun pris isolement.
+    getScoredCurrencies(userId),
+  ]);
 
   const consensus = (session?.consensus as CurrencyConsensus[] | null) ?? [];
 
@@ -150,6 +157,8 @@ export default async function BriefingPage() {
               <p className="text-subtle text-sm">Aucun consensus produit par cette session.</p>
             )}
           </Card>
+
+          <VerdictTable consensus={consensus} currencies={currencies} />
 
           <Card>
             <CardTitle icon="forum">Débat ({session.messages.length} tours)</CardTitle>

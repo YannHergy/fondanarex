@@ -67,8 +67,18 @@ export interface CurrencyData {
     ifo?: number;
     /** Employment Change — net job creations, in thousands (AUD, CAD) or % (NZD) */
     employmentChange?: number;
-    /** Exported commodity — % change (iron/coal AUD, oil CAD, dairy NZD) */
+    /** Exported commodity — % change (iron/coal AUD, dairy NZD) */
     commodityPrice?: number;
+    /**
+     * WTI crude, in dollars per barrel (CAD).
+     *
+     * A LEVEL, not a change, and therefore its own field rather than a second
+     * meaning for `commodityPrice`. The barrel has an economic reading at a
+     * given price — $40 is painful, $100 is a windfall — which is what
+     * scoreOilLevel reads. The RBA commodity index behind `commodityPrice` is
+     * a base-100 index with no such reading, so it stays a % change.
+     */
+    oilPrice?: number;
     /** Chinese demand — level of the China PMI (AUD, NZD) */
     chinaDemand?: number;
     /** Risk sentiment — VIX-like index (AUD, NZD, JPY, CHF) */

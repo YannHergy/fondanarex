@@ -138,6 +138,9 @@ export function getIndicatorDisplay(
 
         // ── Commodities ──────────────────────────────────────────
         case 'petrole':
+            // Shown as the price it is, which is also what Trading Economics
+            // publishes — so the figure can actually be checked against it.
+            if (typeof curr.oilPrice === 'number') return { label: 'PÉTROLE', value: `${curr.oilPrice.toFixed(2)}$`, available: true };
             if (typeof curr.commodityPrice === 'number') return { label: 'PÉTROLE', value: fmtPct(curr.commodityPrice), available: true };
             return ctx.oilChangePct === null ? na('PÉTROLE') : { label: 'PÉTROLE', value: fmtPct(ctx.oilChangePct), available: true };
         case 'fer':

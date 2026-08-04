@@ -85,6 +85,7 @@ const NUMERIC_FIELDS = [
   "ifo",
   "employmentChange",
   "commodityPrice",
+  "oilPrice",
   "chinaDemand",
   "riskSentiment",
   "usSpillover",

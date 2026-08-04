@@ -34,6 +34,7 @@ import {
     scoreZew, scoreIvey, scoreKof, scoreTokyoCpi, scoreJpCurrentAccount,
     scoreGbWages, scoreRetail,
 } from '../market-context/scorers';
+import { scoreOilLevel } from '../macro/oil';
 import { clamp10, pctScore } from './math';
 
 export { clamp10, pctScore };
@@ -548,6 +549,13 @@ export function scoreIndicator(id: string, inputs: ScoringInputs): number | null
         // The currency's own data comes first; the global market context
         // is the fallback for as long as the API is not wired in.
         case 'petrole':
+            // The barrel PRICE first: a level ladder plus momentum, like every
+            // other scorer here. Reading only the % change (which is all the
+            // market-context fallback below can offer) made a $45 barrel
+            // rebounding 15% outrank a $90 one easing 8%.
+            if (typeof curr.oilPrice === 'number') {
+                return scoreOilLevel(curr.oilPrice, prevNum(curr, 'oilPrice', curr.oilPrice));
+            }
             return typeof curr.commodityPrice === 'number'
                 ? pctScore(curr.commodityPrice, 15)
                 : scoreOil(ctx);

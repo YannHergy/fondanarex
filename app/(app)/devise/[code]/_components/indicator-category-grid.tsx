@@ -55,8 +55,9 @@ const FIELD_FOR_KIND: Record<string, string> = {
   // CAD's oil and the NZD's dairy have no series there, so they resolve to a
   // field with no source and get flagged for manual entry.
   fer: "commodityPrice",
-  petrole: "commodityPrice",
   laitiers: "commodityPrice",
+  // Oil has its own field: a barrel PRICE, where the other two are % changes.
+  petrole: "oilPrice",
   chine: "chinaDemand",
   risque: "riskSentiment",
 };

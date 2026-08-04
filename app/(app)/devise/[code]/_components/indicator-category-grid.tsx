@@ -27,9 +27,9 @@ const CATEGORIES = [
 
 /**
  * Indicator kind -> the CurrencyData field carrying its previous value and
- * next release date. Kinds with no entry here (risque, chine, fer, orientation,
- * interventions...) have no such field in the domain model yet — their cards
- * show the current value only, honestly, rather than a fabricated "Prev".
+ * next release date. Kinds with no entry here (orientation, interventions,
+ * us...) have no such field in the domain model — their cards show the
+ * current value only, honestly, rather than a fabricated "Prev".
  */
 const FIELD_FOR_KIND: Record<string, string> = {
   taux: "interestRate",
@@ -49,6 +49,15 @@ const FIELD_FOR_KIND: Record<string, string> = {
   ifo: "ifo",
   cpi_tokyo: "tokyoCpi",
   emploi: "employmentChange",
+  // The three exported-commodity indicators share one field (see
+  // CurrencyData.commodityPrice). Only the AUD's is fed by FXMacroData; the
+  // CAD's oil and the NZD's dairy have no series there, so they resolve to a
+  // field with no source and get flagged for manual entry.
+  fer: "commodityPrice",
+  petrole: "commodityPrice",
+  laitiers: "commodityPrice",
+  chine: "chinaDemand",
+  risque: "riskSentiment",
 };
 
 function isStale(dateStr: string | undefined, now: Date): boolean {
@@ -96,7 +105,7 @@ export function IndicatorCategoryGrid({
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
               const clickable = field && hasIndicatorHistory(field);
-              const manualCheck = needsManualCheck(field, currency.dataSources);
+              const manualCheck = needsManualCheck(field, currency.dataSources, display.available);
 
               const content = (
                 <>

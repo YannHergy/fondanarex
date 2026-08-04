@@ -54,6 +54,13 @@ const HISTORY_SLUGS: Record<string, string> = {
   wagePPI: "wages",
   tradeBalance: "trade_balance",
   retailSales: "retail_sales",
+  // AUD only. `commodity_prices` is the RBA Commodity Price Index — the
+  // official index of Australia's commodity exports, whose two largest
+  // components are iron ore and coal, which is exactly what the `fer`
+  // indicator scores. Every other currency 404s on this slug (tested):
+  // there is no oil series for the CAD and no dairy series for the NZD, so
+  // those two keep no source and stay flagged for manual entry.
+  commodityPrice: "commodity_prices",
 };
 
 export function hasIndicatorHistory(field: string): boolean {
@@ -64,6 +71,7 @@ interface RawAnnouncement {
   date: string;
   val: number;
   pct_change_qoq?: number;
+  pct_change_yoy?: number;
 }
 
 /**
@@ -81,6 +89,11 @@ interface RawAnnouncement {
  *     (e.g. -77585 for the USD), while every other trade balance figure in
  *     this app — FRED's `transform: 'billions'`, the seeded MANUAL rows — is
  *     in billions. Left unconverted this is off by a factor of 1000.
+ *   - `commodity_prices`'s `val` is an INDEX LEVEL (104.2), but the scoring
+ *     engine reads `commodityPrice` as a percentage change saturating at
+ *     ±15% (`pctScore(commodityPrice, 15)`), so the year-on-year change is
+ *     what belongs in that field. The index level would score as permanent
+ *     maximum bullishness.
  *
  * Extracting per-field like this, instead of reading `val` unconditionally,
  * is what avoids silently writing a GDP level into a field the scoring
@@ -89,6 +102,7 @@ interface RawAnnouncement {
 const FIELD_EXTRACTORS: Record<string, (point: RawAnnouncement) => number | null> = {
   gdpQoQ: (p) => (typeof p.pct_change_qoq === "number" ? p.pct_change_qoq : null),
   tradeBalance: (p) => (typeof p.val === "number" ? p.val / 1000 : null),
+  commodityPrice: (p) => (typeof p.pct_change_yoy === "number" ? p.pct_change_yoy : null),
 };
 
 function extractFieldValue(field: string, point: RawAnnouncement): number | null {
@@ -506,7 +520,9 @@ export interface FxMacroCoreResult {
  * all eight currencies: policy rate, CPI, core CPI, GDP and unemployment.
  * Trade balance is included too — it works for seven of eight (CHF has no
  * `trade_balance` slug, confirmed live) and that one gap simply leaves CHF's
- * existing value untouched rather than failing the whole field.
+ * existing value untouched rather than failing the whole field. Commodity
+ * prices resolve for the AUD alone, which is the only currency whose profile
+ * weights an iron-ore/coal indicator at all.
  *
  * PMI is deliberately absent: FXMacroData has no PMI slug for any currency
  * (see HISTORY_SLUGS), so it stays sourced from OECD/FRED as agreed.
@@ -518,6 +534,7 @@ const CORE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
   { field: "gdpQoQ", label: "PIB trimestriel" },
   { field: "unemployment", label: "Chômage" },
   { field: "tradeBalance", label: "Balance commerciale" },
+  { field: "commodityPrice", label: "Matières premières" },
 ];
 
 async function fetchCorePoint(
@@ -556,41 +573,52 @@ async function fetchCorePoint(
 }
 
 /**
- * Fetches the core dataset for every currency, one field at a time.
+ * Fetches the core dataset for every currency, ONE FIELD AT A TIME.
  *
- * A missing currency for a field (CHF trade balance, or any currency during
- * an outage) resolves to that currency simply being absent from `values` —
- * never a zero, so the write step below leaves the existing row alone instead
- * of overwriting real data with a false reading.
+ * Sequential across fields on purpose. Each field fans out to 8 currencies ×
+ * 2 requests (the reading and its next-release date), and firing all fields
+ * together put 112 requests in flight at once — past the 5-second deadline in
+ * fxFetch, so the last fields to resolve lost their next-release date
+ * silently (10 of 46 rows came back without one, concentrated on the last two
+ * fields in this list, which is what gave the game away). Sixteen concurrent
+ * requests per step is well inside that budget.
+ *
+ * A missing currency for a field (CHF trade balance, the CAD/NZD commodity
+ * series, or any currency during an outage) resolves to that currency simply
+ * being absent from `values` — never a zero, so the write step below leaves
+ * the existing row alone instead of overwriting real data with a false
+ * reading.
  */
 export async function fetchAllFxMacroCoreData(): Promise<FxMacroCoreResult[]> {
-  return Promise.all(
-    CORE_FIELDS.map(async ({ field, label }) => {
-      const settled = await Promise.allSettled(
-        CURRENCY_CODES.map(
-          async (currency) => [currency, await fetchCorePoint(currency, field)] as const,
-        ),
-      );
+  const results: FxMacroCoreResult[] = [];
 
-      const values: Partial<Record<CurrencyCode, FxMacroDatapoint>> = {};
-      let succeeded = false;
-      let lastError: string | null = null;
+  for (const { field, label } of CORE_FIELDS) {
+    const settled = await Promise.allSettled(
+      CURRENCY_CODES.map(
+        async (currency) => [currency, await fetchCorePoint(currency, field)] as const,
+      ),
+    );
 
-      for (const result of settled) {
-        if (result.status === "fulfilled") {
-          const [currency, point] = result.value;
-          if (point) {
-            values[currency] = point;
-            succeeded = true;
-          }
-        } else {
-          lastError = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    const values: Partial<Record<CurrencyCode, FxMacroDatapoint>> = {};
+    let succeeded = false;
+    let lastError: string | null = null;
+
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        const [currency, point] = result.value;
+        if (point) {
+          values[currency] = point;
+          succeeded = true;
         }
+      } else {
+        lastError = result.reason instanceof Error ? result.reason.message : String(result.reason);
       }
+    }
 
-      return { field, label, values, error: succeeded ? null : lastError };
-    }),
-  );
+    results.push({ field, label, values, error: succeeded ? null : lastError });
+  }
+
+  return results;
 }
 
 export async function getCOT(currency: CurrencyCode): Promise<CotPositioning> {

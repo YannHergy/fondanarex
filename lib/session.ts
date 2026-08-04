@@ -102,13 +102,27 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * fails the whole deployment instead of the one request that needed the data.
  */
 export async function currentUserId(): Promise<string | null> {
-  try {
-    // Generous enough for a Neon cold start, short enough to stay well inside a
-    // serverless function's execution limit so the caller can render something.
-    return await withTimeout(getOrCreateDefaultUser(), 8_000);
-  } catch {
-    return null;
+  // Two attempts, because the first one can time out on a request that is
+  // otherwise healthy. Neon suspends an idle branch and the first connection
+  // pays the wake-up — measured at 1.5s cold against 220ms warm — and in
+  // development that lands on top of a page compiling for the first time,
+  // which alone can take tens of seconds. The result was a "database
+  // unreachable" setup screen on a database that was in fact fine.
+  //
+  // The retry works because withTimeout RACES: losing the race rejects the
+  // race, not the underlying query, and `getOrCreateDefaultUser` is memoised
+  // per request by `cache`. The second attempt therefore awaits the SAME
+  // in-flight promise, which has usually resolved by then, rather than opening
+  // a second connection.
+  for (const budgetMs of [8_000, 12_000]) {
+    try {
+      return await withTimeout(getOrCreateDefaultUser(), budgetMs);
+    } catch {
+      // Falls through to the next budget; the last failure returns null.
+    }
   }
+
+  return null;
 }
 
 /** For pages: resolve the user id, or throw so the error boundary renders. */

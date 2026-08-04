@@ -238,6 +238,10 @@ enum IndicatorSource {
   /// Market-quoted data rather than a statistical release: the VIX today,
   /// and whatever else is priced continuously (oil, gold) if added later.
   MARKET
+  /// Statistics Bureau of Japan (Statistics Dashboard). Its own tier because
+  /// it is an official statistical agency like the OECD, but unlike the OECD
+  /// its refresh actually works — so it must count as a live source.
+  ESTAT
   MANUAL
   DERIVED
 }

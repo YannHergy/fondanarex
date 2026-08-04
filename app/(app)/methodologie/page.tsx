@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { Card, PageHeader } from "@/components/ui/card";
+import { ESTAT_API_NOTICE, ESTAT_CREDIT } from "@/domain/macro/estat";
 
 export const metadata: Metadata = { title: "Méthodologie" };
 
@@ -78,6 +79,32 @@ export default function MethodologyPage() {
             <span className="text-brand-red font-mono font-bold">&lt; 30</span> — Vente forte
           </li>
         </ul>
+      </Card>
+
+      {/* Attribution required by the Public Data License 1.0, under which the
+       * Statistics Bureau of Japan publishes the Tokyo CPI. Both sentences are
+       * mandated by the licence and must stay visible to readers — see
+       * domain/macro/estat.ts. */}
+      <Card className="p-6">
+        <h2 className="text-fg mb-2 text-xl font-bold">Sources</h2>
+        <ul className="text-muted space-y-2 text-sm">
+          <li>
+            <span className="text-fg font-semibold">FXMacroData</span> — taux directeurs,
+            inflation, PIB, chômage, balance commerciale, emploi et matières premières.
+          </li>
+          <li>
+            <span className="text-fg font-semibold">Yahoo Finance</span> — VIX (sentiment de
+            risque) et pétrole WTI.
+          </li>
+          <li>
+            <span className="text-fg font-semibold">OCDE</span> — PMI et indicateurs non
+            couverts ailleurs.
+          </li>
+          <li>
+            <span className="text-fg font-semibold">{ESTAT_CREDIT}</span> — CPI de Tokyo.
+          </li>
+        </ul>
+        <p className="text-subtle mt-4 text-xs leading-relaxed">{ESTAT_API_NOTICE}</p>
       </Card>
     </div>
   );

@@ -6,7 +6,7 @@
  * manual check" star so a stale number is visible instead of silently
  * looking as current as the ones that really are.
  */
-const LIVE_SOURCES = new Set(["FXMACRODATA", "FRED", "MARKET"]);
+const LIVE_SOURCES = new Set(["FXMACRODATA", "FRED", "MARKET", "ESTAT"]);
 
 /**
  * Whether an indicator needs manual attention.

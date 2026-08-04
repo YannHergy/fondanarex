@@ -8,6 +8,7 @@ import {
   isConfigured as fxMacroDataConfigured,
 } from "@/lib/integrations/fxmacrodata";
 import type { MonthlyReading } from "@/domain/macro/market-series";
+import { fetchTokyoCpi } from "@/lib/integrations/estat";
 import { fetchOil } from "@/lib/integrations/oil";
 import { fetchVix } from "@/lib/integrations/vix";
 import { prisma } from "@/lib/prisma";
@@ -135,13 +136,15 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   const asError = (error: unknown) =>
     error instanceof Error ? error : new Error(String(error));
 
-  const [oecdResults, fredResults, fxMacroResults, vixResult, oilResult] = await Promise.all([
-    fetchAllOecdData(options.oecdFields),
-    !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
-    fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
-    fetchVix().catch(asError),
-    fetchOil().catch(asError),
-  ]);
+  const [oecdResults, fredResults, fxMacroResults, vixResult, oilResult, tokyoCpiResult] =
+    await Promise.all([
+      fetchAllOecdData(options.oecdFields),
+      !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
+      fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
+      fetchVix().catch(asError),
+      fetchOil().catch(asError),
+      fetchTokyoCpi().catch(asError),
+    ]);
 
   // ── OECD: every currency ────────────────────────────────────────────────
   for (const dataset of oecdResults) {
@@ -371,6 +374,54 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
 
     const written = await writeRows(rows);
     sources.push({ source: "MARKET", label: series.label, written, error: null });
+  }
+
+  // ── Statistics Bureau of Japan: the Tokyo CPI ────────────────────────────
+  //
+  // 12% of the JPY profile, and the only source that carries it: FXMacroData
+  // has no slug for it and FRED's 230 Japanese CPI series are national only.
+  // Filed under OECD tier rather than MARKET — it is an official statistical
+  // release, not a quote — which also keeps it below FXMacroData should that
+  // ever start publishing one.
+  if (tokyoCpiResult instanceof Error) {
+    errors.push(`CPI Tokyo: ${tokyoCpiResult.message}`);
+    sources.push({
+      source: "ESTAT",
+      label: "CPI Tokyo",
+      written: 0,
+      error: tokyoCpiResult.message,
+    });
+  } else if (!known.has("JPY")) {
+    sources.push({ source: "ESTAT", label: "CPI Tokyo", written: 0, error: "JPY absent" });
+  } else {
+    const rows: PendingRow[] = [];
+    const end = periodEnd(tokyoCpiResult.period);
+    if (end) {
+      rows.push({
+        currencyCode: "JPY",
+        indicatorKey: "tokyoCpi",
+        value: tokyoCpiResult.current,
+        period: tokyoCpiResult.period,
+        periodEnd: end,
+        source: IndicatorSource.ESTAT,
+      });
+    }
+    if (tokyoCpiResult.previousPeriod) {
+      const priorEnd = periodEnd(tokyoCpiResult.previousPeriod);
+      if (priorEnd) {
+        rows.push({
+          currencyCode: "JPY",
+          indicatorKey: "tokyoCpi",
+          value: tokyoCpiResult.previous,
+          period: tokyoCpiResult.previousPeriod,
+          periodEnd: priorEnd,
+          source: IndicatorSource.ESTAT,
+        });
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "ESTAT", label: "CPI Tokyo", written, error: null });
   }
 
   const written = sources.reduce((sum, s) => sum + s.written, 0);

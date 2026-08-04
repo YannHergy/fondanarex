@@ -133,7 +133,7 @@ interface IndicatorRow {
  * Resolution is by SOURCE TIER FIRST, then by period — and that order is the
  * whole point:
  *
- *   FRED (1) > FXMACRODATA (2) > MARKET (3) > OECD (4) > DERIVED (5) > MANUAL (6)
+ *   FRED (1) > FXMACRODATA (2) > MARKET (3) > ESTAT (4) > OECD (5) > DERIVED (6) > MANUAL (7)
  *
  * MARKET is the VIX and anything else quoted continuously rather than
  * published on a calendar. It never competes with the others in practice —
@@ -182,9 +182,10 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
           WHEN 'FRED' THEN 1
           WHEN 'FXMACRODATA' THEN 2
           WHEN 'MARKET' THEN 3
-          WHEN 'OECD' THEN 4
-          WHEN 'DERIVED' THEN 5
-          ELSE 6
+          WHEN 'ESTAT' THEN 4
+          WHEN 'OECD' THEN 5
+          WHEN 'DERIVED' THEN 6
+          ELSE 7
         END AS tier
       FROM "IndicatorValue" v
     ),

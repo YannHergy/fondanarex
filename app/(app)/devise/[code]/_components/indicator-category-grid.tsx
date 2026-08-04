@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { getCurrencyProfile, indicatorKind } from "@/domain/data/currency-weights";
@@ -96,11 +97,19 @@ export function IndicatorCategoryGrid({
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
               const clickable = field && hasIndicatorHistory(field);
+              const manualCheck = needsManualCheck(field, currency.dataSources);
 
               const content = (
                 <>
                   <p className="text-subtle flex items-center justify-between gap-1 text-[10px] font-bold tracking-wide uppercase">
-                    {indicator.nom}
+                    <span className="flex items-center gap-1">
+                      {indicator.nom}
+                      {manualCheck ? (
+                        <span title={MANUAL_CHECK_TITLE} className="text-brand-amber shrink-0">
+                          ★
+                        </span>
+                      ) : null}
+                    </span>
                     {clickable ? <Icon name="show_chart" size={11} className="text-brand-blue shrink-0" /> : null}
                   </p>
                   <p

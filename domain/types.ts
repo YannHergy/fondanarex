@@ -97,6 +97,14 @@ export interface CurrencyData {
     lastUpdate: string;
     nextReleases: Record<string, string>;
     previousData: Record<string, number | string>;
+    /**
+     * CurrencyData field -> the IndicatorSource that produced its current
+     * value ("FXMACRODATA", "FRED", "OECD", "MANUAL", "DERIVED"). A field
+     * absent here has never been fetched at all. Lets the UI flag a value
+     * that is not backed by a live, automated source — see
+     * IndicatorCategoryGrid's "needs a manual check" star.
+     */
+    dataSources: Record<string, string>;
 }
 
 /** Score of a single indicator inside the weighted profile of a currency */

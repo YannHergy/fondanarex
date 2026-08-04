@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
+import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -309,9 +310,18 @@ export default async function CurrencyDetailPage({
             const previous = currency.previousData[field.key];
             const delta = typeof previous === "number" ? value - previous : null;
 
+            const manualCheck = needsManualCheck(field.key, currency.dataSources);
+
             return (
               <div key={field.key} className="border-border-app border-b py-2">
-                <p className="text-subtle text-[10px] tracking-wide uppercase">{field.label}</p>
+                <p className="text-subtle flex items-center gap-1 text-[10px] tracking-wide uppercase">
+                  {field.label}
+                  {manualCheck ? (
+                    <span title={MANUAL_CHECK_TITLE} className="text-brand-amber shrink-0">
+                      ★
+                    </span>
+                  ) : null}
+                </p>
                 <p className="text-fg tabular font-mono text-sm font-semibold">
                   {value.toFixed(2)}
                   {field.unit ? <span className="text-subtle ml-0.5">{field.unit}</span> : null}

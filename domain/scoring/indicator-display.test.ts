@@ -30,6 +30,7 @@ function makeCurrency(overrides: Partial<CurrencyData> = {}): CurrencyData {
         lastUpdate: '',
         nextReleases: {},
         previousData: {},
+        dataSources: {},
         ...overrides,
     };
 }

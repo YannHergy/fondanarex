@@ -121,6 +121,7 @@ interface IndicatorRow {
   value: string | number;
   periodEnd: Date;
   nextRelease: Date | null;
+  source: string;
   rn: number;
 }
 
@@ -201,7 +202,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         ) AS same_period_rank
       FROM in_tier i
     )
-    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", rn
+    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", "source", rn
     FROM (
       SELECT
         d."currencyCode",
@@ -209,6 +210,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         d."value",
         d."periodEnd",
         d."nextRelease",
+        d."source",
         ROW_NUMBER() OVER (
           PARTITION BY d."currencyCode", d."indicatorKey"
           ORDER BY d."periodEnd" DESC
@@ -274,12 +276,14 @@ export const getCurrencies = cache(
 
       const nextReleases: Record<string, string> = {};
       const previousData: Record<string, number | string> = {};
+      const dataSources: Record<string, string> = {};
       let lastUpdate = "";
 
       for (const [key, row] of current) {
         if (!isNumericField(key)) continue;
         data[key] = Number(row.value);
         if (row.nextRelease) nextReleases[key] = toIsoDate(row.nextRelease);
+        dataSources[key] = row.source;
         const periodEnd = toIsoDate(row.periodEnd);
         if (periodEnd > lastUpdate) lastUpdate = periodEnd;
       }
@@ -298,6 +302,7 @@ export const getCurrencies = cache(
       data.lastUpdate = lastUpdate;
       data.nextReleases = nextReleases;
       data.previousData = previousData;
+      data.dataSources = dataSources;
 
       result[currency.code] = data as unknown as CurrencyData;
     }

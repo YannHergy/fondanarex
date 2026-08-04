@@ -67,6 +67,20 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       { key: "consumerConfidence", status: "MISMATCH", reference: "-17" },
     ],
   },
+  CAD: {
+    checkedOn: "2026-08-04",
+    items: [
+      { key: "interestRate", status: "MATCH", reference: "2.25" },
+      { key: "cpi", status: "MATCH", reference: "2.8" },
+      { key: "tradeBalance", status: "MATCH", reference: "4240 M" },
+      { key: "unemployment", status: "MISMATCH", reference: "6.5" },
+      { key: "gdpQoQ", status: "MISMATCH", reference: "0" },
+      { key: "pmiManufacturing", status: "MISMATCH", reference: "53" },
+      { key: "retailSales", status: "MISMATCH", reference: "0.4" },
+      { key: "currentAccount", status: "MISMATCH", reference: "-7184 M" },
+      { key: "consumerConfidence", status: "MISMATCH", reference: "47.6" },
+    ],
+  },
   NZD: {
     checkedOn: "2026-08-04",
     items: [

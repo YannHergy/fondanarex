@@ -104,6 +104,23 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       { key: "consumerConfidence", status: "MISMATCH", reference: "47.6" },
     ],
   },
+  JPY: {
+    checkedOn: "2026-08-04",
+    items: [
+      { key: "interestRate", status: "MATCH", reference: "1" },
+      { key: "cpi", status: "MATCH", reference: "1.7" },
+      { key: "unemployment", status: "MATCH", reference: "2.5" },
+      // Le Japon publie son PIB en trimestriel brut, directement comparable
+      // (contrairement aux États-Unis) : 0.45 contre 0.5 arrondi par TE.
+      { key: "gdpQoQ", status: "MATCH", reference: "0.5" },
+      { key: "pmiManufacturing", status: "MISMATCH", reference: "54.5" },
+      { key: "pmiServices", status: "MISMATCH", reference: "51.9" },
+      { key: "retailSales", status: "MISMATCH", reference: "-4.1" },
+      { key: "tradeBalance", status: "MISMATCH", reference: "-407 Md¥" },
+      { key: "currentAccount", status: "MISMATCH", reference: "3968 Md¥" },
+      { key: "consumerConfidence", status: "MISMATCH", reference: "34.9" },
+    ],
+  },
   NZD: {
     checkedOn: "2026-08-04",
     items: [

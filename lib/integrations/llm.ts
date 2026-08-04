@@ -386,7 +386,13 @@ export async function callGroq(options: {
 
 // ── Perplexity (research round) ────────────────────────────────────────────
 
-const PERPLEXITY_MODEL = "sonar";
+/**
+ * `sonar-pro` rather than `sonar`: it searches more sources per query and
+ * returns longer, better-cited answers. The research round is the only place
+ * the briefing touches the live web, and the base model kept replying that it
+ * "could not find enough dated results" on half the currency groups.
+ */
+const PERPLEXITY_MODEL = "sonar-pro";
 
 export function perplexityConfigured(): boolean {
   return (process.env.PERPLEXITY_API_KEY ?? "").length > 0;

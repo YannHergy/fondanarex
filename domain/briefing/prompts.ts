@@ -97,17 +97,45 @@ function jsonInstruction(codes: readonly string[], withConviction = false): stri
     return `Réponds avec cet objet JSON :\n{\n  "summary": "synthèse en 3 phrases",\n${entries}\n}`;
 }
 
+/**
+ * Research brief for the online-search model.
+ *
+ * Deliberately asks for what our own database does NOT hold. The first version
+ * asked for "les dernières publications macro (inflation, emploi, croissance,
+ * PMI)" — which is exactly the set of figures the dashboards already track, so
+ * the research round came back restating our own numbers and added nothing to
+ * the debate.
+ *
+ * The chiffres are handed to Claude separately, in the analysis prompt. What is
+ * missing there, and what only a live search can supply, is everything AROUND
+ * the numbers: what officials actually said, what happened politically, what
+ * the market is positioned for, and whether a print surprised expectations.
+ */
 export function buildResearchPrompt(group: CurrencyGroup): string {
     return [
-        `Recherche macroéconomique sur ${group.label}.`,
-        `Contexte : ${group.theme}.`,
+        `Recherche d'actualité sur ${group.label} — ${group.theme}.`,
         '',
-        "Rapporte uniquement des FAITS récents et datés (moins de 30 jours) :",
-        '- dernières décisions et communications de banque centrale',
-        '- dernières publications macro (inflation, emploi, croissance, PMI)',
-        '- événements politiques ou commerciaux ayant un impact sur ces devises',
+        'Nous disposons DÉJÀ des chiffres macro (taux directeurs, inflation, PIB,',
+        'chômage, balance commerciale). Ne les redonne PAS : ils sont fournis',
+        "séparément à l'analyste.",
         '',
-        "N'exprime aucune opinion directionnelle et ne fais aucune prévision. Cite les dates.",
+        'Cherche en ligne ce que ces chiffres ne disent pas :',
+        '',
+        "1. PAROLE DES BANQUES CENTRALES — discours, minutes, auditions, votes",
+        "   dissidents, changements de ton. Ce qui a été DIT, pas le niveau du taux.",
+        '2. POLITIQUE ET COMMERCE — élections, budgets, tensions, tarifs, sanctions,',
+        '   accords, crises gouvernementales.',
+        "3. SURPRISES — publications sorties AU-DESSUS ou EN DESSOUS du consensus,",
+        "   et de combien. C'est l'écart aux attentes qui fait bouger un cours.",
+        '4. MARCHÉ — positionnement, flux, révisions de prévisions par les banques,',
+        '   narratif dominant du moment.',
+        '',
+        'Priorité aux deux dernières semaines, puis élargis si nécessaire.',
+        "Si tu ne trouves rien sur un axe, passe au suivant sans t'excuser : mieux",
+        'vaut trois faits solides que quatre rubriques creuses.',
+        '',
+        'Chaque fait doit porter sa DATE et sa source. Aucune opinion directionnelle,',
+        'aucune prévision personnelle — tu documentes, tu ne juges pas.',
     ].join('\n');
 }
 

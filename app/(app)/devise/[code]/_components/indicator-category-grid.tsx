@@ -78,13 +78,12 @@ export function IndicatorCategoryGrid({
     return { ...category, indicators };
   }).filter((category) => category.indicators.length > 0);
 
-  return (
-    <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-      {populated.map((category) => (
-        <Card key={category.key}>
-          <CardTitle icon={category.icon}>{category.label}</CardTitle>
-          <div className="space-y-2.5">
-            {category.indicators.map((indicator) => {
+  function renderCategory(category: (typeof populated)[number]) {
+    return (
+      <Card key={category.key}>
+        <CardTitle icon={category.icon}>{category.label}</CardTitle>
+        <div className="space-y-2.5">
+          {category.indicators.map((indicator) => {
               const kind = indicatorKind(indicator.id);
               const display = getIndicatorDisplay(
                 indicator.id,
@@ -158,9 +157,31 @@ export function IndicatorCategoryGrid({
                 </div>
               );
             })}
+        </div>
+      </Card>
+    );
+  }
+
+  // Two independent columns rather than a single CSS grid: a plain grid sizes
+  // each ROW to its tallest cell, so a short "Politique monétaire" card
+  // (2 indicators) would sit inside a cell as tall as its "Croissance &
+  // Activité" neighbour (5 indicators) and leave a dead gap below it before
+  // the next row could start. Splitting into columns that each stack their
+  // own cards means "Inflation & Prix" starts right under "Politique
+  // monétaire" instead of waiting for the taller column to finish.
+  const columns: Array<(typeof populated)[number][]> = [[], []];
+  populated.forEach((category, i) => columns[i % 2]!.push(category));
+
+  return (
+    <>
+      <div className="flex flex-col gap-4 sm:hidden">{populated.map(renderCategory)}</div>
+      <div className="hidden gap-4 sm:grid sm:grid-cols-2">
+        {columns.map((column, i) => (
+          <div key={i} className="flex flex-col gap-4">
+            {column.map(renderCategory)}
           </div>
-        </Card>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }

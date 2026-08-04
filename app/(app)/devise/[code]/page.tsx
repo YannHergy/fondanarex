@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { CheckDot } from "@/app/(app)/devise/[code]/_components/check-dot";
 import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
 import { EditableValue } from "@/app/(app)/devise/[code]/_components/editable-value";
+import { ScoreHistory } from "@/app/(app)/devise/[code]/_components/score-history";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
 import { MANUAL_CHECK_TITLE, needsManualCheck } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
@@ -259,6 +260,8 @@ export default async function CurrencyDetailPage({
           <IndicatorCategoryGrid currency={currency} marketContext={marketContext} />
         </div>
       </div>
+
+      <ScoreHistory code={currency.code} current={currency.scores.total} />
 
       {/* Full page width from here — kept OUTSIDE the 3-column grid above so
        * it is not squeezed into the same 2/3 as the category cards while the

@@ -1,7 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { recordScoresAndAlert } from "@/lib/alerts";
 import { refreshMacroData } from "@/lib/macro-refresh";
+import { currentUserId } from "@/lib/session";
 
 /**
  * Scheduled macro refresh.
@@ -64,10 +66,26 @@ export async function GET(request: NextRequest) {
       skipFred,
     });
 
+    // Snapshot the resulting scores. This is what builds the score history
+    // curve: without it ScoreSnapshot stays empty forever, which is exactly
+    // what happened until now — the manual refresh action recorded snapshots
+    // but this scheduled route never did, and every refresh so far came
+    // through here.
+    //
+    // Best-effort on purpose: a failure here must not discard the macro data
+    // that was just written successfully.
+    let alerts = 0;
+    try {
+      const userId = await currentUserId();
+      if (userId) alerts = (await recordScoresAndAlert(userId)).created;
+    } catch {
+      alerts = 0;
+    }
+
     // Every screen reads these values, so the whole tree is invalidated.
     revalidatePath("/", "layout");
 
-    return NextResponse.json(report, { status: report.written > 0 ? 200 : 502 });
+    return NextResponse.json({ ...report, alerts }, { status: report.written > 0 ? 200 : 502 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

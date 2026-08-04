@@ -7,6 +7,7 @@ import {
   fetchAllFxMacroCoreData,
   isConfigured as fxMacroDataConfigured,
 } from "@/lib/integrations/fxmacrodata";
+import { fetchVix } from "@/lib/integrations/vix";
 import { prisma } from "@/lib/prisma";
 import { IndicatorSource } from "@/lib/generated/prisma/enums";
 
@@ -126,10 +127,11 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   const errors: string[] = [];
 
   const known = await knownCurrencyCodes();
-  const [oecdResults, fredResults, fxMacroResults] = await Promise.all([
+  const [oecdResults, fredResults, fxMacroResults, vixResult] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
+    fetchVix().catch((error: unknown) => (error instanceof Error ? error : new Error(String(error)))),
   ]);
 
   // ── OECD: every currency ────────────────────────────────────────────────
@@ -287,6 +289,51 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
 
     const written = await writeRows(rows);
     sources.push({ source: "FXMACRODATA", label: dataset.label, written, error: dataset.error });
+  }
+
+  // ── VIX: the four currencies whose profile weights risk sentiment ───────
+  //
+  // One market-wide number, stored per currency because the scoring engine
+  // reads it off CurrencyData. The engine handles the direction itself: a
+  // high VIX is bullish for the safe havens (JPY, CHF) and bearish for the
+  // pro-cyclicals (AUD, NZD), so the SAME value is written to all four and
+  // riskOffFromVix + the safe-haven sign flip do the rest.
+  const RISK_CURRENCIES = ["AUD", "NZD", "JPY", "CHF"] as const;
+
+  if (vixResult instanceof Error) {
+    errors.push(`VIX: ${vixResult.message}`);
+    sources.push({ source: "VIX", label: "Sentiment risque", written: 0, error: vixResult.message });
+  } else {
+    const rows: PendingRow[] = [];
+    const end = periodEnd(vixResult.period);
+    const priorEnd = vixResult.previousPeriod ? periodEnd(vixResult.previousPeriod) : null;
+
+    for (const currencyCode of RISK_CURRENCIES) {
+      if (!known.has(currencyCode)) continue;
+      if (end) {
+        rows.push({
+          currencyCode,
+          indicatorKey: "riskSentiment",
+          value: vixResult.current,
+          period: vixResult.period,
+          periodEnd: end,
+          source: IndicatorSource.MARKET,
+        });
+      }
+      if (priorEnd && vixResult.previousPeriod) {
+        rows.push({
+          currencyCode,
+          indicatorKey: "riskSentiment",
+          value: vixResult.previous,
+          period: vixResult.previousPeriod,
+          periodEnd: priorEnd,
+          source: IndicatorSource.MARKET,
+        });
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "VIX", label: "Sentiment risque", written, error: null });
   }
 
   const written = sources.reduce((sum, s) => sum + s.written, 0);

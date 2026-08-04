@@ -131,7 +131,12 @@ interface IndicatorRow {
  * Resolution is by SOURCE TIER FIRST, then by period — and that order is the
  * whole point:
  *
- *   FRED (1) > FXMACRODATA (2) > OECD (3) > DERIVED (4) > MANUAL (5)
+ *   FRED (1) > FXMACRODATA (2) > MARKET (3) > OECD (4) > DERIVED (5) > MANUAL (6)
+ *
+ * MARKET is the VIX and anything else quoted continuously rather than
+ * published on a calendar. It never competes with the others in practice —
+ * no statistical agency publishes a `riskSentiment` — so its rank only
+ * matters as a tie-break that can never fire.
  *
  * FXMacroData outranks OECD, not the other way around, and that took a real
  * refresh run to discover: OECD answers 500 for most of its five datasets
@@ -174,9 +179,10 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         CASE v."source"
           WHEN 'FRED' THEN 1
           WHEN 'FXMACRODATA' THEN 2
-          WHEN 'OECD' THEN 3
-          WHEN 'DERIVED' THEN 4
-          ELSE 5
+          WHEN 'MARKET' THEN 3
+          WHEN 'OECD' THEN 4
+          WHEN 'DERIVED' THEN 5
+          ELSE 6
         END AS tier
       FROM "IndicatorValue" v
     ),

@@ -234,6 +234,9 @@ enum IndicatorSource {
   OECD
   FRED
   FXMACRODATA
+  /// Market-quoted data rather than a statistical release: the VIX today,
+  /// and whatever else is priced continuously (oil, gold) if added later.
+  MARKET
   MANUAL
   DERIVED
 }

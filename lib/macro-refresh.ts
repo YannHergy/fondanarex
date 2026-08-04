@@ -106,6 +106,19 @@ async function writeRows(rows: PendingRow[]): Promise<number> {
   return written;
 }
 
+/**
+ * An ISO timestamp or bare date to a real instant, or null.
+ *
+ * Separate from periodEnd() on purpose: that one maps a period LABEL
+ * ("2026-Q1") to the last day of the period, which is the right rule for a
+ * reference period and the wrong one for a publication moment.
+ */
+function parseInstant(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 /** Currencies that exist in the database, so a reading for an untracked area is dropped. */
 async function knownCurrencyCodes(): Promise<Set<string>> {
   const rows = await prisma.currency.findMany({ select: { code: true } });
@@ -279,7 +292,11 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         period: periodLabel(point.latestPeriod),
         periodEnd: end,
         source: IndicatorSource.FXMACRODATA,
-        nextRelease: point.nextRelease ? periodEnd(point.nextRelease) : null,
+        // Parsed as a full instant, not through periodEnd(): that helper
+        // resolves a period LABEL to the last day of the period, which would
+        // turn "2026-09-11T08:30:00-04:00" into a date at midnight and throw
+        // the release hour away.
+        nextRelease: parseInstant(point.nextRelease),
         sourceStale: point.stale,
       });
 

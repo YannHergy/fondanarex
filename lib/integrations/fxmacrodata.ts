@@ -532,13 +532,22 @@ async function fetchNextRelease(currency: CurrencyCode, field: string): Promise<
   const slug = HISTORY_SLUGS[field];
   if (!slug) return null;
 
-  const payload = await fxFetch<{ data?: Array<{ date: string; announcement_timing: string }> }>(
-    `/predictions/${currency.toLowerCase()}/${slug}`,
-    TTL.predictions,
-  );
+  const payload = await fxFetch<{
+    data?: Array<{
+      date: string;
+      announcement_timing: string;
+      announcement_datetime_local?: string;
+    }>;
+  }>(`/predictions/${currency.toLowerCase()}/${slug}`, TTL.predictions);
 
   const upcoming = (payload.data ?? []).find((d) => d.announcement_timing === "future");
-  return upcoming?.date ?? null;
+  if (!upcoming) return null;
+
+  // The full local timestamp when available ("2026-09-11T08:30:00-04:00"),
+  // because the release HOUR is what an economic calendar is read for. The
+  // bare date is only a fallback — it lands at midnight, which is never a real
+  // publication time and is displayed as "heure inconnue" rather than 00:00.
+  return upcoming.announcement_datetime_local ?? upcoming.date;
 }
 
 export interface FxMacroCoreResult {

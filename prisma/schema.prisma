@@ -262,8 +262,13 @@ model IndicatorValue {
   period      String    @db.VarChar(8)
   /// Resolved period end, for ordering and range queries
   periodEnd   DateTime  @db.Date
-  /// Computed next publication date (computeNextRelease in unifiedDataService)
-  nextRelease DateTime? @db.Date
+  /// Next publication, date AND time.
+  ///
+  /// A timestamp rather than a date: the release hour is what an economic
+  /// calendar is read for — an 08:30 print and a 14:00 one are different
+  /// trading events on the same day. FXMacroData supplies it in
+  /// `announcement_datetime_local`; storing @db.Date silently discarded it.
+  nextRelease DateTime?
 
   /// The upstream provider itself reports this reading as out of date.
   /// FXMacroData exposes `data_quality.is_stale`, computed against each

@@ -51,7 +51,7 @@ export function Sidebar({
   return (
     <div
       className={cn(
-        "bg-nav-bg border-nav-border fixed top-0 left-0 z-50 flex h-dvh flex-col border-r transition-all duration-200",
+        "bg-surface border-border-app fixed top-0 left-0 z-50 flex h-dvh flex-col border-r transition-all duration-200",
         optimisticCollapsed ? "w-14" : "w-14 md:w-56",
       )}
     >
@@ -61,18 +61,18 @@ export function Sidebar({
         title={optimisticCollapsed ? "Agrandir le menu" : "Réduire le menu"}
         aria-label={optimisticCollapsed ? "Agrandir le menu" : "Réduire le menu"}
         aria-expanded={!optimisticCollapsed}
-        className="bg-nav-bg border-nav-border text-nav-subtle hover:text-brand-blue hover:border-brand-blue/50 absolute top-16 -right-3 z-10 hidden h-6 w-6 items-center justify-center rounded-full border transition-all md:flex"
+        className="bg-surface border-border-app text-subtle hover:text-brand-blue hover:border-brand-blue/50 absolute top-16 -right-3 z-10 hidden h-6 w-6 items-center justify-center rounded-full border transition-all md:flex"
       >
         <Icon name={optimisticCollapsed ? "chevron_right" : "chevron_left"} size={14} />
       </button>
 
-      <div className="border-nav-border flex h-14 items-center gap-3 border-b px-4">
+      <div className="border-border-app flex h-14 items-center gap-3 border-b px-4">
         <div className="bg-brand-blue flex h-6 w-6 shrink-0 items-center justify-center rounded-sm">
           <span className="font-mono text-xs font-bold text-white">F</span>
         </div>
         <div className={labelClass}>
-          <p className="text-nav-fg text-sm leading-none font-semibold tracking-tight">Fondanarex</p>
-          <p className="text-nav-subtle mt-0.5 font-mono text-[9px] tracking-widest uppercase">
+          <p className="text-fg text-sm leading-none font-semibold tracking-tight">Fondanarex</p>
+          <p className="text-subtle mt-0.5 font-mono text-[9px] tracking-widest uppercase">
             Macro Terminal
           </p>
         </div>
@@ -93,7 +93,7 @@ export function Sidebar({
                 "group relative flex w-full items-center gap-3 rounded border-l-2 px-3 py-2.5 text-left transition-all duration-100",
                 active
                   ? "bg-brand-blue/10 text-brand-blue border-brand-blue"
-                  : "text-nav-muted hover:bg-nav-panel hover:text-nav-fg border-transparent",
+                  : "text-muted hover:bg-panel hover:text-fg border-transparent",
               )}
             >
               <Icon name={item.icon} size={16} filled={active} className="shrink-0" />
@@ -125,7 +125,7 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="border-nav-border space-y-0.5 border-t p-2">
+      <div className="border-border-app space-y-0.5 border-t p-2">
         {/* Mounted once in the shell, so every screen re-reads its server data
          * on an interval without a manual reload. */}
         <div className={cn("flex justify-center py-1.5", optimisticCollapsed && "px-0")}>
@@ -135,7 +135,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={toggleTheme}
-          className="text-nav-muted hover:text-nav-fg hover:bg-nav-panel flex w-full items-center justify-center gap-2 rounded p-2.5 text-xs transition-all"
+          className="text-muted hover:text-fg hover:bg-panel flex w-full items-center justify-center gap-2 rounded p-2.5 text-xs transition-all"
         >
           <Icon name={optimisticTheme === "dark" ? "light_mode" : "dark_mode"} size={14} />
           <span className={cn(labelClass, "tracking-wide")}>

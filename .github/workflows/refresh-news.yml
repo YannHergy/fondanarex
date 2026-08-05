@@ -1,0 +1,73 @@
+name: Refresh news
+
+# WHY EVERY FOUR HOURS, measured rather than assumed.
+#
+# The FXStreet /news feed holds THIRTY items. On an ordinary Wednesday it
+# publishes one article every 20 minutes, so those thirty cover 9.5 hours —
+# after which the thirty-first pushes the first out for good. An RSS feed has
+# no archive: an article missed is an article lost.
+#
+# On an NFP or a central-bank day the rate doubles or triples and that window
+# falls to four or five hours, which is exactly when the news matters. Four
+# hours keeps a 2x margin on a quiet day and stays inside the window on a busy
+# one. Going hourly would find three new headlines and quadruple the calls to a
+# free service for nothing.
+#
+# The /analysis feed rolls over in nine days and would be happy with a daily
+# run, but it rides along in the same request; splitting it would add moving
+# parts for no gain.
+#
+# Requires two repository secrets (Settings -> Secrets and variables -> Actions):
+#   SITE_URL      https://your-site.netlify.app
+#   CRON_SECRET   the same value as the CRON_SECRET environment variable
+
+on:
+  schedule:
+    # 00:05, 04:05, 08:05, 12:05, 16:05, 20:05 UTC. Five past, because the top
+    # of the hour is when every scheduled job on the platform fires at once.
+    - cron: "5 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      gdelt:
+        description: "Also pull GDELT (slow: one request every 5 seconds)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two refreshes overlapping would race on the same unique index and double
+  # the load on free upstreams for identical rows.
+  group: refresh-news
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull the feeds
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FORCE_GDELT: ${{ inputs.gdelt }}
+        run: |
+          set -u
+          if [ -z "${SITE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "SITE_URL or CRON_SECRET is not set — configure the repository secrets."
+            exit 1
+          fi
+
+          # GDELT only on the midnight run. It enforces one request every five
+          # seconds, so a full pass costs about twenty; and it exists to fill
+          # gaps on the quiet currencies, which do not move between breakfast
+          # and lunch.
+          hour=$(date -u +%H)
+          gdelt=0
+          if [ "$hour" = "00" ] || [ "${FORCE_GDELT:-false}" = "true" ]; then
+            gdelt=1
+            echo "Including GDELT on this run."
+          fi
+
+          # --fail-with-body so a non-2xx is an error but the body still prints;
+          # without it a 401 from a rotated secret reads exactly like success.
+          curl --silent --show-error --fail-with-body --max-time 300 \
+            "$SITE_URL/api/cron/refresh-news?secret=$CRON_SECRET&gdelt=$gdelt"
+          echo

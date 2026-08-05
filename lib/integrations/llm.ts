@@ -473,6 +473,106 @@ export async function callPerplexity(options: {
   }
 }
 
+// ── Gemini ─────────────────────────────────────────────────────────────────
+
+/**
+ * Google's free tier covers this workload outright: 1 500 requests a day
+ * against a journal analysis run a few times a week. Chosen over a paid
+ * provider for that reason alone — at ~2k in / 1.2k out per call the token
+ * price of every candidate rounded to under half a dollar a month, so entry
+ * cost was the only real difference.
+ *
+ * `gemini-2.5-flash` is deliberately NOT the default: Google has closed it to
+ * new API keys, and it answers with an error rather than a fallback.
+ */
+const GEMINI_MODEL = "gemini-3.5-flash";
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+
+export function geminiConfigured(): boolean {
+  return (process.env.GEMINI_API_KEY ?? "").length > 0;
+}
+
+/**
+ * Structured Gemini call against a response schema.
+ *
+ * Mirrors `callClaudeStructured`: the schema is enforced by the API and the
+ * Zod pass afterwards proves the parsed value matches what the CALLER expects,
+ * so a schema drifting from a type is a caught error rather than a surprise at
+ * render time.
+ */
+export async function callGeminiStructured<T>(options: {
+  system: string;
+  prompt: string;
+  schema: object;
+  validate: (value: unknown) => T | null;
+  maxTokens?: number;
+}): Promise<{ data: T | null; error: string | null; inputTokens: number; outputTokens: number }> {
+  const empty = { inputTokens: 0, outputTokens: 0 };
+
+  if (!geminiConfigured()) {
+    return { data: null, error: "GEMINI_API_KEY absente", ...empty };
+  }
+
+  try {
+    const response = await fetch(`${GEMINI_URL}/${GEMINI_MODEL}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY ?? "",
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: options.system }] },
+        contents: [{ role: "user", parts: [{ text: options.prompt }] }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: options.maxTokens ?? 8000,
+          responseMimeType: "application/json",
+          responseSchema: options.schema,
+        },
+      }),
+    });
+
+    const payload = (await response.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      error?: { message?: string };
+    };
+
+    const usage = {
+      inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
+    };
+
+    if (!response.ok || payload.error) {
+      return { data: null, error: payload.error?.message ?? `HTTP ${response.status}`, ...usage };
+    }
+
+    const candidate = payload.candidates?.[0];
+    // MAX_TOKENS truncates mid-JSON, which then fails to parse for a reason the
+    // caller could not otherwise diagnose.
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      return { data: null, error: "Réponse tronquée (maxOutputTokens)", ...usage };
+    }
+
+    const text = (candidate?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+    if (!text.trim()) return { data: null, error: "Réponse vide", ...usage };
+
+    const parsed = extractJson(text);
+    if (!parsed) return { data: null, error: "Réponse illisible", ...usage };
+
+    const data = options.validate(parsed);
+    return data
+      ? { data, error: null, ...usage }
+      : { data: null, error: "Réponse hors schéma", ...usage };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Erreur Gemini",
+      ...empty,
+    };
+  }
+}
+
 /** Cost of a Claude call in USD. Only Anthropic pricing is tracked. */
 export function claudeCostUsd(inputTokens: number | null, outputTokens: number | null): number {
   const input = ((inputTokens ?? 0) / 1_000_000) * CLAUDE_PRICING.input;

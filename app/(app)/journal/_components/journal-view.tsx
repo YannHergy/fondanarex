@@ -10,6 +10,7 @@ import {
   removeTrade,
   uploadTradeScreenshot,
 } from "@/app/(app)/journal/actions";
+import { AiCoach } from "@/app/(app)/journal/_components/ai-coach";
 import { EquityCurve } from "@/app/(app)/journal/_components/equity-curve";
 import { ImportMt5 } from "@/app/(app)/journal/_components/import-mt5";
 import { Card, PageHeader } from "@/components/ui/card";
@@ -43,7 +44,7 @@ const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
  * the filter bar and the stat row above stay put while this switches, so a
  * number cannot change meaning just because the shape below it did.
  */
-type Tab = "list" | "calendar" | "equity";
+type Tab = "list" | "calendar" | "equity" | "coach";
 
 export function JournalView({
   trades,
@@ -81,6 +82,22 @@ export function JournalView({
   // Stats follow the filters: the figures describe the list you are looking at,
   // not a global total that ignores what you selected.
   const stats = useMemo(() => journalStats(visible), [visible]);
+
+  // Spelled out for the AI analysis, which would otherwise describe "the
+  // journal" while looking at a single pair over one week.
+  const periodLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (filters.period === "week") parts.push("cette semaine");
+    else if (filters.period === "month") parts.push("ce mois");
+    else parts.push("toute la période");
+
+    if (filters.instrument) parts.push(`paire ${filters.instrument}`);
+    if (filters.strategy) parts.push(`stratégie ${filters.strategy}`);
+    if (filters.session) parts.push(`session ${filters.session}`);
+    if (filters.result && filters.result !== "all") parts.push(`résultat : ${filters.result}`);
+
+    return parts.join(", ");
+  }, [filters]);
 
   const calendar = useMemo(
     () => monthCalendar(month.getUTCFullYear(), month.getUTCMonth(), tradesByDay(trades)),
@@ -132,6 +149,7 @@ export function JournalView({
               { id: "list", label: "Liste", icon: "list" },
               { id: "calendar", label: "Calendrier", icon: "calendar_month" },
               { id: "equity", label: "Évolution du compte", icon: "show_chart" },
+              { id: "coach", label: "Analyse IA", icon: "psychology" },
             ] as const
           ).map((entry) => (
             <button
@@ -254,7 +272,9 @@ export function JournalView({
 
       <Card>
         {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
-        {tab === "equity" ? (
+        {tab === "coach" ? (
+          <AiCoach trades={visible} periodLabel={periodLabel} />
+        ) : tab === "equity" ? (
           <EquityCurve trades={visible} accounts={accounts} />
         ) : tab === "list" ? (
           visible.length === 0 ? (

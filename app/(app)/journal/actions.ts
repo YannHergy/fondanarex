@@ -3,14 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { analyseJournal, type JournalAnalytics } from "@/domain/journal/analytics";
+import {
+  buildCoachPrompt,
+  COACH_SCHEMA,
+  COACH_SYSTEM,
+  validateCoachVerdict,
+  type CoachVerdict,
+} from "@/domain/journal/coach-prompt";
 import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain/journal/filters";
 import { Mt5ParseError } from "@/domain/journal/mt5-report";
 import { attachTo, removeAttachment } from "@/lib/attachments";
+import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
 import { importMt5Report, type ImportSummary } from "@/lib/journal-import";
 import {
   addStrategy,
   createTrade,
   deleteTrade,
+  listTradesForAnalysis,
   removeStrategy,
   updateTrade,
   type TradeInput,
@@ -205,6 +215,72 @@ export async function importMt5(
     if (error instanceof Mt5ParseError) return { ok: false, error: error.message };
     return { ok: false, error: "Lecture du rapport impossible" };
   }
+}
+
+/**
+ * Behavioural analysis of the journal.
+ *
+ * The maths never leave the machine: `analyseJournal` computes every figure
+ * under test, and the model receives that result as text. It is asked to
+ * interpret, never to derive — a model that computes a win rate can return a
+ * different one on a second run with nothing in the output to show it.
+ *
+ * Takes the trade ids currently visible so the analysis matches what the user
+ * is looking at. Passing the filters themselves would mean reimplementing them
+ * server-side and risking a drift between the two.
+ */
+export async function analyseJournalWithAi(input: {
+  tradeIds: string[];
+  periodLabel: string;
+}): Promise<
+  | { ok: true; verdict: CoachVerdict; analytics: JournalAnalytics; tokens: number }
+  | { ok: false; error: string }
+> {
+  const userId = await requireUserIdOrThrow();
+
+  const parsed = z
+    .object({
+      tradeIds: z.array(z.string().min(1)).min(1).max(2000),
+      periodLabel: z.string().min(1).max(120),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Requête invalide" };
+
+  if (!geminiConfigured()) {
+    return { ok: false, error: "Aucune clé Gemini configurée (GEMINI_API_KEY)." };
+  }
+
+  const trades = await listTradesForAnalysis(userId, parsed.data.tradeIds);
+  const closed = trades.filter((trade) => trade.closedAt !== null && trade.pnl !== null);
+
+  // Below a handful of trades every breakdown is one or two rows deep, and the
+  // model would dress coincidence as a habit however firmly the prompt warns it.
+  if (closed.length < 5) {
+    return {
+      ok: false,
+      error: `Il faut au moins 5 trades clôturés pour une analyse qui tienne (${closed.length} pour l'instant).`,
+    };
+  }
+
+  const analytics = analyseJournal(trades);
+
+  const result = await callGeminiStructured({
+    system: COACH_SYSTEM,
+    prompt: buildCoachPrompt(analytics, parsed.data.periodLabel),
+    schema: COACH_SCHEMA as unknown as object,
+    validate: validateCoachVerdict,
+  });
+
+  if (!result.data) {
+    return { ok: false, error: result.error ?? "Analyse indisponible" };
+  }
+
+  return {
+    ok: true,
+    verdict: result.data,
+    analytics,
+    tokens: result.inputTokens + result.outputTokens,
+  };
 }
 
 export async function uploadTradeScreenshot(

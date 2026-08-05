@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { AnalysedTrade } from "@/domain/journal/analytics";
 import type { JournalTrade, TradeOrigin } from "@/domain/journal/filters";
 import { netPnl, tradePips, tradePnl } from "@/domain/journal/trade-math";
 import type { InstrumentSpec } from "@/domain/risk/position";
@@ -297,6 +298,49 @@ export async function recomputeDerived(
   }
 
   return { updated };
+}
+
+/**
+ * Trades for the behavioural analysis, by id.
+ *
+ * Reads the instrument's pip size alongside each trade: the stop distance is
+ * stored as a PRICE, and turning it into the risk-in-pips the R multiple needs
+ * is impossible without it. Joining here keeps the domain free of I/O.
+ *
+ * Scoped by owner, so ids belonging to someone else simply do not come back.
+ */
+export async function listTradesForAnalysis(
+  userId: string,
+  tradeIds: readonly string[],
+): Promise<AnalysedTrade[]> {
+  const trades = await prisma.trade.findMany({
+    where: { userId, id: { in: [...tradeIds] } },
+    select: {
+      instrument: true,
+      direction: true,
+      openedAt: true,
+      closedAt: true,
+      entryPrice: true,
+      stopLoss: true,
+      lotSize: true,
+      pips: true,
+      pnl: true,
+      instrumentRef: { select: { pipSize: true } },
+    },
+  });
+
+  return trades.map((trade) => ({
+    instrument: trade.instrument,
+    direction: trade.direction === Direction.SELL ? "Sell" : "Buy",
+    openedAt: trade.openedAt,
+    closedAt: trade.closedAt,
+    entryPrice: num(trade.entryPrice),
+    stopLoss: nullableNum(trade.stopLoss),
+    lotSize: num(trade.lotSize),
+    pips: nullableNum(trade.pips),
+    pnl: nullableNum(trade.pnl),
+    pipSize: Number(trade.instrumentRef.pipSize),
+  }));
 }
 
 /** Strategy names: the built-in set plus whatever the user has added. */

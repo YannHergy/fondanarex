@@ -4,7 +4,11 @@ import { useState, useTransition } from "react";
 
 import { deepStatsWithAi } from "@/app/(app)/journal/actions";
 import { Icon } from "@/components/ui/icon";
-import { MIN_TRADES_FOR_DEEP_STATS, type DeepStats } from "@/domain/journal/deep-stats";
+import {
+  MIN_TRADES_FOR_DEEP_STATS,
+  RELIABLE_SAMPLE_SIZE,
+  type DeepStats,
+} from "@/domain/journal/deep-stats";
 import type { QuantVerdict } from "@/domain/journal/quant-prompt";
 import type { TradeRow } from "@/lib/journal";
 import { cn } from "@/lib/utils";
@@ -62,7 +66,8 @@ export function DeepStatsView({
           Encore {missing} trade{missing > 1 ? "s" : ""} avant de débloquer
         </p>
         <p className="text-muted mx-auto mt-2 max-w-md text-xs leading-relaxed">
-          Cette analyse demande <strong>{MIN_TRADES_FOR_DEEP_STATS} trades clôturés</strong>. En
+          Cette analyse demande <strong>{MIN_TRADES_FOR_DEEP_STATS} trades clôturés</strong> au
+          minimum, et ne devient vraiment fiable qu&apos;à partir de {RELIABLE_SAMPLE_SIZE}. En
           dessous, un ratio de Sharpe ou un Monte-Carlo ne sont pas seulement imprécis : ils
           produisent un chiffre d&apos;apparence solide qui ne décrit que du bruit.
         </p>
@@ -101,6 +106,25 @@ export function DeepStatsView({
           <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
           {error}
         </p>
+      ) : null}
+
+      {/*
+        Sous 30 trades l'analyse tourne, mais le chiffre ne doit jamais arriver
+        seul : un Sharpe sur 26 trades s'affiche avec deux décimales et paraît
+        aussi solide qu'un Sharpe sur 260. Seul le nombre d'observations les
+        distingue, il voyage donc avec eux.
+      */}
+      {closed.length < RELIABLE_SAMPLE_SIZE ? (
+        <div className="border-brand-amber/40 bg-brand-amber/10 mb-4 flex items-start gap-2 rounded-lg border p-3">
+          <Icon name="info" size={14} className="text-brand-amber mt-0.5 shrink-0" />
+          <p className="text-muted text-xs leading-relaxed">
+            <strong className="text-brand-amber">Échantillon de {closed.length} trades.</strong> Ces
+            mesures ne deviennent fiables qu&apos;à partir de {RELIABLE_SAMPLE_SIZE}. Le SQN, les
+            ratios de Sharpe et de Sortino et la VaR à 99 % sont les plus sensibles : un seul trade
+            exceptionnel les déplace fortement. Lis-les comme des tendances, pas comme des
+            conclusions.
+          </p>
+        </div>
       ) : null}
 
       {stats ? <Numbers stats={stats} /> : null}

@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeDeepStats, MIN_TRADES_FOR_DEEP_STATS, type StatTrade } from './deep-stats';
+import {
+    computeDeepStats,
+    MIN_TRADES_FOR_DEEP_STATS,
+    RELIABLE_SAMPLE_SIZE,
+    type StatTrade,
+} from './deep-stats';
 
+const ORIGIN = Date.UTC(2026, 2, 2, 8, 0, 0);
+let sequence = 0;
+
+/** Each fixture closes an hour after the previous, so order is unambiguous. */
 function trade(pnl: number, extra: Partial<StatTrade> = {}): StatTrade {
+    sequence += 1;
     return {
+        closedAt: new Date(ORIGIN + sequence * 3_600_000),
         direction: 'Buy',
         entryPrice: 1.1,
         exitPrice: pnl >= 0 ? 1.102 : 1.098,
@@ -22,9 +33,41 @@ function series(values: number[]): StatTrade[] {
     return values.map((value) => trade(value));
 }
 
-describe('MIN_TRADES_FOR_DEEP_STATS', () => {
-    it('is 30, the gate the analysis is only meaningful above', () => {
-        expect(MIN_TRADES_FOR_DEEP_STATS).toBe(30);
+describe('thresholds', () => {
+    it('refuses below 20 and flags anything under 30 as thin', () => {
+        // Two distinct gates on purpose: 20 is where the analysis is allowed to
+        // run at all, 30 is where its figures stop being indicative. Collapsing
+        // them into one number would either block a user who wants to look, or
+        // let a Sharpe on 22 trades print as though it were established.
+        expect(MIN_TRADES_FOR_DEEP_STATS).toBe(20);
+        expect(RELIABLE_SAMPLE_SIZE).toBe(30);
+        expect(MIN_TRADES_FOR_DEEP_STATS).toBeLessThan(RELIABLE_SAMPLE_SIZE);
+    });
+});
+
+describe('input ordering', () => {
+    it('sorts by close date, so the caller cannot change the answer', () => {
+        const chronological = series([100, 100, 100, -100, -100, 150, 150]);
+        const shuffled = [
+            chronological[4]!, chronological[0]!, chronological[6]!, chronological[2]!,
+            chronological[5]!, chronological[1]!, chronological[3]!,
+        ];
+
+        // The bug this guards: the query feeding this had no ORDER BY, so the
+        // database returned rows however it liked and every sequence-dependent
+        // figure — drawdown, its duration, the outcome autocorrelation —
+        // described that arbitrary order rather than the account's history.
+        expect(computeDeepStats(shuffled)).toEqual(computeDeepStats(chronological));
+        expect(computeDeepStats(shuffled).maxDrawdown).toBe(200);
+    });
+
+    it('drops trades that never closed, which have no place in a sequence', () => {
+        const stats = computeDeepStats([
+            trade(100),
+            { ...trade(0), closedAt: null, pnl: null },
+        ]);
+
+        expect(stats.trades).toBe(1);
     });
 });
 

@@ -315,6 +315,9 @@ export async function listTradesForAnalysis(
 ): Promise<AnalysedTrade[]> {
   const trades = await prisma.trade.findMany({
     where: { userId, id: { in: [...tradeIds] } },
+    // Ordre explicite : sans lui la base rend les lignes comme elle veut, et
+    // les mesures dependantes de la sequence decrivent cet ordre arbitraire.
+    orderBy: { closedAt: "asc" },
     select: {
       instrument: true,
       direction: true,

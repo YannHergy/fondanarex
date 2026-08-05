@@ -3,8 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { computeDeepStats, type StatTrade } from './deep-stats';
 import { buildQuantPrompt, QUANT_SYSTEM, validateQuantVerdict } from './quant-prompt';
 
+const ORIGIN = Date.UTC(2026, 2, 2, 8, 0, 0);
+let sequence = 0;
+
 function trade(pnl: number, extra: Partial<StatTrade> = {}): StatTrade {
+    sequence += 1;
     return {
+        closedAt: new Date(ORIGIN + sequence * 3_600_000),
         direction: 'Buy',
         entryPrice: 1.1,
         exitPrice: pnl >= 0 ? 1.102 : 1.098,
@@ -83,6 +88,18 @@ describe('buildQuantPrompt', () => {
 
     it('names the period so the model does not describe the wrong window', () => {
         expect(prompt).toContain('Période : toute la période');
+    });
+
+    it('warns the model when the sample is thin, and stays quiet when it is not', () => {
+        const thin = buildQuantPrompt(computeDeepStats(Array.from({ length: 22 }, (_, i) => trade(i % 3 === 0 ? 180 : -55))), 'test');
+        const thick = buildQuantPrompt(computeDeepStats(Array.from({ length: 40 }, (_, i) => trade(i % 3 === 0 ? 180 : -55))), 'test');
+
+        // The model reads the same two-decimal figures either way; only this
+        // block tells it how many observations produced them.
+        expect(thin).toMatch(/AVERTISSEMENT D'ÉCHANTILLON/);
+        expect(thin).toMatch(/22 trades seulement/);
+        expect(thin).toMatch(/tendances, jamais des conclusions/);
+        expect(thick).not.toMatch(/AVERTISSEMENT D'ÉCHANTILLON/);
     });
 });
 

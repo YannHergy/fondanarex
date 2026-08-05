@@ -23,6 +23,16 @@
 // ================================================================
 
 export interface StatTrade {
+    /**
+     * When the result was realised.
+     *
+     * Required, and not decoration: drawdown, its duration and the outcome
+     * autocorrelation are all sequence-dependent, so this module sorts by it
+     * before measuring anything. An earlier version took the array as given
+     * and the caller's query carried no ORDER BY, which meant those figures
+     * described whatever order the database happened to return.
+     */
+    closedAt: Date | null;
     direction: 'Buy' | 'Sell';
     entryPrice: number;
     exitPrice: number | null;
@@ -97,8 +107,24 @@ export interface DeepStats {
     targetEfficiencySample: number;
 }
 
-/** Below this the figures describe noise, however confidently they print. */
-export const MIN_TRADES_FOR_DEEP_STATS = 30;
+/**
+ * Below this the analysis is refused outright.
+ *
+ * Set to 20 at the user's explicit request, having been told 30 is where these
+ * measures start meaning something. That is their call to make — but the gap
+ * is not swallowed silently: between the two thresholds every figure ships
+ * with a reliability warning, on screen and in the prompt.
+ */
+export const MIN_TRADES_FOR_DEEP_STATS = 20;
+
+/**
+ * Below this the figures are indicative rather than established.
+ *
+ * A Sharpe ratio or a reshuffled Monte-Carlo on 25 trades prints to two
+ * decimals and looks exactly as authoritative as one on 250. The number of
+ * observations is the only thing that separates them, so it travels with them.
+ */
+export const RELIABLE_SAMPLE_SIZE = 30;
 
 const MONTE_CARLO_ITERATIONS = 5000;
 const MONTE_CARLO_SEED = 0x9e3779b9;
@@ -288,7 +314,13 @@ function autocorrelationOf(results: readonly number[]): Autocorrelation {
 }
 
 export function computeDeepStats(trades: readonly StatTrade[]): DeepStats {
-    const closed = trades.filter((trade) => trade.pnl !== null);
+    // Sorted HERE rather than trusted from the caller. Ordering by close date
+    // makes the sequence the one the account balance actually followed, which
+    // is what a drawdown and an autocorrelation are about.
+    const closed = trades
+        .filter((trade) => trade.pnl !== null && trade.closedAt !== null)
+        .sort((a, b) => (a.closedAt as Date).getTime() - (b.closedAt as Date).getTime());
+
     const results = closed.map((trade) => trade.pnl as number);
 
     const rs = closed.map(rMultiple).filter((value): value is number => value !== null);

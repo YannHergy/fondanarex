@@ -13,7 +13,7 @@
 // Pure — no I/O.
 // ================================================================
 
-import type { DeepStats } from './deep-stats';
+import { RELIABLE_SAMPLE_SIZE, type DeepStats } from './deep-stats';
 
 export interface QuantBlock {
     /** The measure's name, as the trader will see it. */
@@ -97,7 +97,21 @@ export function buildQuantPrompt(stats: DeepStats, periodLabel: string): string 
     const mc = s.monteCarlo;
     const ac = s.autocorrelation;
 
+    // A thin sample is stated up front rather than left to the model's own
+    // judgement. It reads the same two-decimal figures either way, and nothing
+    // in them signals how many observations produced them.
+    const thin =
+        s.trades < RELIABLE_SAMPLE_SIZE
+            ? `\nAVERTISSEMENT D'ÉCHANTILLON — À RÉPÉTER DANS TA RÉPONSE
+Ces chiffres reposent sur ${s.trades} trades seulement, sous le seuil de ${RELIABLE_SAMPLE_SIZE}
+à partir duquel ces mesures deviennent fiables. Le SQN, les ratios de Sharpe et de
+Sortino et la VaR à 99 % sont particulièrement sensibles à la taille de l'échantillon :
+un seul trade exceptionnel les déplace fortement. Tu dois le dire dans la synthèse ET
+dans la lecture de chaque bloc concerné. Formule des tendances, jamais des conclusions.\n`
+            : '';
+
     return `Statistiques déjà calculées sur ${s.trades} trades clôturés. Période : ${periodLabel}.
+${thin}
 
 1. ESPÉRANCE ET QUALITÉ DU SYSTÈME
 - Espérance par trade (devise du compte) : ${s.expectancy}

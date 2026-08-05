@@ -164,16 +164,24 @@ function parseGdeltDate(raw: string | undefined): Date | null {
 /**
  * GDELT, used only to fill gaps.
  *
- * No key, no quota — but ONE REQUEST EVERY FIVE SECONDS, enforced, and it
- * answers with a plain-text scolding rather than an error code. Hence the
- * deliberate spacing below and the per-currency loop: this is called from a
- * scheduled refresh where twenty seconds cost nothing, never from a page.
+ * No key, no quota — but a rate limit it enforces by answering with a
+ * plain-text scolding rather than an error code, so a throttled call looks
+ * like an empty result unless you read the body.
+ *
+ * MEASURED: the documented "one request every five seconds" is optimistic.
+ * Spacing at 5.5s still came back throttled, so this waits 11. A full pass
+ * therefore costs about 45 seconds, which is why it only ever runs from the
+ * scheduled refresh and never from a page.
+ *
+ * Honest note on value: FXStreet already covers all eight currencies on its
+ * own, so this fills a gap that has not appeared yet. It is kept for the days
+ * a quiet currency goes unmentioned, not because anything depends on it.
  */
 export async function fetchGdelt(currencies: readonly string[]): Promise<FetchedArticle[]> {
   const out: FetchedArticle[] = [];
 
   for (const [index, code] of currencies.entries()) {
-    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 5_500));
+    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 11_000));
 
     const terms = (CURRENCY_TERMS[code] ?? [])
       .filter((term): term is string => typeof term === "string" && term.includes(" "))

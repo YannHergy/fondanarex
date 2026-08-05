@@ -36,7 +36,14 @@ import { cn } from "@/lib/utils";
 
 const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
-type Tab = "list" | "calendar";
+/**
+ * The journal's views.
+ *
+ * A view is a way of reading the SAME filtered set, never a different subset —
+ * the filter bar and the stat row above stay put while this switches, so a
+ * number cannot change meaning just because the shape below it did.
+ */
+type Tab = "list" | "calendar" | "equity";
 
 export function JournalView({
   trades,
@@ -124,6 +131,7 @@ export function JournalView({
             [
               { id: "list", label: "Liste", icon: "list" },
               { id: "calendar", label: "Calendrier", icon: "calendar_month" },
+              { id: "equity", label: "Évolution du compte", icon: "show_chart" },
             ] as const
           ).map((entry) => (
             <button
@@ -230,9 +238,6 @@ export function JournalView({
         <Stat label="Pips" value={stats.totalPips.toFixed(1)} />
       </div>
 
-      {/* Sur `visible` : la courbe suit les filtres comme les statistiques. */}
-      <EquityCurve trades={visible} accounts={accounts} />
-
       {formOpen ? (
         <TradeForm
           instruments={instruments}
@@ -248,7 +253,10 @@ export function JournalView({
       ) : null}
 
       <Card>
-        {tab === "list" ? (
+        {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
+        {tab === "equity" ? (
+          <EquityCurve trades={visible} accounts={accounts} />
+        ) : tab === "list" ? (
           visible.length === 0 ? (
             <p className="text-subtle py-6 text-center text-sm">
               {trades.length === 0

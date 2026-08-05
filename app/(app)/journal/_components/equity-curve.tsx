@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState } from "react";
 
-import { Card, CardTitle } from "@/components/ui/card";
 import {
   equityCurve,
   granularityFor,
@@ -25,12 +24,14 @@ import { cn } from "@/lib/utils";
  * counting points.
  */
 
+// Sized for a full view rather than a strip: this is now a tab of its own, so
+// the curve gets the height that makes a drawdown legible instead of a wiggle.
 const WIDTH = 960;
-const HEIGHT = 220;
-const PAD_L = 52;
-const PAD_R = 16;
-const PAD_T = 14;
-const PAD_B = 26;
+const HEIGHT = 380;
+const PAD_L = 56;
+const PAD_R = 18;
+const PAD_T = 16;
+const PAD_B = 28;
 
 const GRANULARITY_LABEL: Record<Granularity, string> = {
   day: "par jour",
@@ -110,12 +111,11 @@ export function EquityCurve({
 
   if (points.length < 2 || scale === null) {
     return (
-      <Card>
-        <CardTitle icon="show_chart">Évolution du compte</CardTitle>
-        <p className="text-subtle text-xs">
-          La courbe apparaîtra dès qu&apos;au moins deux trades seront clôturés.
-        </p>
-      </Card>
+      <p className="text-subtle py-10 text-center text-sm">
+        {trades.length === 0
+          ? "Aucun trade ne correspond à ces filtres."
+          : "La courbe apparaîtra dès qu'au moins deux trades seront clôturés."}
+      </p>
     );
   }
 
@@ -181,13 +181,10 @@ export function EquityCurve({
   }
 
   return (
-    <Card>
+    <>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <CardTitle icon="show_chart" className="mb-0">
-            Évolution du compte
-          </CardTitle>
-          <p className="text-subtle mt-0.5 text-[11px]">
+          <p className="text-subtle text-[11px]">
             {isBalance
               ? `Solde réalisé · ${accountName} · découpage ${GRANULARITY_LABEL[granularity]}`
               : `P&L cumulé depuis zéro · découpage ${GRANULARITY_LABEL[granularity]}`}
@@ -215,7 +212,7 @@ export function EquityCurve({
         <svg
           ref={svgRef}
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="h-[220px] w-full"
+          className="h-[380px] w-full"
           onMouseMove={onMove}
           onMouseLeave={() => setHover(null)}
           role="img"
@@ -386,7 +383,7 @@ export function EquityCurve({
           </div>
         </div>
       </div>
-    </Card>
+    </>
   );
 }
 

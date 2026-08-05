@@ -3,27 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { analyseJournal, type JournalAnalytics } from "@/domain/journal/analytics";
 import {
-  buildCoachPrompt,
-  COACH_SCHEMA,
-  COACH_SYSTEM,
-  validateCoachVerdict,
-  type CoachVerdict,
-} from "@/domain/journal/coach-prompt";
+  ANALYSIS_SCHEMA,
+  ANALYSIS_SYSTEM,
+  buildAnalysisPrompt,
+  validateAnalysisVerdict,
+  type AnalysisVerdict,
+} from "@/domain/journal/analysis-prompt";
+import { analyseJournal, type JournalAnalytics } from "@/domain/journal/analytics";
 import {
   computeDeepStats,
   MIN_TRADES_FOR_DEEP_STATS,
   type DeepStats,
 } from "@/domain/journal/deep-stats";
 import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain/journal/filters";
-import {
-  buildQuantPrompt,
-  QUANT_SCHEMA,
-  QUANT_SYSTEM,
-  validateQuantVerdict,
-  type QuantVerdict,
-} from "@/domain/journal/quant-prompt";
 import { Mt5ParseError } from "@/domain/journal/mt5-report";
 import { attachTo, removeAttachment } from "@/lib/attachments";
 import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
@@ -230,22 +223,22 @@ export async function importMt5(
 }
 
 /**
- * Behavioural analysis of the journal.
+ * The journal's analysis: statistics, then behaviour, in one pass.
  *
- * The maths never leave the machine: `analyseJournal` computes every figure
- * under test, and the model receives that result as text. It is asked to
- * interpret, never to derive — a model that computes a win rate can return a
- * different one on a second run with nothing in the output to show it.
+ * One model call rather than two, because the statements worth reading sit
+ * ACROSS the two sets — "a low SQN alongside position size that falls after a
+ * loss" is a sentence neither half could write alone. Two calls could only
+ * reach it by letting one guess at the other's numbers.
  *
- * Takes the trade ids currently visible so the analysis matches what the user
- * is looking at. Passing the filters themselves would mean reimplementing them
+ * Takes the ids currently visible so the analysis matches what the user is
+ * looking at. Passing the filters instead would mean reimplementing them
  * server-side and risking a drift between the two.
  */
 export async function analyseJournalWithAi(input: {
   tradeIds: string[];
   periodLabel: string;
 }): Promise<
-  | { ok: true; verdict: CoachVerdict; analytics: JournalAnalytics; tokens: number }
+  | { ok: true; verdict: AnalysisVerdict; analytics: JournalAnalytics; stats: DeepStats; tokens: number }
   | { ok: false; error: string }
 > {
   const userId = await requireUserIdOrThrow();
@@ -265,22 +258,27 @@ export async function analyseJournalWithAi(input: {
   const trades = await listTradesForAnalysis(userId, parsed.data.tradeIds);
   const closed = trades.filter((trade) => trade.closedAt !== null && trade.pnl !== null);
 
-  // Below a handful of trades every breakdown is one or two rows deep, and the
-  // model would dress coincidence as a habit however firmly the prompt warns it.
-  if (closed.length < 5) {
+  // Enforced here, not only in the UI: below the gate a Sharpe ratio and a
+  // reshuffled Monte-Carlo produce confident-looking figures describing noise,
+  // and a caller that skipped the button would get exactly that.
+  if (closed.length < MIN_TRADES_FOR_DEEP_STATS) {
     return {
       ok: false,
-      error: `Il faut au moins 5 trades clôturés pour une analyse qui tienne (${closed.length} pour l'instant).`,
+      error: `L'analyse demande au moins ${MIN_TRADES_FOR_DEEP_STATS} trades clôturés (${closed.length} pour l'instant).`,
     };
   }
 
   const analytics = analyseJournal(trades);
+  const stats = computeDeepStats(closed);
 
   const result = await callGeminiStructured({
-    system: COACH_SYSTEM,
-    prompt: buildCoachPrompt(analytics, parsed.data.periodLabel),
-    schema: COACH_SCHEMA as unknown as object,
-    validate: validateCoachVerdict,
+    system: ANALYSIS_SYSTEM,
+    prompt: buildAnalysisPrompt(analytics, stats, parsed.data.periodLabel),
+    schema: ANALYSIS_SCHEMA as unknown as object,
+    validate: validateAnalysisVerdict,
+    // Ten measure blocks plus the behavioural half runs long; the default would
+    // truncate mid-JSON and surface as an unparseable response.
+    maxTokens: 24000,
   });
 
   if (!result.data) {
@@ -291,68 +289,6 @@ export async function analyseJournalWithAi(input: {
     ok: true,
     verdict: result.data,
     analytics,
-    tokens: result.inputTokens + result.outputTokens,
-  };
-}
-
-/**
- * Deep statistical analysis of the journal.
- *
- * Gated at 30 closed trades, and the gate is enforced HERE rather than only in
- * the UI: below it a Sharpe ratio or a reshuffled Monte-Carlo produces a
- * confident-looking figure describing nothing but noise, and a caller that
- * skipped the button would get exactly that.
- */
-export async function deepStatsWithAi(input: {
-  tradeIds: string[];
-  periodLabel: string;
-}): Promise<
-  | { ok: true; verdict: QuantVerdict; stats: DeepStats; tokens: number }
-  | { ok: false; error: string }
-> {
-  const userId = await requireUserIdOrThrow();
-
-  const parsed = z
-    .object({
-      tradeIds: z.array(z.string().min(1)).min(1).max(2000),
-      periodLabel: z.string().min(1).max(120),
-    })
-    .safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Requête invalide" };
-
-  if (!geminiConfigured()) {
-    return { ok: false, error: "Aucune clé Gemini configurée (GEMINI_API_KEY)." };
-  }
-
-  const trades = await listTradesForAnalysis(userId, parsed.data.tradeIds);
-  const closed = trades.filter((trade) => trade.closedAt !== null && trade.pnl !== null);
-
-  if (closed.length < MIN_TRADES_FOR_DEEP_STATS) {
-    return {
-      ok: false,
-      error: `L'analyse statistique demande au moins ${MIN_TRADES_FOR_DEEP_STATS} trades clôturés (${closed.length} pour l'instant).`,
-    };
-  }
-
-  const stats = computeDeepStats(closed);
-
-  const result = await callGeminiStructured({
-    system: QUANT_SYSTEM,
-    prompt: buildQuantPrompt(stats, parsed.data.periodLabel),
-    schema: QUANT_SCHEMA as unknown as object,
-    validate: validateQuantVerdict,
-    // Eight blocks of concept, reading and advice runs long; the default would
-    // truncate mid-JSON and surface as an unparseable response.
-    maxTokens: 16000,
-  });
-
-  if (!result.data) {
-    return { ok: false, error: result.error ?? "Analyse indisponible" };
-  }
-
-  return {
-    ok: true,
-    verdict: result.data,
     stats,
     tokens: result.inputTokens + result.outputTokens,
   };

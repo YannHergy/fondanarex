@@ -10,8 +10,7 @@ import {
   removeTrade,
   uploadTradeScreenshot,
 } from "@/app/(app)/journal/actions";
-import { AiCoach } from "@/app/(app)/journal/_components/ai-coach";
-import { DeepStatsView } from "@/app/(app)/journal/_components/deep-stats-view";
+import { AnalysisView } from "@/app/(app)/journal/_components/analysis-view";
 import { EquityCurve } from "@/app/(app)/journal/_components/equity-curve";
 import { ImportMt5 } from "@/app/(app)/journal/_components/import-mt5";
 import { Card, PageHeader } from "@/components/ui/card";
@@ -45,7 +44,7 @@ const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
  * the filter bar and the stat row above stay put while this switches, so a
  * number cannot change meaning just because the shape below it did.
  */
-type Tab = "list" | "calendar" | "equity" | "coach" | "quant";
+type Tab = "list" | "calendar" | "equity" | "analysis";
 
 export function JournalView({
   trades,
@@ -150,8 +149,7 @@ export function JournalView({
               { id: "list", label: "Liste", icon: "list" },
               { id: "calendar", label: "Calendrier", icon: "calendar_month" },
               { id: "equity", label: "Évolution du compte", icon: "show_chart" },
-              { id: "coach", label: "Analyse IA", icon: "psychology" },
-              { id: "quant", label: "Analyse statistique", icon: "function" },
+              { id: "analysis", label: "Analyse IA", icon: "psychology" },
             ] as const
           ).map((entry) => (
             <button
@@ -274,10 +272,8 @@ export function JournalView({
 
       <Card>
         {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
-        {tab === "quant" ? (
-          <DeepStatsView trades={visible} periodLabel={periodLabel} />
-        ) : tab === "coach" ? (
-          <AiCoach trades={visible} periodLabel={periodLabel} />
+        {tab === "analysis" ? (
+          <AnalysisView trades={visible} periodLabel={periodLabel} />
         ) : tab === "equity" ? (
           <EquityCurve trades={visible} accounts={accounts} />
         ) : tab === "list" ? (

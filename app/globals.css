@@ -59,6 +59,17 @@
   --app-text: #0f1117;
   --app-text-muted: #5b6472;
   --app-text-subtle: #858e9d;
+
+  /* Navigation, INVERTED against the content on purpose — see the block below.
+   * Deliberately #1e222b and not the #08090d the dark content uses: a black
+   * column beside a white page reads as a hole punched in the screen, and the
+   * request was explicitly for a dark that is not too dark. */
+  --nav-bg: #1e222b;
+  --nav-panel: #272c37;
+  --nav-border: #333947;
+  --nav-text: #e6e8ee;
+  --nav-text-muted: #a3abba;
+  --nav-text-subtle: #757e8d;
 }
 
 .dark {
@@ -70,6 +81,16 @@
   --app-text: #e6e8ee;
   --app-text-muted: #9aa3b2;
   --app-text-subtle: #6b7383;
+
+  /* Light navigation against dark content.
+   * Not pure white: #eef0f4 keeps the column from glaring beside a near-black
+   * canvas, which is the pairing a trader stares at for hours. */
+  --nav-bg: #eef0f4;
+  --nav-panel: #e0e4ea;
+  --nav-border: #d2d7df;
+  --nav-text: #14161d;
+  --nav-text-muted: #545c6a;
+  --nav-text-subtle: #7c8593;
 }
 
 @theme inline {
@@ -81,6 +102,15 @@
   --color-fg: var(--app-text);
   --color-muted: var(--app-text-muted);
   --color-subtle: var(--app-text-subtle);
+
+  /* Navigation only. Separate from the app tokens so the column can invert
+   * against the content without a single component learning about themes. */
+  --color-nav-bg: var(--nav-bg);
+  --color-nav-panel: var(--nav-panel);
+  --color-nav-border: var(--nav-border);
+  --color-nav-fg: var(--nav-text);
+  --color-nav-muted: var(--nav-text-muted);
+  --color-nav-subtle: var(--nav-text-subtle);
 }
 
 @layer base {

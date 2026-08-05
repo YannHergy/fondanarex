@@ -18,6 +18,7 @@ import {
 } from "@/domain/journal/deep-stats";
 import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain/journal/filters";
 import { Mt5ParseError } from "@/domain/journal/mt5-report";
+import { deleteAnalysisRun, saveAnalysisRun } from "@/lib/analysis-history";
 import { attachTo, removeAttachment } from "@/lib/attachments";
 import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
 import { importMt5Report, type ImportSummary } from "@/lib/journal-import";
@@ -238,7 +239,15 @@ export async function analyseJournalWithAi(input: {
   tradeIds: string[];
   periodLabel: string;
 }): Promise<
-  | { ok: true; verdict: AnalysisVerdict; analytics: JournalAnalytics; stats: DeepStats; tokens: number }
+  | {
+      ok: true;
+      verdict: AnalysisVerdict;
+      analytics: JournalAnalytics;
+      stats: DeepStats;
+      tokens: number;
+      /** Null when the run could not be persisted; the analysis is still valid. */
+      runId: string | null;
+    }
   | { ok: false; error: string }
 > {
   const userId = await requireUserIdOrThrow();
@@ -285,13 +294,32 @@ export async function analyseJournalWithAi(input: {
     return { ok: false, error: result.error ?? "Analyse indisponible" };
   }
 
-  return {
-    ok: true,
-    verdict: result.data,
-    analytics,
-    stats,
-    tokens: result.inputTokens + result.outputTokens,
-  };
+  const tokens = result.inputTokens + result.outputTokens;
+
+  // Saved before returning, so a verdict survives closing the page and the
+  // headline measures can be plotted against each other later. A failure to
+  // persist must not lose the analysis the user just paid for and waited on.
+  let runId: string | null = null;
+  try {
+    runId = await saveAnalysisRun(userId, {
+      periodLabel: parsed.data.periodLabel,
+      analytics,
+      stats,
+      verdict: result.data,
+      tokens,
+    });
+    revalidatePath("/journal");
+  } catch {
+    runId = null;
+  }
+
+  return { ok: true, verdict: result.data, analytics, stats, tokens, runId };
+}
+
+export async function removeAnalysisRun(runId: string): Promise<void> {
+  const userId = await requireUserIdOrThrow();
+  await deleteAnalysisRun(userId, z.string().min(1).parse(runId));
+  revalidatePath("/journal");
 }
 
 export async function uploadTradeScreenshot(

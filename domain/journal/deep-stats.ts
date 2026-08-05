@@ -53,10 +53,27 @@ export interface MonteCarlo {
     /** Median longest run of trades spent below the previous peak. */
     medianUnderwaterTrades: number;
     /**
+     * A sample of complete cumulative curves, for drawing the cone.
+     *
+     * Taken at regular intervals through the run rather than from the front, so
+     * the sample spans the whole range of outcomes instead of the first eighty
+     * shuffles the generator happened to produce.
+     *
+     * Every drawn path is a real simulated run — none is interpolated.
+     */
+    paths: number[][];
+    /**
      * Deliberately NOT reported: the share of runs ending profitable.
      * Reordering the same trades cannot change their sum, so that figure is
      * always 0 or 100 — a constant dressed as a probability.
      */
+}
+
+/** One bar of a distribution. */
+export interface HistogramBin {
+    from: number;
+    to: number;
+    count: number;
 }
 
 export interface Autocorrelation {
@@ -99,6 +116,9 @@ export interface DeepStats {
     monteCarlo: MonteCarlo | null;
     autocorrelation: Autocorrelation;
 
+    /** Per-trade results in close order — the histogram and the real curve. */
+    results: number[];
+
     /**
      * Median realised move as a share of the planned target move, 0–100+.
      * Under 60 suggests systematically leaving profit on the table.
@@ -127,6 +147,8 @@ export const MIN_TRADES_FOR_DEEP_STATS = 20;
 export const RELIABLE_SAMPLE_SIZE = 30;
 
 const MONTE_CARLO_ITERATIONS = 5000;
+/** Curves kept for the cone. Enough to read a spread, few enough to draw. */
+const MONTE_CARLO_PATHS = 80;
 const MONTE_CARLO_SEED = 0x9e3779b9;
 
 function round(value: number, places = 2): number {
@@ -251,6 +273,9 @@ function monteCarlo(results: readonly number[]): MonteCarlo | null {
     const random = mulberry32(MONTE_CARLO_SEED);
     const depths: number[] = [];
     const underwaters: number[] = [];
+    const paths: number[][] = [];
+
+    const everyNth = Math.max(1, Math.floor(MONTE_CARLO_ITERATIONS / MONTE_CARLO_PATHS));
 
     for (let run = 0; run < MONTE_CARLO_ITERATIONS; run += 1) {
         // Fisher-Yates on a copy. Reshuffling the ORDER keeps the same set of
@@ -265,6 +290,16 @@ function monteCarlo(results: readonly number[]): MonteCarlo | null {
         const { depth, underwater } = drawdownOf(shuffled);
         depths.push(depth);
         underwaters.push(underwater);
+
+        if (run % everyNth === 0 && paths.length < MONTE_CARLO_PATHS) {
+            let cumulative = 0;
+            paths.push(
+                shuffled.map((value) => {
+                    cumulative += value;
+                    return round(cumulative);
+                }),
+            );
+        }
     }
 
     depths.sort((a, b) => a - b);
@@ -276,7 +311,44 @@ function monteCarlo(results: readonly number[]): MonteCarlo | null {
         p95MaxDrawdown: round(percentile(depths, 0.95) ?? 0),
         worstMaxDrawdown: round(depths.at(-1) ?? 0),
         medianUnderwaterTrades: Math.round(percentile(underwaters, 0.5) ?? 0),
+        paths,
     };
+}
+
+/**
+ * Distribution of values, in equal-width bins.
+ *
+ * Bin edges are placed on the DATA's own range rather than on round numbers,
+ * because a journal's results are not centred on anything in particular and
+ * forcing pretty edges would leave the first and last bars half empty.
+ *
+ * A bin is [from, to), except the last which includes its upper edge — without
+ * that the single largest value falls outside every bin and vanishes.
+ */
+export function histogram(values: readonly number[], binCount: number): HistogramBin[] {
+    if (values.length === 0 || binCount < 1) return [];
+
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+
+    // Every value identical: one bin holding all of them, rather than a divide
+    // by zero producing NaN edges.
+    if (low === high) return [{ from: low, to: high, count: values.length }];
+
+    const width = (high - low) / binCount;
+    const bins: HistogramBin[] = Array.from({ length: binCount }, (_, index) => ({
+        from: round(low + index * width, 4),
+        to: round(low + (index + 1) * width, 4),
+        count: 0,
+    }));
+
+    for (const value of values) {
+        const raw = Math.floor((value - low) / width);
+        const index = Math.min(Math.max(raw, 0), binCount - 1);
+        bins[index]!.count += 1;
+    }
+
+    return bins;
 }
 
 function autocorrelationOf(results: readonly number[]): Autocorrelation {
@@ -379,6 +451,7 @@ export function computeDeepStats(trades: readonly StatTrade[]): DeepStats {
 
         monteCarlo: monteCarlo(results),
         autocorrelation: autocorrelationOf(results),
+        results: results.map((value) => round(value)),
 
         targetEfficiency: efficiencies.length === 0 ? null : round(percentile(efficiencies, 0.5) ?? 0),
         targetEfficiencySample: efficiencies.length,

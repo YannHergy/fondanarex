@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { JournalView } from "@/app/(app)/journal/_components/journal-view";
 import { DEFAULT_STRATEGIES } from "@/domain/journal/filters";
 import type { InstrumentSpec } from "@/domain/risk/position";
+import { listAnalysisRuns } from "@/lib/analysis-history";
 import { listAccounts, listStrategies, listTrades } from "@/lib/journal";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function JournalPage() {
   const userId = await requireUserId();
 
-  const [trades, custom, accounts, instruments] = await Promise.all([
+  const [trades, custom, accounts, instruments, analysisHistory] = await Promise.all([
     listTrades(userId),
     listStrategies(userId),
     listAccounts(userId),
@@ -24,6 +25,7 @@ export default async function JournalPage() {
       orderBy: { symbol: "asc" },
       select: { symbol: true, pipSize: true, contractSize: true },
     }),
+    listAnalysisRuns(userId),
   ]);
 
   const specs: Record<string, InstrumentSpec> = Object.fromEntries(
@@ -46,6 +48,7 @@ export default async function JournalPage() {
       // custom entry matching a built-in name does not appear twice.
       strategies={[...new Set([...DEFAULT_STRATEGIES, ...custom])]}
       accounts={accounts}
+      analysisHistory={analysisHistory}
       now={new Date().toISOString()}
     />
   );

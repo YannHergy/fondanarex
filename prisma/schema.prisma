@@ -74,6 +74,7 @@ model User {
   mtAccounts   MetaApiAccount[]
   favorites    FavoritePair[]
   pairInsights ComparatorInsight[]
+  analysisRuns AnalysisRun[]
 }
 
 model Account {
@@ -1151,3 +1152,46 @@ model PineConfig {
 //      silently mutable and unreviewable — the opposite of what you want for the
 //      one part of the app whose correctness matters most.
 // ============================================================================
+
+/// One saved run of the journal analysis.
+///
+/// Exists so a verdict survives closing the page, and so the user can see
+/// whether they improved. The headline MEASURES are stored as columns rather
+/// than only inside the JSON: charting an evolution over twenty runs must not
+/// mean parsing twenty documents, and a column can be indexed and averaged.
+///
+/// The AI text is stored whole, in `verdict`, because its shape is the model's
+/// and pinning it to columns would break every stored row the day the prompt
+/// gains a field.
+model AnalysisRun {
+  id     String @id @default(cuid())
+  userId String
+
+  createdAt DateTime @default(now())
+
+  /// The filter set the analysis described, e.g. "toute la période, paire EUR/USD".
+  periodLabel String @db.VarChar(160)
+  /// Closed trades the run was computed on — the reliability of everything else.
+  tradeCount  Int
+
+  netPnl     Decimal  @db.Decimal(14, 2)
+  winRate    Int
+  expectancy Decimal  @db.Decimal(14, 2)
+  expectancyR Decimal? @db.Decimal(8, 3)
+  sqn        Decimal? @db.Decimal(8, 3)
+  sharpe     Decimal? @db.Decimal(8, 3)
+  sortino    Decimal? @db.Decimal(8, 3)
+  payoffRatio Decimal? @db.Decimal(8, 3)
+  maxDrawdown Decimal @db.Decimal(14, 2)
+  targetEfficiency Decimal? @db.Decimal(8, 2)
+  stopCoverage Int
+
+  /// The model's full answer, as returned and validated.
+  verdict Json
+  /// Tokens billed, so the running cost stays visible.
+  tokens  Int @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}

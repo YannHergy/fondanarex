@@ -32,6 +32,7 @@ import {
 } from "@/domain/journal/filters";
 import { MAX_UPLOAD_BYTES } from "@/domain/media/image-type";
 import type { InstrumentSpec } from "@/domain/risk/position";
+import type { AnalysisRunRow } from "@/lib/analysis-history";
 import type { AccountOption, TradeRow } from "@/lib/journal";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ export function JournalView({
   specs,
   strategies,
   accounts,
+  analysisHistory,
   now,
 }: {
   trades: TradeRow[];
@@ -59,6 +61,7 @@ export function JournalView({
   specs: Record<string, InstrumentSpec>;
   strategies: string[];
   accounts: AccountOption[];
+  analysisHistory: AnalysisRunRow[];
   /** Server clock, so filtering does not depend on the visitor's machine. */
   now: string;
 }) {
@@ -273,7 +276,7 @@ export function JournalView({
       <Card>
         {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
         {tab === "analysis" ? (
-          <AnalysisView trades={visible} periodLabel={periodLabel} />
+          <AnalysisView trades={visible} periodLabel={periodLabel} history={analysisHistory} />
         ) : tab === "equity" ? (
           <EquityCurve trades={visible} accounts={accounts} />
         ) : tab === "list" ? (

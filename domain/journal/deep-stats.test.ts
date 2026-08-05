@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     computeDeepStats,
+    histogram,
     MIN_TRADES_FOR_DEEP_STATS,
     RELIABLE_SAMPLE_SIZE,
     type StatTrade,
@@ -264,5 +265,59 @@ describe('empty journal', () => {
             monteCarlo: null,
             targetEfficiency: null,
         });
+    });
+});
+
+describe('histogram', () => {
+    it('spreads values over equal-width bins on the data range', () => {
+        const bins = histogram([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 5);
+
+        expect(bins).toHaveLength(5);
+        expect(bins.map((bin) => bin.count)).toEqual([2, 2, 2, 2, 2]);
+        expect(bins[0]).toMatchObject({ from: 0, to: 1.8 });
+    });
+
+    it('keeps the largest value inside the last bin', () => {
+        // Half-open bins would drop the maximum: it sits exactly on the upper
+        // edge, so the value simply vanished from every count.
+        const bins = histogram([1, 2, 3, 10], 3);
+
+        expect(bins.reduce((total, bin) => total + bin.count, 0)).toBe(4);
+        expect(bins.at(-1)?.count).toBe(1);
+    });
+
+    it('returns one bin when every value is identical', () => {
+        // The width would be zero and every edge NaN.
+        expect(histogram([5, 5, 5], 4)).toEqual([{ from: 5, to: 5, count: 3 }]);
+    });
+
+    it('is empty for no values or no bins', () => {
+        expect(histogram([], 5)).toEqual([]);
+        expect(histogram([1, 2], 0)).toEqual([]);
+    });
+});
+
+describe('Monte-Carlo paths', () => {
+    const values = [120, -40, -40, 200, -60, -30, 90, -40, 150, -50, -35, 80];
+
+    it('keeps a sample of complete curves, every one a real run', () => {
+        const mc = computeDeepStats(series(values)).monteCarlo!;
+
+        expect(mc.paths).toHaveLength(80);
+        for (const path of mc.paths) {
+            expect(path).toHaveLength(values.length);
+            // Order changes but the set does not, so every curve must land on
+            // the same total — that is what makes this a test of the PATH.
+            expect(path.at(-1)).toBe(345);
+        }
+    });
+
+    it('samples across the whole run rather than the first eighty shuffles', () => {
+        const mc = computeDeepStats(series(values)).monteCarlo!;
+        const midpoints = mc.paths.map((path) => path[5]!);
+
+        // Taken from the front, these would be near-identical draws from one
+        // corner of the generator's output.
+        expect(new Set(midpoints).size).toBeGreaterThan(20);
     });
 });

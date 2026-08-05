@@ -1,8 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
-import { analyseJournalWithAi } from "@/app/(app)/journal/actions";
+import {
+  BreakdownBars,
+  EvolutionChart,
+  MonteCarloCone,
+  ResultsHistogram,
+} from "@/app/(app)/journal/_components/analysis-charts";
+import { analyseJournalWithAi, removeAnalysisRun } from "@/app/(app)/journal/actions";
 import { Icon } from "@/components/ui/icon";
 import type { AnalysisVerdict } from "@/domain/journal/analysis-prompt";
 import type { JournalAnalytics } from "@/domain/journal/analytics";
@@ -12,6 +19,7 @@ import {
   type DeepStats,
 } from "@/domain/journal/deep-stats";
 import { GRADERS, type Grade, type GradedMetric } from "@/domain/journal/grading";
+import type { AnalysisRunRow } from "@/lib/analysis-history";
 import type { TradeRow } from "@/lib/journal";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +38,14 @@ import { cn } from "@/lib/utils";
 export function AnalysisView({
   trades,
   periodLabel,
+  history,
 }: {
   trades: TradeRow[];
   periodLabel: string;
+  /** Saved runs, newest first. Fed by the server so a reload keeps them. */
+  history: AnalysisRunRow[];
 }) {
+  const router = useRouter();
   const [verdict, setVerdict] = useState<AnalysisVerdict | null>(null);
   const [analytics, setAnalytics] = useState<JournalAnalytics | null>(null);
   const [stats, setStats] = useState<DeepStats | null>(null);
@@ -56,6 +68,8 @@ export function AnalysisView({
         setVerdict(result.verdict);
         setAnalytics(result.analytics);
         setStats(result.stats);
+        // Pulls the freshly saved run into the history without a manual reload.
+        router.refresh();
       } else {
         setError(result.error);
         setVerdict(null);
@@ -124,7 +138,38 @@ export function AnalysisView({
         </p>
       ) : null}
 
-      {analytics && stats ? <Bands analytics={analytics} stats={stats} /> : null}
+      {analytics && stats ? (
+        <>
+          <Bands analytics={analytics} stats={stats} />
+
+          <div className="mt-4 space-y-3">
+            <MonteCarloCone stats={stats} />
+            <ResultsHistogram stats={stats} />
+            <BreakdownBars
+              title="Résultat par paire"
+              subtitle="Ce qui rapporte et ce qui coûte, sans avoir à comparer huit nombres de tête."
+              rows={analytics.byInstrument}
+            />
+            <BreakdownBars
+              title="Résultat par jour de la semaine"
+              subtitle="Les jours où ton exécution tient, et ceux où elle lâche."
+              rows={analytics.byWeekday}
+            />
+            <BreakdownBars
+              title="Résultat par heure d'ouverture"
+              subtitle="Horloge du serveur de ton courtier, telle que MetaTrader l'écrit — pas UTC."
+              rows={analytics.byServerHour}
+            />
+          </div>
+        </>
+      ) : null}
+
+      {history.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          <EvolutionChart runs={history} />
+          <History runs={history} />
+        </div>
+      ) : null}
 
       {verdict ? (
         <div className="mt-6 space-y-4">
@@ -404,6 +449,131 @@ function Callout({
         {label}
       </div>
       <p className="text-muted text-sm leading-relaxed">{text}</p>
+    </div>
+  );
+}
+
+// -- Historique ------------------------------------------------------------
+
+/**
+ * Past analyses, newest first.
+ *
+ * Each row carries the measures it was computed on and the delta against the
+ * run before it, because "SQN 1.17" only becomes information next to the 0.94
+ * it replaced. Opening a row shows the model text as it was written that day:
+ * a verdict is a snapshot of a moment, not something to regenerate.
+ */
+function History({ runs }: { runs: AnalysisRunRow[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <div className="border-border-app bg-bg rounded-lg border p-4">
+      <p className="text-fg text-sm font-semibold">Analyses enregistrées</p>
+      <p className="text-subtle mt-0.5 mb-3 text-[11px]">
+        {runs.length} analyse{runs.length > 1 ? "s" : ""}. Clique sur une ligne pour relire ce que
+        le modèle avait écrit ce jour-là.
+      </p>
+
+      <div className="space-y-1.5">
+        {runs.map((run, index) => {
+          // Runs are newest-first, so the one that came BEFORE sits after it.
+          const previous = runs[index + 1];
+          const delta =
+            previous && run.sqn !== null && previous.sqn !== null ? run.sqn - previous.sqn : null;
+          const expanded = open === run.id;
+
+          return (
+            <div key={run.id} className="border-border-app overflow-hidden rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setOpen(expanded ? null : run.id)}
+                className="hover:bg-panel flex w-full items-center gap-3 p-2.5 text-left transition-colors"
+              >
+                <Icon
+                  name={expanded ? "expand_less" : "expand_more"}
+                  size={16}
+                  className="text-subtle shrink-0"
+                />
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-fg text-xs font-medium">
+                    {run.createdAt.toLocaleDateString("fr-FR", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}{" "}
+                    <span className="text-subtle font-normal">
+                      {run.createdAt.toLocaleTimeString("fr-FR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </p>
+                  <p className="text-subtle truncate text-[11px]">
+                    {run.tradeCount} trades · {run.periodLabel}
+                  </p>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-fg font-mono text-xs font-semibold">
+                    SQN {run.sqn === null ? "—" : run.sqn.toFixed(2)}
+                    {delta !== null && Math.abs(delta) > 0.001 ? (
+                      <span
+                        className={cn(
+                          "ml-1.5 text-[11px]",
+                          delta > 0 ? "text-brand-green" : "text-brand-red",
+                        )}
+                      >
+                        {delta > 0 ? "+" : ""}
+                        {delta.toFixed(2)}
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="text-subtle text-[10px]">
+                    {run.winRate} % · {run.netPnl > 0 ? "+" : ""}
+                    {run.netPnl.toFixed(2)}
+                  </p>
+                </div>
+              </button>
+
+              {expanded ? (
+                <div className="border-border-app bg-panel border-t p-3">
+                  {run.verdict === null ? (
+                    <p className="text-subtle text-xs">
+                      Le texte de cette analyse a été écrit par une version antérieure et ne peut
+                      plus être affiché. Ses chiffres, eux, restent exacts.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-fg mb-2 text-xs leading-relaxed">{run.verdict.synthese}</p>
+                      <p className="text-muted mb-2 flex items-start gap-1.5 text-xs leading-relaxed">
+                        <Icon name="target" size={13} className="text-brand-green mt-0.5 shrink-0" />
+                        {run.verdict.action_prioritaire}
+                      </p>
+                      <p className="text-subtle text-[11px] italic">{run.verdict.verdict_systeme}</p>
+                    </>
+                  )}
+
+                  <div className="border-border-app mt-3 flex items-center justify-between border-t pt-2">
+                    <span className="text-subtle text-[10px]">
+                      {run.tokens.toLocaleString("fr-FR")} tokens
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => startTransition(() => removeAnalysisRun(run.id))}
+                      className="text-subtle hover:text-brand-red text-[11px] transition-colors disabled:opacity-40"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

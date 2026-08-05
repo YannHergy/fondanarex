@@ -11,7 +11,19 @@ import {
   validateCoachVerdict,
   type CoachVerdict,
 } from "@/domain/journal/coach-prompt";
+import {
+  computeDeepStats,
+  MIN_TRADES_FOR_DEEP_STATS,
+  type DeepStats,
+} from "@/domain/journal/deep-stats";
 import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain/journal/filters";
+import {
+  buildQuantPrompt,
+  QUANT_SCHEMA,
+  QUANT_SYSTEM,
+  validateQuantVerdict,
+  type QuantVerdict,
+} from "@/domain/journal/quant-prompt";
 import { Mt5ParseError } from "@/domain/journal/mt5-report";
 import { attachTo, removeAttachment } from "@/lib/attachments";
 import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
@@ -279,6 +291,69 @@ export async function analyseJournalWithAi(input: {
     ok: true,
     verdict: result.data,
     analytics,
+    tokens: result.inputTokens + result.outputTokens,
+  };
+}
+
+/**
+ * Deep statistical analysis of the journal.
+ *
+ * Gated at 30 closed trades, and the gate is enforced HERE rather than only in
+ * the UI: below it a Sharpe ratio or a reshuffled Monte-Carlo produces a
+ * confident-looking figure describing nothing but noise, and a caller that
+ * skipped the button would get exactly that.
+ */
+export async function deepStatsWithAi(input: {
+  tradeIds: string[];
+  periodLabel: string;
+}): Promise<
+  | { ok: true; verdict: QuantVerdict; stats: DeepStats; tokens: number }
+  | { ok: false; error: string }
+> {
+  const userId = await requireUserIdOrThrow();
+
+  const parsed = z
+    .object({
+      tradeIds: z.array(z.string().min(1)).min(1).max(2000),
+      periodLabel: z.string().min(1).max(120),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Requête invalide" };
+
+  if (!geminiConfigured()) {
+    return { ok: false, error: "Aucune clé Gemini configurée (GEMINI_API_KEY)." };
+  }
+
+  const trades = await listTradesForAnalysis(userId, parsed.data.tradeIds);
+  const closed = trades.filter((trade) => trade.closedAt !== null && trade.pnl !== null);
+
+  if (closed.length < MIN_TRADES_FOR_DEEP_STATS) {
+    return {
+      ok: false,
+      error: `L'analyse statistique demande au moins ${MIN_TRADES_FOR_DEEP_STATS} trades clôturés (${closed.length} pour l'instant).`,
+    };
+  }
+
+  const stats = computeDeepStats(closed);
+
+  const result = await callGeminiStructured({
+    system: QUANT_SYSTEM,
+    prompt: buildQuantPrompt(stats, parsed.data.periodLabel),
+    schema: QUANT_SCHEMA as unknown as object,
+    validate: validateQuantVerdict,
+    // Eight blocks of concept, reading and advice runs long; the default would
+    // truncate mid-JSON and surface as an unparseable response.
+    maxTokens: 16000,
+  });
+
+  if (!result.data) {
+    return { ok: false, error: result.error ?? "Analyse indisponible" };
+  }
+
+  return {
+    ok: true,
+    verdict: result.data,
+    stats,
     tokens: result.inputTokens + result.outputTokens,
   };
 }

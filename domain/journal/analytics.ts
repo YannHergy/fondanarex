@@ -17,13 +17,21 @@
 // Pure — no I/O, no clock.
 // ================================================================
 
+/**
+ * A trade as both analyses read it.
+ *
+ * Deliberately a superset of `StatTrade` in deep-stats, so one query feeds
+ * both and the two can never drift onto different snapshots of the journal.
+ */
 export interface AnalysedTrade {
     instrument: string;
     direction: 'Buy' | 'Sell';
     openedAt: Date;
     closedAt: Date | null;
     entryPrice: number;
+    exitPrice: number | null;
     stopLoss: number | null;
+    takeProfit: number | null;
     lotSize: number;
     pips: number | null;
     pnl: number | null;

@@ -53,11 +53,28 @@ async function get(url: string, headers: Record<string, string> = {}): Promise<s
   }
 }
 
-function toArticle(item: FeedItem, source: string): FetchedArticle | null {
+/**
+ * Turns a feed item into an article, or rejects it.
+ *
+ * `forexNative` decides what happens to a headline naming no currency, and the
+ * distinction is not cosmetic. FXStreet publishes about oil, gold and indices
+ * BECAUSE they move currencies, so its untagged headlines belong on a forex
+ * desk and are kept under a market-wide marker. Marketaux publishes general
+ * business news, and keeping its untagged items put an earnings call transcript
+ * and a car-rental subsidiary in Bahrain on the page — measured, not feared.
+ *
+ * So: a forex-native feed may go untagged. A general feed must earn its place
+ * by naming a currency.
+ */
+function toArticle(
+  item: FeedItem,
+  source: string,
+  options: { forexNative: boolean },
+): FetchedArticle | null {
+  if (!item.title || !item.url) return null;
+
   const tags = tagArticle(item.title, item.summary);
-  // Untagged headlines are dropped rather than stored: they are gold, indices
-  // and equities, and no currency page would ever show them.
-  if (tags.length === 0) return null;
+  if (tags.length === 0 && !options.forexNative) return null;
 
   return {
     urlHash: hashUrl(item.url),
@@ -85,7 +102,8 @@ export async function fetchFxStreet(): Promise<FetchedArticle[]> {
     if (!xml) continue;
 
     for (const item of parseFeed(xml)) {
-      const article = toArticle(item, feed.source);
+      // Forex-native: everything it publishes is on a forex desk's radar.
+      const article = toArticle(item, feed.source, { forexNative: true });
       if (article) out.push(article);
     }
   }
@@ -134,6 +152,8 @@ export async function fetchMarketaux(): Promise<FetchedArticle[]> {
                 publishedAt: entry.published_at ? new Date(entry.published_at) : null,
               },
               entry.source ?? "Marketaux",
+              // General business feed: it must name a currency to be kept.
+              { forexNative: false },
             )
           : null,
       )
@@ -211,6 +231,8 @@ export async function fetchGdelt(currencies: readonly string[]): Promise<Fetched
             publishedAt: parseGdeltDate(entry.seendate),
           },
           entry.domain ?? "GDELT",
+          // Queried BY currency, so an untagged result missed its own query.
+          { forexNative: false },
         );
         if (article) out.push(article);
       }

@@ -217,6 +217,54 @@ export async function listNewsFor(currencyCode: string, limit = 8): Promise<News
   }));
 }
 
+export interface GlobalNewsRow {
+  id: string;
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  publishedAt: Date;
+  /** Empty when the headline names no currency — shown as market-wide. */
+  tags: { currency: string; lean: Lean }[];
+}
+
+/**
+ * Every headline, newest first, whatever it is about.
+ *
+ * The currency pages filter; this one does not. A story about oil or the S&P
+ * carries no tag and is shown as market-wide rather than hidden — a trader
+ * reading a forex feed wants the whole feed, and the tags are there to sort it,
+ * not to censor it.
+ */
+export async function listAllNews(limit = 60): Promise<GlobalNewsRow[]> {
+  const articles = await prisma.newsArticle.findMany({
+    orderBy: { publishedAt: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      title: true,
+      summary: true,
+      url: true,
+      source: true,
+      publishedAt: true,
+      tags: { select: { currencyCode: true, lean: true } },
+    },
+  });
+
+  return articles.map((article) => ({
+    id: article.id,
+    title: article.title,
+    summary: article.summary,
+    url: article.url,
+    source: article.source,
+    publishedAt: article.publishedAt,
+    tags: article.tags.map((tag) => ({
+      currency: tag.currencyCode,
+      lean: LEAN_FROM_DB[tag.lean],
+    })),
+  }));
+}
+
 /** Counts per currency and direction, for the dashboard. */
 export async function newsBalance(
   since = new Date(Date.now() - 3 * 86_400_000),

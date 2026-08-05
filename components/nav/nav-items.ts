@@ -36,6 +36,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/indicateurs", label: "Indicateurs", icon: "code" },
   { href: "/profils", label: "Profils pays", icon: "public" },
   { href: "/engrenage", label: "Engrenage", icon: "settings_input_component" },
+  { href: "/actualites", label: "Actualités", icon: "feed" },
   { href: "/methodologie", label: "Méthodologie", icon: "info" },
   { href: "/admin", label: "Admin données", icon: "settings" },
 ] as const;

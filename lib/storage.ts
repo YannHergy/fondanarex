@@ -1,5 +1,8 @@
 import "server-only";
 
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
+
 import { getStore, type Store } from "@netlify/blobs";
 
 import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/image-type";
@@ -18,28 +21,31 @@ import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/i
  *     stripped the screenshots off every plan but the last three, then saved
  *     again. Losing data was the documented recovery path.
  *
- * Blobs live in Netlify Blobs; the row in Postgres holds the path and the
- * metadata. Deleting the row is the source of truth, and the blob is deleted
- * with it.
+ * Blobs live in Netlify Blobs when a deployment provides them, and ON DISK
+ * otherwise. The row in Postgres holds the path and the metadata either way;
+ * deleting the row is the source of truth, and the blob goes with it.
+ *
+ * THE DISK FALLBACK IS NOT A CONVENIENCE. Netlify Blobs needs a site binding
+ * that does not exist on a developer machine, so every screenshot upload
+ * failed with "stockage non configuré" — on a project deliberately being built
+ * locally before deployment. A trading journal that cannot hold a chart is not
+ * a trading journal.
  */
 
 const STORE_NAME = "attachments";
 
-let cached: Store | undefined;
+/** Gitignored, and outside `public/` so nothing is served without the route. */
+const LOCAL_ROOT = resolve(process.cwd(), ".attachments");
 
-/**
- * The blob store, or null when the deployment has no Blobs binding.
- *
- * Returning null rather than throwing is deliberate: an unconfigured store must
- * degrade to "uploads unavailable" on one panel, not take down every screen
- * that happens to render an attachment list.
- */
-function store(): Store | null {
-  if (cached) return cached;
+let cached: Store | null | undefined;
+
+/** Netlify Blobs, or null when this machine has no binding for it. */
+function netlifyStore(): Store | null {
+  if (cached !== undefined) return cached;
 
   try {
     // On Netlify the binding is ambient. Elsewhere it needs explicit
-    // credentials, which is also what makes local development work.
+    // credentials, and without them `getStore` throws rather than degrading.
     const siteID = process.env.NETLIFY_SITE_ID;
     const token = process.env.NETLIFY_API_TOKEN;
 
@@ -47,15 +53,33 @@ function store(): Store | null {
       siteID && token
         ? getStore({ name: STORE_NAME, siteID, token, consistency: "strong" })
         : getStore({ name: STORE_NAME, consistency: "strong" });
-
-    return cached;
   } catch {
-    return null;
+    cached = null;
   }
+
+  return cached;
 }
 
+/**
+ * Resolves a stored path under the local root, refusing to escape it.
+ *
+ * Paths are generated here and read back from our own table, so traversal
+ * would take a compromised row to exploit — but a check costing one string
+ * comparison is worth more than the argument that it cannot happen.
+ */
+function localPath(blobPath: string): string | null {
+  const full = resolve(LOCAL_ROOT, blobPath);
+  return full.startsWith(LOCAL_ROOT + sep) ? full : null;
+}
+
+/**
+ * Whether uploads are possible. Always true now: the disk is the floor.
+ *
+ * Kept as a function because callers branch on it to hide upload controls, and
+ * because a future backend could genuinely be absent.
+ */
 export function storageConfigured(): boolean {
-  return store() !== null;
+  return true;
 }
 
 export class UploadError extends Error {}
@@ -72,9 +96,6 @@ export async function putAttachment(
   userId: string,
   file: File,
 ): Promise<{ blobPath: string; mimeType: string; sizeBytes: number }> {
-  const blobs = store();
-  if (!blobs) throw new UploadError("Stockage des fichiers non configuré");
-
   const bytes = new Uint8Array(await file.arrayBuffer());
 
   const rejection = rejectUpload(file.size, bytes);
@@ -87,10 +108,24 @@ export async function putAttachment(
   // else's blob, and randomised so a path is not guessable from a row id.
   const blobPath = `${userId}/${crypto.randomUUID()}`;
 
-  // `bytes.buffer` rather than the view: the Blobs client accepts an
-  // ArrayBuffer, and the view was created from a full-length arrayBuffer() so
-  // the two cover the same range.
-  await blobs.set(blobPath, bytes.buffer as ArrayBuffer, { metadata: { mimeType, userId } });
+  const blobs = netlifyStore();
+
+  if (blobs) {
+    // `bytes.buffer` rather than the view: the Blobs client accepts an
+    // ArrayBuffer, and the view was created from a full-length arrayBuffer() so
+    // the two cover the same range.
+    await blobs.set(blobPath, bytes.buffer as ArrayBuffer, { metadata: { mimeType, userId } });
+  } else {
+    const full = localPath(blobPath);
+    if (!full) throw new UploadError("Chemin de fichier invalide");
+
+    await mkdir(dirname(full), { recursive: true });
+    await writeFile(full, bytes);
+    // A sidecar rather than an extension on the filename: a MIME type encoded
+    // in a path is one rename away from being wrong, and the route serves this
+    // value byte for byte.
+    await writeFile(`${full}.json`, JSON.stringify({ mimeType, userId }), "utf8");
+  }
 
   return { blobPath, mimeType, sizeBytes: file.size };
 }
@@ -98,27 +133,62 @@ export async function putAttachment(
 export async function getAttachment(
   blobPath: string,
 ): Promise<{ bytes: ArrayBuffer; mimeType: string } | null> {
-  const blobs = store();
-  if (!blobs) return null;
+  const blobs = netlifyStore();
 
-  const result = await blobs.getWithMetadata(blobPath, { type: "arrayBuffer" });
-  if (!result) return null;
+  if (blobs) {
+    const result = await blobs.getWithMetadata(blobPath, { type: "arrayBuffer" });
+    if (!result) return null;
 
-  const mimeType = String(result.metadata?.mimeType ?? "application/octet-stream");
-  return { bytes: result.data, mimeType };
+    const mimeType = String(result.metadata?.mimeType ?? "application/octet-stream");
+    return { bytes: result.data, mimeType };
+  }
+
+  const full = localPath(blobPath);
+  if (!full) return null;
+
+  try {
+    const buffer = await readFile(full);
+
+    let mimeType = "application/octet-stream";
+    try {
+      const meta = JSON.parse(await readFile(`${full}.json`, "utf8")) as { mimeType?: string };
+      if (meta.mimeType) mimeType = meta.mimeType;
+    } catch {
+      // Missing sidecar: served as a generic download rather than not at all.
+    }
+
+    // Sliced to the view's own range: a Buffer can be a window onto a larger
+    // pooled allocation, and handing out the whole pool would leak neighbouring
+    // files' bytes into the response.
+    const bytes = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer;
+
+    return { bytes, mimeType };
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteAttachment(blobPath: string): Promise<void> {
-  const blobs = store();
-  if (!blobs) return;
-
   // A blob that fails to delete leaves an orphan, which is wasteful but
   // harmless; failing the whole request would leave the row instead, which is
   // worse — the UI would keep showing an image the user asked to remove.
   try {
-    await blobs.delete(blobPath);
+    const blobs = netlifyStore();
+
+    if (blobs) {
+      await blobs.delete(blobPath);
+      return;
+    }
+
+    const full = localPath(blobPath);
+    if (!full) return;
+
+    await rm(full, { force: true });
+    await rm(`${full}.json`, { force: true });
   } catch {
     /* orphaned blob */
   }
 }
-

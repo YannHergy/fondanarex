@@ -53,3 +53,6 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# Pieces jointes stockees sur disque quand Netlify Blobs est absent
+.attachments/

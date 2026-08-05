@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { CheckDot } from "@/app/(app)/devise/[code]/_components/check-dot";
 import { ComplementaryData } from "@/app/(app)/devise/[code]/_components/complementary-data";
+import { CurrencyNews } from "@/app/(app)/devise/[code]/_components/currency-news";
 import { EditableValue } from "@/app/(app)/devise/[code]/_components/editable-value";
 import { ScoreHistory } from "@/app/(app)/devise/[code]/_components/score-history";
 import { IndicatorCategoryGrid } from "@/app/(app)/devise/[code]/_components/indicator-category-grid";
@@ -359,38 +360,10 @@ export default async function CurrencyDetailPage({
       </Card>
 
       {/* ── Actualités & Sentiment ───────────────────────────────────────────
-       * The only thing left in this bottom section now that the yield curve /
-       * COT / differentials / qualitative notes moved up next to the score.
-       * Forme uniquement : pas encore branché sur Marketaux/Finnhub pour cette
-       * page (existe pour DIPper-In-FONda, pas encore porté ici). */}
-      <Card>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <CardTitle icon="feed" className="mb-0">
-            Actualités &amp; Sentiment
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled
-              className="border-border-app text-subtle flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold opacity-50"
-            >
-              <Icon name="insights" size={13} />
-              Sentiment du jour
-            </button>
-            <button
-              type="button"
-              disabled
-              className="border-border-app text-subtle flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold opacity-50"
-            >
-              <Icon name="refresh" size={13} />
-              Actualiser
-            </button>
-          </div>
-        </div>
-        <div className="flex min-h-[220px] items-center justify-center">
-          <p className="text-subtle text-sm">Bientôt disponible.</p>
-        </div>
-      </Card>
+       * Titres issus de flux publics, étiquetés par devise dans le domaine.
+       * Le sens haussier/baissier vaut POUR CETTE DEVISE : le même article
+       * peut être haussier ici et baissier ailleurs. */}
+      <CurrencyNews code={currency.code} />
     </div>
   );
 }

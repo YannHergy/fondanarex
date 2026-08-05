@@ -1195,3 +1195,52 @@ model AnalysisRun {
 
   @@index([userId, createdAt(sort: Desc)])
 }
+
+enum NewsLean {
+  BULLISH
+  BEARISH
+  NEUTRAL
+}
+
+/// A headline, with the currencies it concerns.
+///
+/// Stored rather than fetched per page view for three reasons: the feeds
+/// rate-limit (GDELT allows one request every five seconds), several users
+/// share one refresh, and a headline that vanishes from a feed should not
+/// vanish from a page a trader is reading.
+///
+/// Only the title, one sentence of summary and the link are kept — which is
+/// what an RSS feed licences. The article itself stays at its publisher.
+model NewsArticle {
+  id String @id @default(cuid())
+
+  /// Deduplication key. The same story reaches us from several feeds.
+  urlHash String @unique @db.VarChar(64)
+  url     String @db.Text
+
+  title   String @db.Text
+  summary String @db.Text
+  source  String @db.VarChar(64)
+
+  publishedAt DateTime
+  fetchedAt   DateTime @default(now())
+
+  tags NewsTag[]
+
+  @@index([publishedAt(sort: Desc)])
+}
+
+/// One currency a headline concerns, with the direction it leans FOR THAT
+/// currency. A single headline can be bullish one and bearish another.
+model NewsTag {
+  id        String @id @default(cuid())
+  articleId String
+
+  currencyCode String   @db.VarChar(3)
+  lean         NewsLean
+
+  article NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, currencyCode])
+  @@index([currencyCode])
+}

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { after } from "next/server";
+
 import type { Lean } from "@/domain/news/tagging";
 import { fetchAllNews } from "@/lib/integrations/news";
 import { prisma } from "@/lib/prisma";
@@ -38,6 +40,33 @@ const LEAN_FROM_DB: Record<NewsLean, Lean> = {
 
 /** Headlines older than this are dropped on every refresh. */
 const KEEP_DAYS = 14;
+
+/**
+ * How stale the store may be before a page view refreshes it.
+ *
+ * Thirty minutes, and the number is a judgement rather than a constraint: the
+ * feed publishes about one article every twenty minutes, so half an hour
+ * leaves the reader at most one or two behind. FXStreet caches its own feed for
+ * sixty seconds, so anything above a minute is polite and anything below is
+ * pointless.
+ *
+ * Note this is NOT the four hours the scheduled job uses. Those two numbers
+ * answer different questions: four hours is the most one can wait without
+ * LOSING an article, because the feed only holds nine and a half hours of them.
+ * Thirty minutes is how fresh the page should feel. Conflating the ceiling with
+ * the optimum is the mistake this comment exists to prevent repeating.
+ */
+const FRESH_MINUTES = 30;
+
+/**
+ * Past this, the refresh is awaited instead of backgrounded.
+ *
+ * A moderately stale store is worth showing immediately while the new articles
+ * land for next time. A store from yesterday is not: the first visit of the
+ * morning would show last night's news and silently replace it after the reader
+ * had already looked away.
+ */
+const BLOCKING_HOURS = 6;
 
 export interface RefreshSummary {
   fetched: number;
@@ -103,6 +132,51 @@ export async function refreshNews(options: { withGdelt?: boolean } = {}): Promis
   });
 
   return { fetched: articles.length, stored, alreadyKnown, removed, byCurrency };
+}
+
+/**
+ * Refreshes the store if it has gone stale, and reports what it did.
+ *
+ * This is what makes the feed feel live without a scheduler: browsing IS the
+ * schedule. Open a currency in the morning and it fetches; move between eight
+ * currencies in the next ten minutes and it does nothing at all.
+ *
+ * The in-flight promise is shared rather than guarded by a flag, so eight
+ * currency pages opened at once make ONE request instead of eight — the store
+ * is global, and eight parallel refreshes would race on the same unique index
+ * for identical rows.
+ */
+let inFlight: Promise<RefreshSummary> | null = null;
+
+export async function ensureFreshNews(): Promise<"fresh" | "queued" | "refreshed"> {
+  const newest = await prisma.newsArticle.findFirst({
+    orderBy: { fetchedAt: "desc" },
+    select: { fetchedAt: true },
+  });
+
+  const ageMinutes = newest
+    ? (Date.now() - newest.fetchedAt.getTime()) / 60_000
+    : Number.POSITIVE_INFINITY;
+
+  if (ageMinutes < FRESH_MINUTES) return "fresh";
+
+  const run = () => {
+    inFlight ??= refreshNews().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  };
+
+  if (ageMinutes > BLOCKING_HOURS * 60) {
+    await run();
+    return "refreshed";
+  }
+
+  // Started but not awaited: the reader gets the page now, and the new
+  // headlines are waiting on the next load. `after` keeps the work alive past
+  // the response, which a bare floating promise would not guarantee.
+  after(() => run());
+  return "queued";
 }
 
 /**

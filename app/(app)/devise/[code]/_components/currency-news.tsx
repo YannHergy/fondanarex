@@ -1,7 +1,8 @@
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import type { Lean } from "@/domain/news/tagging";
-import { listNewsFor } from "@/lib/news";
+import { RefreshNewsButton } from "@/app/(app)/devise/[code]/_components/refresh-news-button";
+import { ensureFreshNews, listNewsFor } from "@/lib/news";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,6 +32,11 @@ function ago(at: Date, now: Date): string {
 }
 
 export async function CurrencyNews({ code }: { code: string }) {
+  // Browsing IS the schedule: under 30 minutes old this does nothing, past
+  // six hours it fetches before rendering, in between it starts a refresh the
+  // next page load will benefit from.
+  await ensureFreshNews();
+
   const items = await listNewsFor(code, 8);
   const now = new Date();
 
@@ -44,19 +50,22 @@ export async function CurrencyNews({ code }: { code: string }) {
           Actualités &amp; Sentiment
         </CardTitle>
 
-        {items.length > 0 ? (
-          <div className="flex items-center gap-3 text-xs">
-            <span className="text-brand-green flex items-center gap-1">
-              <Icon name="trending_up" size={13} />
-              {bullish}
-            </span>
-            <span className="text-brand-red flex items-center gap-1">
-              <Icon name="trending_down" size={13} />
-              {bearish}
-            </span>
-            <span className="text-subtle">{items.length} titres</span>
-          </div>
-        ) : null}
+        <div className="flex items-center gap-3">
+          {items.length > 0 ? (
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-brand-green flex items-center gap-1">
+                <Icon name="trending_up" size={13} />
+                {bullish}
+              </span>
+              <span className="text-brand-red flex items-center gap-1">
+                <Icon name="trending_down" size={13} />
+                {bearish}
+              </span>
+              <span className="text-subtle">{items.length} titres</span>
+            </div>
+          ) : null}
+          <RefreshNewsButton />
+        </div>
       </div>
 
       {items.length === 0 ? (

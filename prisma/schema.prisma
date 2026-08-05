@@ -1222,6 +1222,15 @@ model NewsArticle {
   summary String @db.Text
   source  String @db.VarChar(64)
 
+  /// French rendering, filled by a batched translation after storage.
+  ///
+  /// Nullable on purpose: a headline is stored the moment it is fetched, and a
+  /// translation that failed or has not run yet must not hold it back. The page
+  /// falls back to the original, which is worse than French but far better than
+  /// an empty feed.
+  titleFr   String? @db.Text
+  summaryFr String? @db.Text
+
   publishedAt DateTime
   fetchedAt   DateTime @default(now())
 

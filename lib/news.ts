@@ -3,7 +3,14 @@ import "server-only";
 import { after } from "next/server";
 
 import type { Lean } from "@/domain/news/tagging";
+import {
+  buildTranslatePrompt,
+  parseTranslations,
+  TRANSLATE_SCHEMA,
+  TRANSLATE_SYSTEM,
+} from "@/domain/news/translate";
 import { fetchAllNews } from "@/lib/integrations/news";
+import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
 import { prisma } from "@/lib/prisma";
 import { NewsLean } from "@/lib/generated/prisma/enums";
 
@@ -71,6 +78,7 @@ const BLOCKING_HOURS = 6;
 export interface RefreshSummary {
   fetched: number;
   stored: number;
+  translated: number;
   alreadyKnown: number;
   removed: number;
   byCurrency: Record<string, number>;
@@ -131,7 +139,66 @@ export async function refreshNews(options: { withGdelt?: boolean } = {}): Promis
     where: { publishedAt: { lt: cutoff } },
   });
 
-  return { fetched: articles.length, stored, alreadyKnown, removed, byCurrency };
+  // Translated after the rows exist, and its failure is not the refresh's:
+  // the articles are already readable in English by the time this runs.
+  let translated = 0;
+  try {
+    translated = await translatePendingNews();
+  } catch {
+    translated = 0;
+  }
+
+  return { fetched: articles.length, stored, translated, alreadyKnown, removed, byCurrency };
+}
+
+/** Translated per call. Large enough to be one request, small enough to finish. */
+const TRANSLATE_BATCH = 40;
+
+/**
+ * Fills the French columns for whatever is still missing them.
+ *
+ * Runs after storage, never during it: a headline must reach the database the
+ * moment it is fetched, so a translation that fails or times out costs the
+ * language and not the article. The page falls back to the original.
+ */
+export async function translatePendingNews(limit = TRANSLATE_BATCH): Promise<number> {
+  if (!geminiConfigured()) return 0;
+
+  const pending = await prisma.newsArticle.findMany({
+    where: { titleFr: null },
+    orderBy: { publishedAt: "desc" },
+    take: limit,
+    select: { id: true, title: true, summary: true },
+  });
+
+  if (pending.length === 0) return 0;
+
+  const result = await callGeminiStructured({
+    system: TRANSLATE_SYSTEM,
+    prompt: buildTranslatePrompt(pending),
+    schema: TRANSLATE_SCHEMA as unknown as object,
+    validate: (value) => {
+      const map = parseTranslations(value);
+      return map.size > 0 ? map : null;
+    },
+    maxTokens: 16000,
+  });
+
+  if (!result.data) return 0;
+
+  let written = 0;
+  for (const article of pending) {
+    const translation = result.data.get(article.id);
+    if (!translation) continue;
+
+    await prisma.newsArticle.update({
+      where: { id: article.id },
+      data: { titleFr: translation.titre, summaryFr: translation.resume },
+    });
+    written += 1;
+  }
+
+  return written;
 }
 
 /**
@@ -198,6 +265,8 @@ export async function listNewsFor(currencyCode: string, limit = 8): Promise<News
           id: true,
           title: true,
           summary: true,
+          titleFr: true,
+          summaryFr: true,
           url: true,
           source: true,
           publishedAt: true,
@@ -208,8 +277,10 @@ export async function listNewsFor(currencyCode: string, limit = 8): Promise<News
 
   return tags.map((tag) => ({
     id: tag.article.id,
-    title: tag.article.title,
-    summary: tag.article.summary,
+    // French when it exists, original otherwise. A missing translation costs
+    // the language, never the headline.
+    title: tag.article.titleFr ?? tag.article.title,
+    summary: tag.article.summaryFr ?? tag.article.summary,
     url: tag.article.url,
     source: tag.article.source,
     publishedAt: tag.article.publishedAt,
@@ -244,6 +315,8 @@ export async function listAllNews(limit = 60): Promise<GlobalNewsRow[]> {
       id: true,
       title: true,
       summary: true,
+      titleFr: true,
+      summaryFr: true,
       url: true,
       source: true,
       publishedAt: true,
@@ -253,8 +326,8 @@ export async function listAllNews(limit = 60): Promise<GlobalNewsRow[]> {
 
   return articles.map((article) => ({
     id: article.id,
-    title: article.title,
-    summary: article.summary,
+    title: article.titleFr ?? article.title,
+    summary: article.summaryFr ?? article.summary,
     url: article.url,
     source: article.source,
     publishedAt: article.publishedAt,

@@ -55,7 +55,21 @@ export class Mt5ParseError extends Error {
 // ----------------------------------------------------------------
 
 const ROW_RE = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-const CELL_RE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+const CELL_RE = /<t[dh]([^>]*)>([\s\S]*?)<\/t[dh]>/gi;
+
+/**
+ * A cell MT5 renders but never shows.
+ *
+ * Every data row in the Positions table carries a `<td class="hidden"
+ * colspan="8">` after Type — scaffolding for the report's expandable deal
+ * detail, absent from the header row. Counted as a column it shifts everything
+ * after Type by one, which lands the close TIME on the T/P PRICE. That parses
+ * as no date at all, so each row looks like a still-open position and is
+ * dropped without a warning: a real export read as zero trades.
+ *
+ * Dropping these cells realigns data rows with the header exactly.
+ */
+const HIDDEN_CELL = /\bclass\s*=\s*["'][^"']*\bhidden\b/i;
 
 const ENTITIES: Record<string, string> = {
     '&nbsp;': ' ',
@@ -82,7 +96,8 @@ function tableRows(html: string): string[][] {
     for (const rowMatch of html.matchAll(ROW_RE)) {
         const cells: string[] = [];
         for (const cellMatch of (rowMatch[1] ?? '').matchAll(CELL_RE)) {
-            cells.push(cellText(cellMatch[1] ?? ''));
+            if (HIDDEN_CELL.test(cellMatch[1] ?? '')) continue;
+            cells.push(cellText(cellMatch[2] ?? ''));
         }
         if (cells.length > 0) rows.push(cells);
     }
@@ -196,7 +211,9 @@ const HEADER_PATTERNS = {
     stopLoss: /^s\s*\/\s*l$/i,
     takeProfit: /^t\s*\/\s*p$/i,
     commission: /^commission$/i,
-    swap: /^swap$/i,
+    // A French terminal writes the swap column "Echange", accent optional
+    // depending on the build.
+    swap: /^(swap|[ée]change)$/i,
     profit: /^(profit|bénéfice|benefice)$/i,
 } as const;
 

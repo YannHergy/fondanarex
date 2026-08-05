@@ -161,6 +161,60 @@ describe('parseMt5Report', () => {
         expect(warnings).toEqual(['Position 4444444 : volume illisible']);
     });
 
+    // Shape taken verbatim from a FundedNext MT5 build, French interface.
+    // Two traps live here, and together they read a real 26-trade export as
+    // zero trades: the hidden spacer cell shifts every column after Type, so
+    // the close time lands on the T/P price and each row looks still open.
+    describe('real FundedNext export', () => {
+        const FRENCH_HEADER = `<tr>
+            <td nowrap style="height: 30px"><b>Heure</b></td><td nowrap><b>Position</b></td>
+            <td nowrap><b>Symbole</b></td><td nowrap><b>Type</b></td><td nowrap><b>Volume</b></td>
+            <td nowrap><b>Prix</b></td><td nowrap><b>S / L</b></td><td nowrap><b>T / P</b></td>
+            <td nowrap><b>Heure</b></td><td nowrap><b>Prix</b></td>
+            <td nowrap><b>Commission</b></td><td nowrap><b>Echange</b></td>
+            <td nowrap colspan="2"><b>Profit</b></td>
+        </tr>`;
+
+        const REAL_ROW = `<tr>
+            <td>2026.02.26 14:56:29</td><td>159270650</td><td>GBPUSD</td><td>sell</td>
+            <td class="hidden" colspan="8"></td>
+            <td class="">0.08</td><td class="">1.35467</td><td class="">1.35593</td>
+            <td class="">1.33859</td><td class="">2026.03.02 00:18:16</td><td class="">1.34173</td>
+            <td class="">-0.56</td><td class="">-0.48</td><td class="">103.52</td>
+        </tr>`;
+
+        it('ignores the hidden spacer cell so columns line up with the header', () => {
+            const { positions, warnings } = parseMt5Report(report(REAL_ROW, FRENCH_HEADER));
+
+            expect(warnings).toEqual([]);
+            expect(positions).toHaveLength(1);
+            expect(positions[0]).toMatchObject({
+                positionId: '159270650',
+                direction: 'Sell',
+                lotSize: 0.08,
+                entryPrice: 1.35467,
+                // Read from the second Prix, not the S/L that sits before it.
+                exitPrice: 1.34173,
+                stopLoss: 1.35593,
+                takeProfit: 1.33859,
+                // The whole point: a real close time, not a price misread as one.
+                closedAt: new Date('2026-03-02T00:18:16Z'),
+            });
+        });
+
+        it('reads "Echange" as the swap column', () => {
+            expect(parseMt5Report(report(REAL_ROW, FRENCH_HEADER)).positions[0]?.swap).toBe(-0.48);
+        });
+
+        it('nets profit against commission and swap the way the report does', () => {
+            const position = parseMt5Report(report(REAL_ROW, FRENCH_HEADER)).positions[0];
+            const net = (position?.profit ?? 0) + (position?.commission ?? 0) + (position?.swap ?? 0);
+
+            // 103.52 - 0.56 - 0.48, matching the report's own "Profit Total Net".
+            expect(Number(net.toFixed(2))).toBe(102.48);
+        });
+    });
+
     it('refuses a report written with comma decimals rather than misread prices', () => {
         const row = WINNER.replace('1.09210', '1,09210');
 

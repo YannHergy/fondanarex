@@ -6,6 +6,15 @@
 
 import { tradeOutcome } from './trade-math';
 
+/**
+ * Where a trade came from.
+ *
+ * `mt5` is an import of the terminal's own HTML report — the fallback taken
+ * because the broker refuses the third-party connections `metaapi` needs.
+ * Both carry the broker's position id, so they deduplicate against each other.
+ */
+export type TradeOrigin = 'manual' | 'metaapi' | 'mt5';
+
 export interface JournalTrade {
     id: string;
     instrument: string;
@@ -17,8 +26,19 @@ export interface JournalTrade {
     strategy: string | null;
     session: string | null;
     tags: string[];
-    source: 'manual' | 'metaapi';
+    source: TradeOrigin;
 }
+
+/** True when the terminal produced the trade rather than the user typing it. */
+export function isImported(source: TradeOrigin): boolean {
+    return source !== 'manual';
+}
+
+export const ORIGIN_LABELS: Record<TradeOrigin, string> = {
+    manual: 'Saisie manuelle',
+    metaapi: 'MetaTrader (synchro)',
+    mt5: 'MetaTrader (rapport)',
+};
 
 export const SESSIONS = ['London', 'New York', 'Asian', 'London Close'] as const;
 export const CLOSE_TYPES = ['TP atteint', 'SL touché', 'Clôture manuelle', 'Break Even'] as const;

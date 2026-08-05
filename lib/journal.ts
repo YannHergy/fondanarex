@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { JournalTrade } from "@/domain/journal/filters";
+import type { JournalTrade, TradeOrigin } from "@/domain/journal/filters";
 import { netPnl, tradePips, tradePnl } from "@/domain/journal/trade-math";
 import type { InstrumentSpec } from "@/domain/risk/position";
 import { listAttachments, type AttachmentRow } from "@/lib/attachments";
@@ -23,6 +23,12 @@ import { Direction, EntryType, TradeSource } from "@/lib/generated/prisma/enums"
 const DIRECTION_TO_DB: Record<"Buy" | "Sell", Direction> = {
   Buy: Direction.BUY,
   Sell: Direction.SELL,
+};
+
+const SOURCE_FROM_DB: Record<TradeSource, TradeOrigin> = {
+  [TradeSource.MANUAL]: "manual",
+  [TradeSource.METAAPI]: "metaapi",
+  [TradeSource.MT5_REPORT]: "mt5",
 };
 
 export interface TradeRow extends JournalTrade {
@@ -159,7 +165,7 @@ export async function listTrades(userId: string, limit = 500): Promise<TradeRow[
     emotionAfter: trade.emotionAfter,
     notes: trade.notes,
     tags: trade.tags,
-    source: trade.source === TradeSource.METAAPI ? "metaapi" : "manual",
+    source: SOURCE_FROM_DB[trade.source] ?? "manual",
     positionId: trade.positionId,
     screenshots: byTrade.get(trade.id) ?? [],
   }));

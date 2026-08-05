@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain/journal/filters";
+import { Mt5ParseError } from "@/domain/journal/mt5-report";
 import { attachTo, removeAttachment } from "@/lib/attachments";
+import { importMt5Report, type ImportSummary } from "@/lib/journal-import";
 import {
   addStrategy,
   createTrade,
@@ -129,6 +131,80 @@ export async function deleteStrategy(name: string): Promise<void> {
   const userId = await requireUserIdOrThrow();
   await removeStrategy(userId, z.string().min(1).max(64).parse(name));
   revalidatePath("/journal");
+}
+
+/** Reports run to a few hundred kilobytes; a megabyte is already generous. */
+const MAX_REPORT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Decodes the uploaded report.
+ *
+ * MetaTrader writes report HTML as UTF-16 as often as UTF-8, depending on
+ * version and platform. Reading a UTF-16 file as UTF-8 yields text with a NUL
+ * between every character, which no regex in the parser would match — the
+ * import would fail with "table not found" on a perfectly valid file. The byte
+ * order mark settles it.
+ */
+function decodeReport(bytes: Uint8Array): string {
+  const [b0, b1, b2] = bytes;
+
+  if (b0 === 0xff && b1 === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+  if (b0 === 0xfe && b1 === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+  if (b0 === 0xef && b1 === 0xbb && b2 === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+/**
+ * Imports closed trades from a MetaTrader 5 HTML report.
+ *
+ * Returns the outcome instead of throwing, because a partial import is the
+ * normal case: a report routinely contains instruments the journal does not
+ * carry, and the user needs to be told which rather than left to notice a
+ * missing trade weeks later.
+ */
+export async function importMt5(
+  formData: FormData,
+): Promise<{ ok: true; summary: ImportSummary } | { ok: false; error: string }> {
+  const userId = await requireUserIdOrThrow();
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, error: "Aucun fichier reçu" };
+  if (file.size === 0) return { ok: false, error: "Le fichier est vide" };
+  if (file.size > MAX_REPORT_BYTES) {
+    return { ok: false, error: "Fichier trop volumineux (8 Mo maximum)" };
+  }
+
+  // XLSX is a ZIP archive, so the parser would see binary noise and report a
+  // missing table. Naming the real problem saves a round trip.
+  if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
+    return {
+      ok: false,
+      error:
+        "Ce format n'est pas lu. Dans MetaTrader, choisis « Rapport » puis enregistre en HTML.",
+    };
+  }
+
+  const accountId = formData.get("accountId");
+
+  try {
+    const html = decodeReport(new Uint8Array(await file.arrayBuffer()));
+    const summary = await importMt5Report(userId, html, {
+      accountId: typeof accountId === "string" && accountId ? accountId : null,
+    });
+
+    if (summary.imported > 0) {
+      revalidatePath("/journal");
+      revalidatePath("/rapports");
+    }
+
+    return { ok: true, summary };
+  } catch (error) {
+    if (error instanceof Mt5ParseError) return { ok: false, error: error.message };
+    return { ok: false, error: "Lecture du rapport impossible" };
+  }
 }
 
 export async function uploadTradeScreenshot(

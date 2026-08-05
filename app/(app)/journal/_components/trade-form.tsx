@@ -257,6 +257,14 @@ export function TradeForm({
         </p>
       ) : null}
 
+      {editing?.source === "mt5" ? (
+        <p className="text-brand-amber mb-3 flex items-start gap-1.5 text-xs">
+          <Icon name="sync" size={13} className="mt-0.5 shrink-0" />
+          Trade importé d&apos;un rapport MetaTrader. Un réimport ne le touchera pas : vos
+          modifications et annotations sont définitives.
+        </p>
+      ) : null}
+
       <div className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-4">
           <Select

@@ -524,6 +524,9 @@ enum Direction {
 enum TradeSource {
   MANUAL
   METAAPI
+  /// Imported from a MetaTrader 5 HTML report. Carries the same position id as
+  /// METAAPI would, so the two dedup against each other on @@unique([userId, positionId]).
+  MT5_REPORT
 }
 
 model Trade {

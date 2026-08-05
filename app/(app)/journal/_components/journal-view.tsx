@@ -10,12 +10,15 @@ import {
   removeTrade,
   uploadTradeScreenshot,
 } from "@/app/(app)/journal/actions";
+import { ImportMt5 } from "@/app/(app)/journal/_components/import-mt5";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import {
   filterTrades,
+  isImported,
   journalStats,
   monthCalendar,
+  ORIGIN_LABELS,
   SESSIONS,
   sortTrades,
   tradesByDay,
@@ -97,6 +100,7 @@ export function JournalView({
         title="Journal"
         subtitle="Chaque trade, ce qui l'a motivé et ce qu'il a réellement donné"
       >
+        <ImportMt5 accounts={accounts} />
         <button
           type="button"
           onClick={() => openForm(null)}
@@ -295,7 +299,7 @@ export function JournalView({
                           >
                             {trade.direction === "Buy" ? "A" : "V"}
                           </span>
-                          {trade.source === "metaapi" ? (
+                          {isImported(trade.source) ? (
                             <Icon
                               name="sync"
                               size={11}
@@ -574,10 +578,10 @@ function TradeDetail({
           >
             {trade.direction === "Buy" ? "Achat" : "Vente"}
           </span>
-          {trade.source === "metaapi" ? (
+          {isImported(trade.source) ? (
             <span className="text-subtle flex items-center gap-1 text-[11px]">
               <Icon name="sync" size={12} />
-              MetaTrader
+              {ORIGIN_LABELS[trade.source]}
             </span>
           ) : null}
 

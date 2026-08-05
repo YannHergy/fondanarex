@@ -12,6 +12,12 @@ import {
 } from "@/domain/journal/analysis-prompt";
 import { analyseJournal, type JournalAnalytics } from "@/domain/journal/analytics";
 import {
+  ASSISTANT_SYSTEM,
+  buildAssistantContext,
+  MAX_HISTORY_TURNS,
+  type AssistantContext,
+} from "@/domain/journal/assistant-prompt";
+import {
   computeDeepStats,
   MIN_TRADES_FOR_DEEP_STATS,
   type DeepStats,
@@ -20,7 +26,7 @@ import { CLOSE_TYPES, EMOTIONS_AFTER, EMOTIONS_BEFORE, SESSIONS } from "@/domain
 import { Mt5ParseError } from "@/domain/journal/mt5-report";
 import { deleteAnalysisRun, saveAnalysisRun } from "@/lib/analysis-history";
 import { attachTo, removeAttachment } from "@/lib/attachments";
-import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
+import { callGeminiChat, callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
 import { importMt5Report, type ImportSummary } from "@/lib/journal-import";
 import {
   addStrategy,
@@ -320,6 +326,56 @@ export async function removeAnalysisRun(runId: string): Promise<void> {
   const userId = await requireUserIdOrThrow();
   await deleteAnalysisRun(userId, z.string().min(1).parse(runId));
   revalidatePath("/journal");
+}
+
+/**
+ * One turn of the assistant conversation.
+ *
+ * The context arrives from the CLIENT because the projection runs there — the
+ * figures on screen and the figures the model reads are then the same object,
+ * and cannot drift. It is re-validated here rather than trusted: a malformed
+ * context would otherwise reach the prompt as text.
+ */
+export async function askAssistant(input: {
+  context: unknown;
+  turns: { role: "user" | "assistant"; content: string }[];
+}): Promise<{ ok: true; reply: string; tokens: number } | { ok: false; error: string }> {
+  await requireUserIdOrThrow();
+
+  const parsed = z
+    .object({
+      turns: z
+        .array(
+          z.object({
+            role: z.enum(["user", "assistant"]),
+            content: z.string().min(1).max(4000),
+          }),
+        )
+        .min(1)
+        .max(MAX_HISTORY_TURNS),
+    })
+    .safeParse({ turns: input.turns });
+  if (!parsed.success) return { ok: false, error: "Requête invalide" };
+
+  if (!geminiConfigured()) {
+    return { ok: false, error: "Aucune clé Gemini configurée (GEMINI_API_KEY)." };
+  }
+
+  const context = input.context as AssistantContext;
+  if (typeof context !== "object" || context === null || typeof context.trades !== "number") {
+    return { ok: false, error: "Contexte manquant" };
+  }
+
+  const result = await callGeminiChat({
+    system: `${ASSISTANT_SYSTEM}
+
+${buildAssistantContext(context)}`,
+    turns: parsed.data.turns,
+  });
+
+  if (!result.text) return { ok: false, error: result.error ?? "Réponse indisponible" };
+
+  return { ok: true, reply: result.text, tokens: result.inputTokens + result.outputTokens };
 }
 
 export async function uploadTradeScreenshot(

@@ -485,8 +485,26 @@ export async function callPerplexity(options: {
  * `gemini-2.5-flash` is deliberately NOT the default: Google has closed it to
  * new API keys, and it answers with an error rather than a fallback.
  */
-const GEMINI_MODEL = "gemini-3.5-flash";
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+
+/**
+ * Tried in order, first success wins.
+ *
+ * Not premature caution: a live call returned "This model is currently
+ * experiencing high demand" mid-development, which on the free tier is an
+ * ordinary Tuesday. One saturated model must not take the feature down when
+ * three equivalents are answering.
+ *
+ * `gemini-2.5-flash` is absent on purpose — Google has closed it to new API
+ * keys and it answers with an error rather than falling through.
+ */
+const GEMINI_MODELS = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3-flash-preview"] as const;
+
+/** Worth trying the next model for; anything else is our own fault. */
+function geminiRetryable(message: string, status: number): boolean {
+  if (status === 429 || status === 500 || status === 503) return true;
+  return /high demand|overloaded|unavailable|quota|rate limit/i.test(message);
+}
 
 export function geminiConfigured(): boolean {
   return (process.env.GEMINI_API_KEY ?? "").length > 0;
@@ -513,8 +531,12 @@ export async function callGeminiStructured<T>(options: {
     return { data: null, error: "GEMINI_API_KEY absente", ...empty };
   }
 
+  let lastError = "Aucun modèle disponible";
+  let lastUsage = empty;
+
+  for (const model of GEMINI_MODELS) {
   try {
-    const response = await fetch(`${GEMINI_URL}/${GEMINI_MODEL}:generateContent`, {
+    const response = await fetch(`${GEMINI_URL}/${model}:generateContent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -544,7 +566,11 @@ export async function callGeminiStructured<T>(options: {
     };
 
     if (!response.ok || payload.error) {
-      return { data: null, error: payload.error?.message ?? `HTTP ${response.status}`, ...usage };
+      const message = payload.error?.message ?? `HTTP ${response.status}`;
+      lastError = message;
+      lastUsage = usage;
+      if (geminiRetryable(message, response.status)) continue;
+      return { data: null, error: message, ...usage };
     }
 
     const candidate = payload.candidates?.[0];
@@ -565,12 +591,84 @@ export async function callGeminiStructured<T>(options: {
       ? { data, error: null, ...usage }
       : { data: null, error: "Réponse hors schéma", ...usage };
   } catch (error) {
-    return {
-      data: null,
-      error: error instanceof Error ? error.message : "Erreur Gemini",
-      ...empty,
-    };
+    lastError = error instanceof Error ? error.message : "Erreur Gemini";
   }
+  }
+
+  return { data: null, error: lastError, ...lastUsage };
+}
+
+/**
+ * Free-form Gemini chat, multi-turn.
+ *
+ * No response schema: the assistant answers in prose, and forcing JSON on a
+ * conversation buys nothing but a parse step that can fail.
+ */
+export async function callGeminiChat(options: {
+  system: string;
+  turns: readonly { role: "user" | "assistant"; content: string }[];
+  maxTokens?: number;
+}): Promise<{ text: string | null; error: string | null; inputTokens: number; outputTokens: number }> {
+  const empty = { inputTokens: 0, outputTokens: 0 };
+
+  if (!geminiConfigured()) return { text: null, error: "GEMINI_API_KEY absente", ...empty };
+
+  let lastError = "Aucun modèle disponible";
+  let lastUsage = empty;
+
+  for (const model of GEMINI_MODELS) {
+  try {
+    const response = await fetch(`${GEMINI_URL}/${model}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY ?? "",
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: options.system }] },
+        contents: options.turns.map((turn) => ({
+          // Gemini names the assistant side "model", not "assistant".
+          role: turn.role === "assistant" ? "model" : "user",
+          parts: [{ text: turn.content }],
+        })),
+        generationConfig: { temperature: 0.3, maxOutputTokens: options.maxTokens ?? 4000 },
+      }),
+    });
+
+    const payload = (await response.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      error?: { message?: string };
+    };
+
+    const usage = {
+      inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
+    };
+
+    if (!response.ok || payload.error) {
+      const message = payload.error?.message ?? `HTTP ${response.status}`;
+      lastError = message;
+      lastUsage = usage;
+      if (geminiRetryable(message, response.status)) continue;
+      return { text: null, error: message, ...usage };
+    }
+
+    const text = (payload.candidates?.[0]?.content?.parts ?? [])
+      .map((part) => part.text ?? "")
+      .join("")
+      .trim();
+
+    if (text) return { text, error: null, ...usage };
+
+    lastError = "Réponse vide";
+    lastUsage = usage;
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : "Erreur Gemini";
+  }
+  }
+
+  return { text: null, error: lastError, ...lastUsage };
 }
 
 /** Cost of a Claude call in USD. Only Anthropic pricing is tracked. */

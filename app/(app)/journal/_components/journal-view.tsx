@@ -13,6 +13,7 @@ import {
 import { AnalysisView } from "@/app/(app)/journal/_components/analysis-view";
 import { EquityCurve } from "@/app/(app)/journal/_components/equity-curve";
 import { ImportMt5 } from "@/app/(app)/journal/_components/import-mt5";
+import { ProjectionView } from "@/app/(app)/journal/_components/projection-view";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -45,7 +46,7 @@ const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
  * the filter bar and the stat row above stay put while this switches, so a
  * number cannot change meaning just because the shape below it did.
  */
-type Tab = "list" | "calendar" | "equity" | "analysis";
+type Tab = "list" | "calendar" | "equity" | "analysis" | "projection";
 
 export function JournalView({
   trades,
@@ -153,6 +154,7 @@ export function JournalView({
               { id: "calendar", label: "Calendrier", icon: "calendar_month" },
               { id: "equity", label: "Évolution du compte", icon: "show_chart" },
               { id: "analysis", label: "Analyse IA", icon: "psychology" },
+              { id: "projection", label: "Prévision", icon: "insights" },
             ] as const
           ).map((entry) => (
             <button
@@ -275,7 +277,9 @@ export function JournalView({
 
       <Card>
         {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
-        {tab === "analysis" ? (
+        {tab === "projection" ? (
+          <ProjectionView trades={visible} accounts={accounts} />
+        ) : tab === "analysis" ? (
           <AnalysisView trades={visible} periodLabel={periodLabel} history={analysisHistory} />
         ) : tab === "equity" ? (
           <EquityCurve trades={visible} accounts={accounts} />

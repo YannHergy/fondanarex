@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
     bestSize,
+    dateAfterTrades,
+    formatProjectedDate,
     MIN_TRADES_PER_LEVER,
     projectAccount,
     recommend,
@@ -220,5 +222,48 @@ describe('recommend', () => {
         // Arithmetic levers rest on no observation at all, and say null rather
         // than borrowing the journal's size.
         expect(out.find((r) => r.evidence === 'arithmetic')!.sampleSize).toBeNull();
+    });
+});
+
+describe('dateAfterTrades', () => {
+    const START = new Date('2026-08-05T00:00:00Z');
+
+    it('places a trade on the calendar at the given pace', () => {
+        // 10 trades at 2 per week is 5 weeks, so 35 days.
+        expect(dateAfterTrades(START, 10, 2)).toEqual(new Date('2026-09-09T00:00:00Z'));
+    });
+
+    it('keeps fractional weeks rather than rounding', () => {
+        // 1.36/week is the real observed pace. 99 trades is 72.8 weeks — a
+        // little over 509 days — landing in December 2027. Rounding the pace to
+        // 1 or 2 would move that by months, which is the scale being read.
+        const at = dateAfterTrades(START, 99, 1.36);
+
+        expect(at.getUTCFullYear()).toBe(2027);
+        expect(at.getUTCMonth()).toBe(11);
+
+        expect(dateAfterTrades(START, 99, 1).getUTCFullYear()).toBe(2028);
+    });
+
+    it('returns the start date rather than an invalid one on a zero pace', () => {
+        expect(dateAfterTrades(START, 10, 0)).toEqual(START);
+        expect(dateAfterTrades(START, Number.NaN, 2)).toEqual(START);
+    });
+});
+
+describe('formatProjectedDate', () => {
+    const DATE = new Date('2027-03-12T00:00:00Z');
+
+    it('drops to the month on a long projection', () => {
+        // Naming a day two years out claims an accuracy the model does not have.
+        expect(formatProjectedDate(DATE, 400)).toBe('mars 2027');
+    });
+
+    it('keeps the day on a short one', () => {
+        expect(formatProjectedDate(DATE, 20)).toMatch(/12 mars/);
+    });
+
+    it('keeps the year in between', () => {
+        expect(formatProjectedDate(DATE, 90)).toMatch(/2027/);
     });
 });

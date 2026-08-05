@@ -17,6 +17,8 @@
 // ================================================================
 
 export interface AssistantContext {
+    /** Today, ISO date. Everything projected is counted from it. */
+    today: string;
     trades: number;
     expectancy: number;
     observedPace: number;
@@ -28,6 +30,8 @@ export interface AssistantContext {
     projection: {
         passRate: number;
         failRate: number;
+        /** ISO date the target is reached on, at the current pace. */
+        targetDate: string | null;
         monthsToTarget: number | null;
         tradesToTarget: number | null;
         p95MaxDrawdown: number;
@@ -138,8 +142,10 @@ RÉGLAGES ACTUELS DE LA PROJECTION
 - Rythme simulé : ${context.pace} trades par semaine
 
 RÉSULTAT DE LA PROJECTION À CES RÉGLAGES
+- Date d'aujourd'hui : ${context.today}
 - Probabilité de validation : ${p.passRate} %
 - Probabilité d'élimination : ${p.failRate} %
+- Objectif atteint vers le : ${p.targetDate ?? "jamais atteint dans l'horizon simulé"}
 - Délai médian : ${p.monthsToTarget === null ? "objectif jamais atteint" : `${p.monthsToTarget} mois`}
 - Trades médians jusqu'à l'objectif : ${p.tradesToTarget ?? "—"}
 - Drawdown au 95e centile : −${money(p.p95MaxDrawdown)}

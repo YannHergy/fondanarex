@@ -278,7 +278,7 @@ export function JournalView({
       <Card>
         {/* Sur `visible` : chaque vue lit l'ensemble filtré, jamais un autre. */}
         {tab === "projection" ? (
-          <ProjectionView trades={visible} accounts={accounts} />
+          <ProjectionView trades={visible} accounts={accounts} now={now} />
         ) : tab === "analysis" ? (
           <AnalysisView trades={visible} periodLabel={periodLabel} history={analysisHistory} />
         ) : tab === "equity" ? (

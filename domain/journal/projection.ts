@@ -451,3 +451,38 @@ export function recommend(
         return (a.monthsToTarget ?? Infinity) - (b.monthsToTarget ?? Infinity);
     });
 }
+
+// ── Calendrier ────────────────────────────────────────────────────────────
+
+/**
+ * The calendar date a given trade number falls on, at a given pace.
+ *
+ * Takes `start` rather than reading the clock, so the module stays pure and a
+ * test can assert a date instead of a duration. Fractional weeks are kept —
+ * rounding to whole ones would drift by days over a projection measured in
+ * months, which is exactly the scale the user reads it at.
+ */
+export function dateAfterTrades(start: Date, trades: number, tradesPerWeek: number): Date {
+    if (tradesPerWeek <= 0 || !Number.isFinite(trades)) return start;
+
+    const days = (trades / tradesPerWeek) * 7;
+    return new Date(start.getTime() + days * 86_400_000);
+}
+
+/**
+ * A label for a projected date, at the precision the span deserves.
+ *
+ * A projection running over two years labelled to the day claims an accuracy
+ * it does not have; one running over three weeks labelled to the month says
+ * nothing. The span decides.
+ */
+export function formatProjectedDate(date: Date, spanDays: number): string {
+    const options: Intl.DateTimeFormatOptions =
+        spanDays > 180
+            ? { month: "long", year: "numeric" }
+            : spanDays > 45
+              ? { day: "numeric", month: "short", year: "numeric" }
+              : { day: "numeric", month: "short" };
+
+    return new Intl.DateTimeFormat("fr-FR", { ...options, timeZone: "UTC" }).format(date);
+}

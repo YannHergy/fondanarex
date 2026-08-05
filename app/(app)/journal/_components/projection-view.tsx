@@ -7,6 +7,8 @@ import { Icon } from "@/components/ui/icon";
 import { Slider } from "@/app/(app)/simulateur/_components/slider";
 import {
   bestSize,
+  dateAfterTrades,
+  formatProjectedDate,
   projectAccount,
   recommend,
   sweepSize,
@@ -26,6 +28,11 @@ import { cn } from "@/lib/utils";
  * disagreeing with the one the assistant is given.
  */
 
+/** A date that many months out. 30.44 is the mean month length. */
+function monthsLater(start: Date, months: number): Date {
+  return new Date(start.getTime() + months * 30.44 * 86_400_000);
+}
+
 function money(value: number): string {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 }
@@ -33,10 +40,14 @@ function money(value: number): string {
 export function ProjectionView({
   trades,
   accounts,
+  now,
 }: {
   trades: TradeRow[];
   accounts: AccountOption[];
+  /** Server clock, so the projected dates do not depend on the visitor's machine. */
+  now: string;
 }) {
+  const start = useMemo(() => new Date(now), [now]);
   const closed = useMemo(
     () => trades.filter((trade) => trade.closedAt !== null && trade.pnl !== null),
     [trades],
@@ -196,13 +207,31 @@ export function ProjectionView({
         </div>
       </div>
 
-      <Outcome projection={projection} capital={capital} maxLossPct={maxLossPct} />
+      <Outcome
+        projection={projection}
+        capital={capital}
+        maxLossPct={maxLossPct}
+        start={start}
+        pace={pace}
+      />
 
-      <FanChart projection={projection} capital={capital} targetPct={targetPct} maxLossPct={maxLossPct} />
+      <FanChart
+        projection={projection}
+        capital={capital}
+        targetPct={targetPct}
+        maxLossPct={maxLossPct}
+        start={start}
+        pace={pace}
+      />
 
-      <SizeSweep points={sweep} current={size} optimum={optimum?.sizeMultiplier ?? null} />
+      <SizeSweep
+        points={sweep}
+        current={size}
+        optimum={optimum?.sizeMultiplier ?? null}
+        start={start}
+      />
 
-      <Recommendations items={recommendations} />
+      <Recommendations items={recommendations} start={start} />
 
       <AssistantPanel
         context={{
@@ -215,9 +244,16 @@ export function ProjectionView({
           maxLossPct,
           size,
           pace,
+          today: start.toISOString().slice(0, 10),
           projection: {
             passRate: projection.passRate,
             failRate: projection.failRate,
+            targetDate:
+              projection.medianTradesToTarget === null
+                ? null
+                : dateAfterTrades(start, projection.medianTradesToTarget, pace)
+                    .toISOString()
+                    .slice(0, 10),
             monthsToTarget: projection.medianMonthsToTarget,
             tradesToTarget: projection.medianTradesToTarget,
             p95MaxDrawdown: projection.p95MaxDrawdown,
@@ -250,11 +286,20 @@ function Outcome({
   projection,
   capital,
   maxLossPct,
+  start,
+  pace,
 }: {
   projection: ProjectionResult;
   capital: number;
   maxLossPct: number;
+  start: Date;
+  pace: number;
 }) {
+  const targetDate =
+    projection.medianTradesToTarget === null
+      ? null
+      : dateAfterTrades(start, projection.medianTradesToTarget, pace);
+
   const cells = [
     {
       label: "Validation",
@@ -269,16 +314,18 @@ function Outcome({
       hint: `touche les −${money(capital * (maxLossPct / 100))} $ d'abord`,
     },
     {
-      label: "Délai médian",
+      label: "Objectif atteint vers",
+      // The date is the headline, not the duration: "March 2027" is a thing a
+      // person can plan around, "12.5 months" is a thing they have to convert.
       value:
-        projection.medianMonthsToTarget === null
+        targetDate === null
           ? "—"
-          : `${projection.medianMonthsToTarget} mois`,
+          : formatProjectedDate(targetDate, (projection.medianMonthsToTarget ?? 0) * 30),
       tone: null,
       hint:
-        projection.medianTradesToTarget === null
+        projection.medianMonthsToTarget === null
           ? undefined
-          : `${projection.medianTradesToTarget} trades`,
+          : `${projection.medianMonthsToTarget} mois · ${projection.medianTradesToTarget} trades`,
     },
     {
       label: "Drawdown probable",
@@ -335,11 +382,15 @@ function FanChart({
   capital,
   targetPct,
   maxLossPct,
+  start,
+  pace,
 }: {
   projection: ProjectionResult;
   capital: number;
   targetPct: number;
   maxLossPct: number;
+  start: Date;
+  pace: number;
 }) {
   const target = capital * (1 + targetPct / 100);
   const floor = capital * (1 - maxLossPct / 100);
@@ -369,6 +420,15 @@ function FanChart({
       .slice(0, span)
       .map((value, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(value)}`)
       .join(" ");
+
+  // Five ticks along the axis, each labelled with the calendar date that
+  // trade number falls on at this pace. A trade index tells the reader
+  // nothing they can act on; a month does.
+  const spanDays = (span / pace) * 7;
+  const dateTicks = [0, 0.25, 0.5, 0.75, 1].map((share) => {
+    const index = Math.round(share * (span - 1));
+    return { index, label: formatProjectedDate(dateAfterTrades(start, index, pace), spanDays) };
+  });
 
   return (
     <div className="border-border-app bg-bg rounded-lg border p-4">
@@ -443,10 +503,33 @@ function FanChart({
           strokeWidth="1.5"
           strokeDasharray="5 3"
         />
+        {dateTicks.map((tick) => (
+          <g key={tick.index}>
+            <line
+              x1={x(tick.index)}
+              x2={x(tick.index)}
+              y1={H - PAD_B}
+              y2={H - PAD_B + 4}
+              stroke="var(--color-border-strong)"
+              strokeWidth="1"
+            />
+            <text
+              x={x(tick.index)}
+              y={H - PAD_B + 16}
+              textAnchor={tick.index === 0 ? "start" : tick.index >= span - 1 ? "end" : "middle"}
+              className="fill-[var(--color-subtle)] text-[9px]"
+            >
+              {tick.label}
+            </text>
+          </g>
+        ))}
       </svg>
 
       <p className="text-subtle mt-1 text-[10px]">
-        Axe horizontal : les {span} premiers trades. Trait bleu : la trajectoire médiane.
+        {/* Espace explicite : JSX avale celui qui suit une expression en fin de ligne. */}
+        Dates calculées à {pace} trade{pace > 1 ? "s" : ""}
+        {" par semaine à partir d’aujourd’hui. Trait bleu : la trajectoire médiane sur "}
+        {span} trades.
       </p>
     </div>
   );
@@ -458,10 +541,12 @@ function SizeSweep({
   points,
   current,
   optimum,
+  start,
 }: {
   points: ReturnType<typeof sweepSize>;
   current: number;
   optimum: number | null;
+  start: Date;
 }) {
   return (
     <div className="border-border-app bg-bg rounded-lg border p-4">
@@ -479,6 +564,7 @@ function SizeSweep({
               <th className="py-1.5 text-right font-medium">Validation</th>
               <th className="py-1.5 text-right font-medium">Élimination</th>
               <th className="py-1.5 text-right font-medium">Délai</th>
+              <th className="py-1.5 text-right font-medium">Objectif vers</th>
               <th className="py-1.5 text-right font-medium">Drawdown 95e</th>
             </tr>
           </thead>
@@ -514,6 +600,11 @@ function SizeSweep({
                 <td className="text-fg py-1.5 text-right font-mono">
                   {point.monthsToTarget === null ? "—" : `${point.monthsToTarget} mois`}
                 </td>
+                <td className="text-muted py-1.5 text-right">
+                  {point.monthsToTarget === null
+                    ? "—"
+                    : formatProjectedDate(monthsLater(start, point.monthsToTarget), point.monthsToTarget * 30.44)}
+                </td>
                 <td className="text-muted py-1.5 text-right font-mono">
                   −{money(point.p95MaxDrawdown)}
                 </td>
@@ -541,7 +632,7 @@ const EVIDENCE: Record<
   insufficient: { icon: "block", tone: "text-brand-red", label: "Écarté — trop peu d'observations" },
 };
 
-function Recommendations({ items }: { items: Recommendation[] }) {
+function Recommendations({ items, start }: { items: Recommendation[]; start: Date }) {
   if (items.length === 0) return null;
 
   return (
@@ -562,9 +653,15 @@ function Recommendations({ items }: { items: Recommendation[] }) {
                 <p className="text-fg text-sm font-semibold">{item.label}</p>
                 {item.monthsToTarget !== null ? (
                   <p className="font-mono text-sm">
-                    <span className="text-brand-blue font-bold">{item.monthsToTarget} mois</span>
+                    <span className="text-brand-blue font-bold">
+                      {formatProjectedDate(
+                        monthsLater(start, item.monthsToTarget),
+                        item.monthsToTarget * 30.44,
+                      )}
+                    </span>
                     <span className="text-subtle ml-2 text-[11px]">
-                      validation {item.passRate} % · élimination {item.failRate} %
+                      {item.monthsToTarget} mois · validation {item.passRate} % · élimination{" "}
+                      {item.failRate} %
                     </span>
                   </p>
                 ) : null}

@@ -111,11 +111,15 @@ export interface JournalFilters {
  * which silently swallowed open trades — they carry a null or zero P&L — into
  * neither bucket, so a filtered list never added up to the unfiltered one.
  */
-export function filterTrades(
-    trades: readonly JournalTrade[],
+// Generic over the row type rather than fixed to JournalTrade: callers pass
+// richer rows (entry price, account, screenshots) and need them back intact.
+// Narrowing to the interface here silently stripped those fields at the type
+// level, so anything downstream of a filter could only see the minimum.
+export function filterTrades<T extends JournalTrade>(
+    trades: readonly T[],
     filters: JournalFilters,
     now: Date,
-): JournalTrade[] {
+): T[] {
     const search = filters.search?.trim().toLowerCase();
 
     return trades.filter((trade) => {
@@ -151,11 +155,11 @@ export type SortDirection = 'asc' | 'desc';
  * open trade has no result, and ranking it alongside a genuine breakeven would
  * misrepresent it at both ends of the list.
  */
-export function sortTrades(
-    trades: readonly JournalTrade[],
+export function sortTrades<T extends JournalTrade>(
+    trades: readonly T[],
     column: SortColumn,
     direction: SortDirection,
-): JournalTrade[] {
+): T[] {
     const sign = direction === 'asc' ? 1 : -1;
 
     return [...trades].sort((a, b) => {

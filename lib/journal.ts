@@ -342,16 +342,21 @@ export interface AccountOption {
   id: string;
   name: string;
   color: string;
+  /** Lets the equity curve plot a real balance rather than P&L from zero. */
+  initialCapital: number;
 }
 
 export async function listAccounts(userId: string): Promise<AccountOption[]> {
   const accounts = await prisma.tradingAccount.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, color: true },
+    select: { id: true, name: true, color: true, initialCapital: true },
   });
 
-  return accounts;
+  return accounts.map((account) => ({
+    ...account,
+    initialCapital: Number(account.initialCapital),
+  }));
 }
 
 export async function listTradeAttachments(

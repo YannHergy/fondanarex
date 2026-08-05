@@ -10,6 +10,7 @@ import {
   removeTrade,
   uploadTradeScreenshot,
 } from "@/app/(app)/journal/actions";
+import { EquityCurve } from "@/app/(app)/journal/_components/equity-curve";
 import { ImportMt5 } from "@/app/(app)/journal/_components/import-mt5";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -111,45 +112,12 @@ export function JournalView({
         </button>
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Trades" value={String(stats.total)} sub={`${stats.open} ouverts`} />
-        <Stat
-          label="P&L net"
-          value={stats.netPnl.toFixed(2)}
-          tone={stats.netPnl > 0 ? "green" : stats.netPnl < 0 ? "red" : undefined}
-        />
-        <Stat
-          label="Réussite"
-          value={stats.closed === 0 ? "—" : `${stats.winRate} %`}
-          sub={`${stats.wins}V / ${stats.losses}D`}
-        />
-        <Stat
-          label="Facteur profit"
-          value={stats.profitFactor === null ? "—" : stats.profitFactor.toFixed(2)}
-          sub={stats.profitFactor === null ? "aucune perte" : undefined}
-        />
-        <Stat
-          label="Espérance"
-          value={stats.closed === 0 ? "—" : stats.expectancy.toFixed(2)}
-          sub="par trade clôturé"
-        />
-        <Stat label="Pips" value={stats.totalPips.toFixed(1)} />
-      </div>
-
-      {formOpen ? (
-        <TradeForm
-          instruments={instruments}
-          specs={specs}
-          strategies={strategies}
-          accounts={accounts}
-          editing={editing}
-          onDone={() => {
-            setFormOpen(false);
-            setEditing(null);
-          }}
-        />
-      ) : null}
-
+      {/*
+        Vue et filtres AVANT les chiffres : chaque statistique ci-dessous est
+        calculée sur l'ensemble filtré, pas sur le journal entier. Les placer
+        au-dessus laissait croire l'inverse — on lisait un total, puis on
+        découvrait le filtre qui l'avait produit.
+      */}
       <Card>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {(
@@ -184,7 +152,7 @@ export function JournalView({
           />
         </div>
 
-        <div className="border-border-app mb-3 flex flex-wrap gap-2 border-t pt-3">
+        <div className="border-border-app flex flex-wrap gap-2 border-t pt-3">
           <FilterSelect
             value={filters.instrument ?? ""}
             onChange={(value) => setFilters((c) => ({ ...c, instrument: value || undefined }))}
@@ -235,7 +203,51 @@ export function JournalView({
             </button>
           ) : null}
         </div>
+      </Card>
 
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="Trades" value={String(stats.total)} sub={`${stats.open} ouverts`} />
+        <Stat
+          label="P&L net"
+          value={stats.netPnl.toFixed(2)}
+          tone={stats.netPnl > 0 ? "green" : stats.netPnl < 0 ? "red" : undefined}
+        />
+        <Stat
+          label="Réussite"
+          value={stats.closed === 0 ? "—" : `${stats.winRate} %`}
+          sub={`${stats.wins}V / ${stats.losses}D`}
+        />
+        <Stat
+          label="Facteur profit"
+          value={stats.profitFactor === null ? "—" : stats.profitFactor.toFixed(2)}
+          sub={stats.profitFactor === null ? "aucune perte" : undefined}
+        />
+        <Stat
+          label="Espérance"
+          value={stats.closed === 0 ? "—" : stats.expectancy.toFixed(2)}
+          sub="par trade clôturé"
+        />
+        <Stat label="Pips" value={stats.totalPips.toFixed(1)} />
+      </div>
+
+      {/* Sur `visible` : la courbe suit les filtres comme les statistiques. */}
+      <EquityCurve trades={visible} accounts={accounts} />
+
+      {formOpen ? (
+        <TradeForm
+          instruments={instruments}
+          specs={specs}
+          strategies={strategies}
+          accounts={accounts}
+          editing={editing}
+          onDone={() => {
+            setFormOpen(false);
+            setEditing(null);
+          }}
+        />
+      ) : null}
+
+      <Card>
         {tab === "list" ? (
           visible.length === 0 ? (
             <p className="text-subtle py-6 text-center text-sm">

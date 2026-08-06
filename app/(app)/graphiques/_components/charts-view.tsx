@@ -57,15 +57,27 @@ export function ChartsView({
 
   // TradingView needs the theme at mount, and it is not a React value — read
   // the same signal the stylesheet uses.
+  //
+  // THE SIGNAL IS THE `dark` CLASS ON <html>, set by the theme provider and
+  // consumed by `@custom-variant dark` in globals.css. This used to read
+  // `dataset.theme`, an attribute nothing ever sets, so it always fell through
+  // to `prefers-color-scheme` — and asked TradingView for a WHITE chart inside
+  // a dark page on any browser defaulting to light. Worse, resolving to
+  // "light" after the first paint re-ran the mount effect below and tore down
+  // the container while the widget script was still loading, which crashed it
+  // outright and left a blank rectangle.
+  //
+  // MutationObserver rather than a media query alone: the class flips when the
+  // reader uses the in-app theme toggle, which no media query reports.
   useEffect(() => {
-    const query = window.matchMedia("(prefers-color-scheme: light)");
-    const apply = () => {
-      const attribute = document.documentElement.dataset.theme;
-      setTheme(attribute === "light" || (!attribute && query.matches) ? "light" : "dark");
-    };
-    apply();
-    query.addEventListener("change", apply);
-    return () => query.removeEventListener("change", apply);
+    const read = () =>
+      setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+
+    read();
+
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
   }, []);
 
   const fundamental = useMemo(() => pairFundamentalBias(pair, currencies), [pair, currencies]);

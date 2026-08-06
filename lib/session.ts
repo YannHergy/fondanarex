@@ -38,10 +38,12 @@ export class UnauthorizedError extends Error {
 /**
  * The single workspace user, created and provisioned on first use.
  *
- * `cache` keeps this to one lookup per request. The upsert is idempotent, so a
- * cold start, a concurrent request and a redeploy all converge on the same row.
+ * Kept UNCACHED and exported to the retry loop below, because a memoised
+ * promise that REJECTS stays rejected for the rest of the request. See
+ * `currentUserId` — that is the whole reason this function exists separately
+ * from the cached wrapper.
  */
-const getOrCreateDefaultUser = cache(async (): Promise<string> => {
+async function resolveDefaultUser(): Promise<string> {
   // Fast path: one indexed read, which is what almost every request takes.
   //
   // This used to be an unconditional upsert followed by provisionUser(), and
@@ -71,7 +73,15 @@ const getOrCreateDefaultUser = cache(async (): Promise<string> => {
   await provisionUser(created.id);
 
   return created.id;
-});
+}
+
+/**
+ * The memoised entry point: one lookup per request on the happy path.
+ *
+ * The upsert is idempotent, so a cold start, a concurrent request and a
+ * redeploy all converge on the same row.
+ */
+const getOrCreateDefaultUser = cache(resolveDefaultUser);
 
 /**
  * Caps how long a request will wait on the database before giving up.
@@ -80,19 +90,23 @@ const getOrCreateDefaultUser = cache(async (): Promise<string> => {
  * the platform kills the function, which surfaces as an opaque platform error.
  * Failing fast lets the caller degrade to a readable page instead.
  */
+class DatabaseTimeout extends Error {}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Database timeout after ${ms}ms`)), ms);
+        timer = setTimeout(() => reject(new DatabaseTimeout(`Database timeout after ${ms}ms`)), ms);
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The user id for the current request, or null if the database is unreachable.
@@ -102,23 +116,39 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * fails the whole deployment instead of the one request that needed the data.
  */
 export async function currentUserId(): Promise<string | null> {
-  // Two attempts, because the first one can time out on a request that is
-  // otherwise healthy. Neon suspends an idle branch and the first connection
-  // pays the wake-up — measured at 1.5s cold against 220ms warm — and in
-  // development that lands on top of a page compiling for the first time,
-  // which alone can take tens of seconds. The result was a "database
-  // unreachable" setup screen on a database that was in fact fine.
+  // Several attempts, because the first can time out on a request that is
+  // otherwise healthy. Neon SUSPENDS an idle branch, and the connection that
+  // wakes it pays the whole cost. Measured on this project: 220ms warm, 1.5s on
+  // a light sleep — but a branch left alone for hours answers P1001 outright
+  // for a while, and in development that lands on top of a page compiling for
+  // the first time, which alone can take tens of seconds.
   //
-  // The retry works because withTimeout RACES: losing the race rejects the
-  // race, not the underlying query, and `getOrCreateDefaultUser` is memoised
-  // per request by `cache`. The second attempt therefore awaits the SAME
-  // in-flight promise, which has usually resolved by then, rather than opening
-  // a second connection.
-  for (const budgetMs of [8_000, 12_000]) {
+  // The budget was 8s then 12s and it was not enough: the error screen came
+  // back on a database that woke up perfectly two seconds later. Twenty-five
+  // seconds on the last attempt is a long wait, but a slow page beats a page
+  // that tells the user their database is gone when it is merely asleep.
+  //
+  // TWO FAILURE MODES, and they need opposite treatments.
+  //
+  // A TIMEOUT means the query is still running — the branch is waking. Retrying
+  // must await the SAME in-flight promise, which is what the memoised wrapper
+  // gives us: no second connection, no restarted wait.
+  //
+  // A REJECTION is the opposite. Once the memoised promise rejects, it stays
+  // rejected for the rest of the request, so every later attempt awaits a
+  // corpse and fails instantly. That was a real bug: an intermittent
+  // `getaddrinfo ENOTFOUND` on the Neon host burned all three budgets in about
+  // 150ms and showed "database unavailable" on a database that resolved fine a
+  // second later. After a rejection we therefore open a FRESH call, and pause
+  // first — a DNS blip needs a moment, not another instant hammer.
+  let poisoned = false;
+
+  for (const [attempt, budgetMs] of [8_000, 12_000, 25_000].entries()) {
     try {
-      return await withTimeout(getOrCreateDefaultUser(), budgetMs);
-    } catch {
-      // Falls through to the next budget; the last failure returns null.
+      return await withTimeout(poisoned ? resolveDefaultUser() : getOrCreateDefaultUser(), budgetMs);
+    } catch (error) {
+      poisoned = !(error instanceof DatabaseTimeout);
+      if (poisoned && attempt < 2) await sleep(600);
     }
   }
 

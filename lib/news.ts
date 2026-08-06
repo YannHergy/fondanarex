@@ -91,23 +91,36 @@ export interface RefreshSummary {
  * and a unique index on the normalised URL is what keeps a currency page from
  * showing one headline five times.
  */
-export async function refreshNews(options: { withGdelt?: boolean } = {}): Promise<RefreshSummary> {
+export async function refreshNews(
+  options: { withGdelt?: boolean; translate?: boolean } = {},
+): Promise<RefreshSummary> {
   const articles = await fetchAllNews(options);
 
   let stored = 0;
   let alreadyKnown = 0;
   const byCurrency: Record<string, number> = {};
 
-  for (const article of articles) {
-    const existing = await prisma.newsArticle.findUnique({
-      where: { urlHash: article.urlHash },
-      select: { id: true },
-    });
+  // One query for the whole batch rather than one per article. The loop below
+  // used to issue a findUnique per headline — sixty round trips to a serverless
+  // Postgres on a refresh where fifty-nine of them answered "already have it".
+  const known = new Set(
+    (
+      await prisma.newsArticle.findMany({
+        where: { urlHash: { in: articles.map((article) => article.urlHash) } },
+        select: { urlHash: true },
+      })
+    ).map((row) => row.urlHash),
+  );
 
-    if (existing) {
+  for (const article of articles) {
+    if (known.has(article.urlHash)) {
       alreadyKnown += 1;
       continue;
     }
+    // Guards a duplicate inside the same batch, which the query above cannot
+    // see: two feeds carrying the same story would otherwise race the unique
+    // index and abort the refresh.
+    known.add(article.urlHash);
 
     await prisma.newsArticle.create({
       data: {
@@ -141,11 +154,18 @@ export async function refreshNews(options: { withGdelt?: boolean } = {}): Promis
 
   // Translated after the rows exist, and its failure is not the refresh's:
   // the articles are already readable in English by the time this runs.
+  //
+  // OPTIONAL, because this function is reached from a page render. Awaiting a
+  // language model there put a twenty-to-forty second Gemini call inside the
+  // first page load of the day — a page must never wait on a model. The
+  // scheduled job asks for it; `ensureFreshNews` schedules it instead.
   let translated = 0;
-  try {
-    translated = await translatePendingNews();
-  } catch {
-    translated = 0;
+  if (options.translate ?? true) {
+    try {
+      translated = await translatePendingNews();
+    } catch {
+      translated = 0;
+    }
   }
 
   return { fetched: articles.length, stored, translated, alreadyKnown, removed, byCurrency };
@@ -227,8 +247,11 @@ export async function ensureFreshNews(): Promise<"fresh" | "queued" | "refreshed
 
   if (ageMinutes < FRESH_MINUTES) return "fresh";
 
+  // Never translates inline: a page render must not wait on a language model.
+  // The French text lands through `after` below, so the first visit of the day
+  // shows the headlines at once and reads them in French on the next load.
   const run = () => {
-    inFlight ??= refreshNews().finally(() => {
+    inFlight ??= refreshNews({ translate: false }).finally(() => {
       inFlight = null;
     });
     return inFlight;
@@ -236,13 +259,27 @@ export async function ensureFreshNews(): Promise<"fresh" | "queued" | "refreshed
 
   if (ageMinutes > BLOCKING_HOURS * 60) {
     await run();
+    after(async () => {
+      try {
+        await translatePendingNews();
+      } catch {
+        /* the headlines are already stored and readable in English */
+      }
+    });
     return "refreshed";
   }
 
   // Started but not awaited: the reader gets the page now, and the new
   // headlines are waiting on the next load. `after` keeps the work alive past
   // the response, which a bare floating promise would not guarantee.
-  after(() => run());
+  after(async () => {
+    try {
+      await run();
+      await translatePendingNews();
+    } catch {
+      /* a background refresh that fails costs the next load, never this one */
+    }
+  });
   return "queued";
 }
 

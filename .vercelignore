@@ -1,0 +1,12 @@
+# Rien de tout ceci ne doit partir dans le paquet de déploiement.
+# Les secrets vivent dans les variables d'environnement du projet Vercel,
+# jamais dans les fichiers téléversés.
+.env
+.env.*
+.attachments
+node_modules
+.next
+coverage
+playwright-report
+test-results
+*.log

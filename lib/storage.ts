@@ -1,6 +1,7 @@
 import "server-only";
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 
 import { getStore, type Store } from "@netlify/blobs";
@@ -34,8 +35,22 @@ import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/i
 
 const STORE_NAME = "attachments";
 
-/** Gitignored, and outside `public/` so nothing is served without the route. */
-const LOCAL_ROOT = resolve(process.cwd(), ".attachments");
+/**
+ * Where blobs land when Netlify Blobs is absent.
+ *
+ * The working directory on a developer machine, and the system temp directory
+ * on a serverless host — where the deployment bundle is READ-ONLY and only
+ * /tmp accepts a write. Getting this wrong does not degrade, it throws EROFS
+ * on the first upload.
+ *
+ * On serverless the directory is also per-instance and short-lived, so a
+ * screenshot uploaded there survives the session and not much longer. That is
+ * a real limitation of running without a blob store, and the reason to bind
+ * one before this matters.
+ */
+const LOCAL_ROOT = process.env.VERCEL
+  ? resolve(tmpdir(), "fondanarex-attachments")
+  : resolve(process.cwd(), ".attachments");
 
 let cached: Store | null | undefined;
 

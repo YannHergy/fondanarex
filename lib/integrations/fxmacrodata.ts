@@ -666,6 +666,95 @@ export async function fetchAllFxMacroCoreData(): Promise<FxMacroCoreResult[]> {
   return results;
 }
 
+// ── China ──────────────────────────────────────────────────────────────────
+
+/**
+ * The Chinese series FXMacroData actually publishes, verified live.
+ *
+ * `cny` is not one of the eight tracked currencies, so none of the machinery
+ * above applies to it — no CurrencyCode, no CORE_FIELDS, no writes to a
+ * currency row. China enters this app as a market-context input for the AUD
+ * and NZD, and nothing else.
+ *
+ * Absent for `cny`, tested rather than assumed: pmi, manufacturing_pmi,
+ * industrial_production, exports, imports, trade_balance, credit,
+ * money_supply, wages — all 404. That is why the composite in
+ * domain/china/demand.ts exists at all.
+ */
+const CHINA_SLUGS = {
+  retailSales: "retail_sales",
+  cpi: "inflation",
+  unemployment: "unemployment",
+  policyRate: "policy_rate",
+  gdp: "gdp",
+} as const;
+
+/** The two most recent readings of one Chinese series, newest first. */
+async function chinaSeries(slug: string): Promise<RawAnnouncement[]> {
+  const payload = await fxFetch<{ data?: RawAnnouncement[] }>(
+    `/announcements/cny/${slug}?limit=2`,
+    TTL.announcements,
+  );
+  return (payload.data ?? []).filter((d) => typeof d.val === "number");
+}
+
+export interface ChinaReadings {
+  /** Index 0 is the newest reading, index 1 the one before it. */
+  retailSales: (number | null)[];
+  cpi: (number | null)[];
+  unemployment: (number | null)[];
+  policyRate: (number | null)[];
+  /** Year-on-year growth, newest first. Already filtered for sanity. */
+  gdpYoY: (number | null)[];
+  /** Period of the newest retail-sales reading, the fastest-moving series. */
+  latestPeriod: string | null;
+}
+
+/**
+ * Pulls every Chinese series the composite needs, in one fan-out.
+ *
+ * Two readings of each, because the index is published alongside its previous
+ * value: `scoreChinaLevel` scores the LEVEL and then adds a momentum term, so
+ * an index without a predecessor loses half of what it is scored on.
+ *
+ * A series that fails resolves to nulls rather than rejecting. Losing the
+ * unemployment rate should cost 15% of the composite's coverage, not the
+ * composite.
+ */
+export async function fetchChinaReadings(): Promise<ChinaReadings> {
+  const entries = Object.entries(CHINA_SLUGS) as Array<
+    [keyof typeof CHINA_SLUGS, string]
+  >;
+
+  const settled = await Promise.allSettled(
+    entries.map(async ([key, slug]) => [key, await chinaSeries(slug)] as const),
+  );
+
+  const byKey = new Map<string, RawAnnouncement[]>();
+  for (const result of settled) {
+    if (result.status === "fulfilled") byKey.set(result.value[0], result.value[1]);
+  }
+
+  const values = (key: string): (number | null)[] => {
+    const series = byKey.get(key) ?? [];
+    return [series[0]?.val ?? null, series[1]?.val ?? null];
+  };
+
+  // GDP is read from `pct_change_yoy`, never from `val`: `val` is a cumulative
+  // level in hundreds of millions of yuan. The caller applies `saneGdpGrowth`
+  // on top, because even the yoy field breaks on China's cumulative reporting.
+  const gdp = byKey.get("gdp") ?? [];
+
+  return {
+    retailSales: values("retailSales"),
+    cpi: values("cpi"),
+    unemployment: values("unemployment"),
+    policyRate: values("policyRate"),
+    gdpYoY: [gdp[0]?.pct_change_yoy ?? null, gdp[1]?.pct_change_yoy ?? null],
+    latestPeriod: byKey.get("retailSales")?.[0]?.date ?? null,
+  };
+}
+
 export async function getCOT(currency: CurrencyCode): Promise<CotPositioning> {
   const payload = await fxFetch<{
     data?: Array<{

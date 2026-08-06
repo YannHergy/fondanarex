@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { recordScoresAndAlert } from "@/lib/alerts";
+import { refreshChinaDemand } from "@/lib/china";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { currentUserId } from "@/lib/session";
 
@@ -60,6 +61,19 @@ export async function GET(request: NextRequest) {
   const dataset = request.nextUrl.searchParams.get("dataset");
   const skipFred = request.nextUrl.searchParams.get("fred") === "0";
 
+  // BEFORE the macro pull, not after, and the ordering is load-bearing.
+  //
+  // `refreshMacroData` alone exceeds this function's 60-second budget against
+  // the OECD — measured: FUNCTION_INVOCATION_TIMEOUT at 61s on Vercel. Anything
+  // sequenced after it therefore never runs at all. The Chinese composite is
+  // five requests and finishes in about a second, so it goes first and is
+  // already committed by the time the slow work times out.
+  let china: Awaited<ReturnType<typeof refreshChinaDemand>> | null = null;
+  const chinaUserId = await currentUserId().catch(() => null);
+  if (chinaUserId) {
+    china = await refreshChinaDemand(chinaUserId).catch(() => null);
+  }
+
   try {
     const report = await refreshMacroData({
       oecdFields: dataset ? [dataset] : undefined,
@@ -85,7 +99,7 @@ export async function GET(request: NextRequest) {
     // Every screen reads these values, so the whole tree is invalidated.
     revalidatePath("/", "layout");
 
-    return NextResponse.json({ ...report, alerts }, { status: report.written > 0 ? 200 : 502 });
+    return NextResponse.json({ ...report, alerts, china }, { status: report.written > 0 ? 200 : 502 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 
 import { getStore, type Store } from "@netlify/blobs";
+import { del as vercelDel, get as vercelGet, put as vercelPut } from "@vercel/blob";
 
 import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/image-type";
 
@@ -22,9 +23,17 @@ import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/i
  *     stripped the screenshots off every plan but the last three, then saved
  *     again. Losing data was the documented recovery path.
  *
- * Blobs live in Netlify Blobs when a deployment provides them, and ON DISK
- * otherwise. The row in Postgres holds the path and the metadata either way;
- * deleting the row is the source of truth, and the blob goes with it.
+ * THREE BACKENDS, tried in this order, because the app runs in three places:
+ *
+ *   1. VERCEL BLOB, whenever a read-write token is present. This is the only
+ *      one that survives on Vercel — see the note on LOCAL_ROOT below.
+ *   2. NETLIFY BLOBS, when a site binding provides it.
+ *   3. THE DISK, otherwise.
+ *
+ * The row in Postgres holds the path and the metadata whichever one served it,
+ * and deleting the row is the source of truth — the blob goes with it. The
+ * path is generated here and never derived from the backend, so the same row
+ * resolves identically after a move between hosts.
  *
  * THE DISK FALLBACK IS NOT A CONVENIENCE. Netlify Blobs needs a site binding
  * that does not exist on a developer machine, so every screenshot upload
@@ -34,6 +43,23 @@ import { rejectUpload, rejectionMessage, sniffImageType } from "@/domain/media/i
  */
 
 const STORE_NAME = "attachments";
+
+/**
+ * Vercel Blob, when the project has a store linked.
+ *
+ * PRIVATE, never public. A public blob is readable by anyone holding the URL,
+ * with no way to revoke it short of deleting the object; these are screenshots
+ * of someone's positions. Every read goes through `/api/attachments/[id]`,
+ * which checks ownership first, so the store never needs to be reachable from
+ * a browser at all.
+ *
+ * The SDK reads `BLOB_READ_WRITE_TOKEN` from the environment on its own — the
+ * token is deliberately not passed explicitly, so there is one place it can be
+ * wrong instead of three.
+ */
+function vercelBlobConfigured(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
 
 /**
  * Where blobs land when Netlify Blobs is absent.
@@ -123,6 +149,25 @@ export async function putAttachment(
   // else's blob, and randomised so a path is not guessable from a row id.
   const blobPath = `${userId}/${crypto.randomUUID()}`;
 
+  if (vercelBlobConfigured()) {
+    // `addRandomSuffix` defaults to false in v2, which is what makes this
+    // correct: the pathname is stored verbatim, so the value written to
+    // Postgres is the value that reads the blob back. Were a suffix appended,
+    // every row would point at an object that does not exist.
+    // `Buffer.from` rather than the view itself: `PutBody` accepts a Buffer,
+    // Blob, File or stream, and a bare Uint8Array is none of them. The copy is
+    // a few hundred kilobytes on an image already capped well below that cost.
+    await vercelPut(blobPath, Buffer.from(bytes), {
+      access: "private",
+      contentType: mimeType,
+      // The path already carries a UUID, so a collision means a repeated UUID
+      // and not a legitimate replacement. Refusing is the honest response.
+      allowOverwrite: false,
+    });
+
+    return { blobPath, mimeType, sizeBytes: file.size };
+  }
+
   const blobs = netlifyStore();
 
   if (blobs) {
@@ -148,6 +193,26 @@ export async function putAttachment(
 export async function getAttachment(
   blobPath: string,
 ): Promise<{ bytes: ArrayBuffer; mimeType: string } | null> {
+  if (vercelBlobConfigured()) {
+    try {
+      const result = await vercelGet(blobPath, { access: "private" });
+
+      // Null when absent; 304 only ever arrives in answer to `ifNoneMatch`,
+      // which is not sent here — but the union carries it, and treating an
+      // unexpected 304 as "no bytes" beats reading a null stream.
+      if (!result || result.statusCode !== 200) return null;
+
+      return {
+        bytes: await new Response(result.stream).arrayBuffer(),
+        mimeType: result.blob.contentType || "application/octet-stream",
+      };
+    } catch {
+      // A missing blob throws rather than resolving null on some paths. The
+      // caller renders "image unavailable"; it must not fail the whole page.
+      return null;
+    }
+  }
+
   const blobs = netlifyStore();
 
   if (blobs) {
@@ -191,6 +256,11 @@ export async function deleteAttachment(blobPath: string): Promise<void> {
   // harmless; failing the whole request would leave the row instead, which is
   // worse — the UI would keep showing an image the user asked to remove.
   try {
+    if (vercelBlobConfigured()) {
+      await vercelDel(blobPath);
+      return;
+    }
+
     const blobs = netlifyStore();
 
     if (blobs) {

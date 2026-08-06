@@ -11,6 +11,11 @@ import { CURRENCY_COLOR_VAR, cn, isCurrencyCode } from "@/lib/utils";
  * every chart — the colour still carries the identity, the flag is a purely
  * decorative (`aria-hidden`) visual reinforcement, and the code text next to
  * both remains the accessible label.
+ *
+ * MARKED UNTRANSLATABLE. A three-letter code is a symbol, not a word, but a
+ * page translator cannot tell: Chrome read CAD as the English noun and
+ * rendered the badge as `GOUJAT`. A currency whose ticker changes depending on
+ * the reader's browser is worse than useless on a trading dashboard.
  */
 const FLAG_SIZE = { sm: 14, md: 18, lg: 24 } as const;
 
@@ -29,12 +34,13 @@ export function CurrencyBadge({
   return (
     <span
       className={cn(
-        "tabular inline-flex shrink-0 items-center gap-1.5 rounded-md border font-mono font-bold",
+        "tabular notranslate inline-flex shrink-0 items-center gap-1.5 rounded-md border font-mono font-bold",
         size === "sm" && "h-5 min-w-9 px-1 text-[10px]",
         size === "md" && "h-6 min-w-11 px-1.5 text-xs",
         size === "lg" && "h-8 min-w-14 px-2 text-sm",
         className,
       )}
+      translate="no"
       style={{ color, borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
     >
       <FlagIcon code={code} className="shrink-0" style={{ width: flagWidth, height: flagWidth * (16 / 24) }} />

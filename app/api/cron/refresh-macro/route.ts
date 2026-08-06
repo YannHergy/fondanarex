@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { recordScoresAndAlert } from "@/lib/alerts";
 import { refreshChinaDemand } from "@/lib/china";
+import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { currentUserId } from "@/lib/session";
 
@@ -65,13 +66,19 @@ export async function GET(request: NextRequest) {
   //
   // `refreshMacroData` alone exceeds this function's 60-second budget against
   // the OECD — measured: FUNCTION_INVOCATION_TIMEOUT at 61s on Vercel. Anything
-  // sequenced after it therefore never runs at all. The Chinese composite is
-  // five requests and finishes in about a second, so it goes first and is
+  // sequenced after it therefore never runs at all. These two are a handful of
+  // requests each and finish in about a second, so they go first and are
   // already committed by the time the slow work times out.
   let china: Awaited<ReturnType<typeof refreshChinaDemand>> | null = null;
-  const chinaUserId = await currentUserId().catch(() => null);
-  if (chinaUserId) {
-    china = await refreshChinaDemand(chinaUserId).catch(() => null);
+  let dairy: Awaited<ReturnType<typeof refreshDairyGdt>> | null = null;
+  const fastUserId = await currentUserId().catch(() => null);
+  if (fastUserId) {
+    // Independent sources, so they go out together — one failing must not
+    // delay or lose the other.
+    [china, dairy] = await Promise.all([
+      refreshChinaDemand(fastUserId).catch(() => null),
+      refreshDairyGdt(fastUserId).catch(() => null),
+    ]);
   }
 
   try {
@@ -99,7 +106,10 @@ export async function GET(request: NextRequest) {
     // Every screen reads these values, so the whole tree is invalidated.
     revalidatePath("/", "layout");
 
-    return NextResponse.json({ ...report, alerts, china }, { status: report.written > 0 ? 200 : 502 });
+    return NextResponse.json(
+      { ...report, alerts, china, dairy },
+      { status: report.written > 0 ? 200 : 502 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

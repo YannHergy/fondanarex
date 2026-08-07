@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { MARKET_FIELDS } from "@/domain/market-context";
+import { parseObservationDate } from "@/domain/market-context/observation-date";
 import { contextKeyToDb, STANCE_TO_DB } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserIdOrThrow } from "@/lib/session";
@@ -123,17 +124,31 @@ export async function saveCurrencyNote(input: unknown): Promise<void> {
 
 const CONTEXT_KEYS = MARKET_FIELDS.map((f) => f.key as string);
 
-const contextSchema = z.record(z.string(), z.number().finite().nullable());
+const contextSchema = z.object({
+  values: z.record(z.string(), z.number().finite().nullable()),
+  /** AAAA-MM-JJ. Absent or empty means today. */
+  observedOn: z.string().max(10).nullish(),
+});
 
-export async function saveMarketContext(input: unknown): Promise<{ saved: number }> {
+export async function saveMarketContext(input: unknown): Promise<{ saved: number; date: string }> {
   const userId = await requireUserIdOrThrow();
-  const values = contextSchema.parse(input);
+  const { values, observedOn: requested } = contextSchema.parse(input);
 
-  // Dated as of today. The table keeps one row per (user, key, day), so editing
-  // twice in a day corrects the day's value rather than appending a duplicate,
-  // while a change tomorrow becomes a new dated row and preserves history.
-  const observedOn = new Date();
-  observedOn.setUTCHours(0, 0, 0, 0);
+  // The administrator may back-date an entry, because the day a figure is
+  // TYPED is routinely not the day it describes — a GDT result read on
+  // Thursday belongs to Tuesday's auction. Validated in the domain, and
+  // re-validated HERE rather than trusted from the client: a server action is
+  // a public endpoint, and the browser's date input is a convenience, not a
+  // constraint.
+  //
+  // The clock is read once and passed in, so the bound and the default cannot
+  // disagree by a tick across midnight.
+  const { date: observedOn, error } = parseObservationDate(requested, new Date());
+  if (!observedOn) throw new Error(error ?? 'Date invalide');
+
+  // The table keeps one row per (user, key, day), so editing twice for the
+  // same day corrects that day's value rather than appending a duplicate,
+  // while another day becomes a new dated row and preserves history.
 
   let saved = 0;
 
@@ -150,13 +165,16 @@ export async function saveMarketContext(input: unknown): Promise<{ saved: number
     await prisma.marketContextValue.upsert({
       where: { userId_key_observedOn: { userId, key: dbKey, observedOn } },
       create: { userId, key: dbKey, value, observedOn, source: IndicatorSource.MANUAL },
-      update: { value },
+      // The source is reasserted on update: a row an automatic refresh wrote
+      // as MARKET or DERIVED becomes MANUAL the moment a human overrides it,
+      // and the provenance column has to say so.
+      update: { value, source: IndicatorSource.MANUAL },
     });
     saved += 1;
   }
 
   revalidatePath("/", "layout");
-  return { saved };
+  return { saved, date: observedOn.toISOString().slice(0, 10) };
 }
 
 /**

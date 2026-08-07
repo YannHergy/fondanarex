@@ -21,14 +21,20 @@ import { cn } from "@/lib/utils";
 export function MarketContextEditor({
   values,
   lastUpdate,
+  today,
 }: {
   values: Record<string, number | null>;
   lastUpdate: string;
+  /** AAAA-MM-JJ, resolved on the server so the field agrees with the validator. */
+  today: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
+  // Defaults to today, which is what nearly every entry wants. Changing it
+  // back-dates the reading — see the note on the input below.
+  const [observedOn, setObservedOn] = useState(today);
 
   const filled = MARKET_FIELDS.filter((f) => values[f.key] !== null && values[f.key] !== undefined)
     .length;
@@ -51,12 +57,17 @@ export function MarketContextEditor({
           return;
         }
 
-        const { saved } = await saveMarketContext(payload);
+        const { saved, date } = await saveMarketContext({ values: payload, observedOn });
         setEdits({});
-        setStatus(`${saved} champ(s) enregistré(s)`);
+        setStatus(
+          `${saved} champ(s) enregistré(s) au ${date}${date === today ? "" : " (antidaté)"}`,
+        );
         router.refresh();
-      } catch {
-        setStatus("Échec de l'enregistrement");
+      } catch (error) {
+        // The server's own message when it refused the date — "date dans le
+        // futur" is far more useful than a generic failure, and it is the only
+        // way the administrator learns which rule was broken.
+        setStatus(error instanceof Error ? error.message : "Échec de l'enregistrement");
       }
     });
   }
@@ -73,11 +84,41 @@ export function MarketContextEditor({
         </span>
       </div>
 
-      <p className="text-subtle mb-4 text-[11px] leading-relaxed">
+      <p className="text-subtle mb-3 text-[11px] leading-relaxed">
         Un champ vide signifie <strong>donnée indisponible</strong> : l&apos;indicateur est alors
         exclu du calcul et son poids sort du dénominateur. Ne saisissez pas 0 pour « inconnu » —
         cela tirerait artificiellement la devise vers le neutre.
       </p>
+
+      <div className="border-border-app bg-panel mb-4 flex flex-wrap items-center gap-3 rounded-lg border p-3">
+        <label htmlFor="observed-on" className="flex items-center gap-2 text-[11px] font-semibold">
+          <Icon name="event" size={14} className="text-brand-blue" />
+          Date d&apos;observation
+        </label>
+        <input
+          id="observed-on"
+          type="date"
+          value={observedOn}
+          max={today}
+          onChange={(event) => setObservedOn(event.target.value)}
+          className="border-border-app bg-surface text-fg tabular rounded-md border px-2 py-1 font-mono text-xs"
+        />
+        {observedOn !== today ? (
+          <button
+            type="button"
+            onClick={() => setObservedOn(today)}
+            className="text-brand-blue text-[11px] underline underline-offset-2"
+          >
+            revenir à aujourd&apos;hui
+          </button>
+        ) : null}
+        <p className="text-subtle basis-full text-[11px] leading-relaxed">
+          Le jour que la valeur <strong>décrit</strong>, pas celui où vous la saisissez — une
+          enchère GDT lue jeudi appartient au mardi. Le tableau conserve la ligne la plus récente
+          par indicateur : antidater une correction évite qu&apos;elle passe devant une donnée plus
+          fraîche.
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {MARKET_FIELDS.map((field) => {

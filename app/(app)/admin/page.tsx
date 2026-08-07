@@ -6,6 +6,7 @@ import { MarketContextEditor } from "@/app/(app)/admin/_components/market-contex
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { MARKET_FIELDS } from "@/domain/market-context";
+import { todayIso } from "@/domain/market-context/observation-date";
 import { getApiValues, getMarketContext, getScoredCurrencies } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
@@ -117,7 +118,14 @@ export default async function AdminPage() {
         </div>
       </Card>
 
-      <MarketContextEditor values={contextValues} lastUpdate={marketContext.lastUpdate} />
+      {/* `today` comes from the server, so the date field's ceiling is the same
+          clock the action validates against. Reading it in the browser would
+          let a device with a skewed clock offer a date the server refuses. */}
+      <MarketContextEditor
+        values={contextValues}
+        lastUpdate={marketContext.lastUpdate}
+        today={todayIso(new Date())}
+      />
 
       <div className="space-y-2">
         <h2 className="text-subtle font-mono text-[10px] tracking-widest uppercase">

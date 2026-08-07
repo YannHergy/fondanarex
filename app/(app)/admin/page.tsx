@@ -57,7 +57,17 @@ export default async function AdminPage() {
     ]),
   ]);
 
+  // Resolved once on the SERVER and shared by every date input on the page, so
+  // the ceiling offered matches the clock the action validates against — a
+  // device with a skewed clock would otherwise offer a date the server refuses.
+  const today = todayIso(new Date());
+
   const overrideSet = new Set(overrides.map((o) => `${o.currencyCode}:${o.indicatorKey}`));
+  // Only the overrides that actually carry a date. A row with a null period
+  // is still using its source's, and the editor must not claim otherwise.
+  const datedOverrides = new Set(
+    overrides.filter((o) => o.periodEnd).map((o) => `${o.currencyCode}:${o.indicatorKey}`),
+  );
 
   const editors = Object.values(currencies).map((currency) => {
     const record = currency as unknown as Record<string, unknown>;
@@ -75,6 +85,8 @@ export default async function AdminPage() {
         value: typeof value === "number" ? value : null,
         overridden: overrideSet.has(`${currency.code}:${spec.key}`),
         sourceValue: apiValues[currency.code]?.[spec.key] ?? null,
+        period: currency.periods?.[spec.key] ?? null,
+        periodOverridden: datedOverrides.has(`${currency.code}:${spec.key}`),
       };
     });
 
@@ -124,7 +136,7 @@ export default async function AdminPage() {
       <MarketContextEditor
         values={contextValues}
         lastUpdate={marketContext.lastUpdate}
-        today={todayIso(new Date())}
+        today={today}
       />
 
       <div className="space-y-2">
@@ -132,7 +144,7 @@ export default async function AdminPage() {
           Devises ({editors.length})
         </h2>
         {editors.map((data) => (
-          <CurrencyEditor key={data.code} data={data} />
+          <CurrencyEditor key={data.code} data={data} today={today} />
         ))}
       </div>
 

@@ -26,6 +26,13 @@ export interface EditableField {
   overridden: boolean;
   /** Value the API would supply, shown so the user can see what they replaced. */
   sourceValue: number | null;
+  /**
+   * Publication date currently in force, "AAAA-MM-JJ" — the period the reading
+   * describes. The source's own, unless the administrator has replaced it.
+   */
+  period: string | null;
+  /** True when that date is the administrator's rather than the source's. */
+  periodOverridden: boolean;
 }
 
 export interface CurrencyEditorData {
@@ -55,7 +62,7 @@ const STANCE_FR: Record<CentralBankStance, string> = {
   "Very Dovish": "Très accommodante",
 };
 
-export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
+export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; today: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
@@ -65,6 +72,8 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
   // would create an override for each one, silently pinning values that were
   // never edited and freezing them against future API refreshes.
   const [edits, setEdits] = useState<Record<string, string>>({});
+  /** Publication dates the user has touched, keyed the same way as `edits`. */
+  const [dateEdits, setDateEdits] = useState<Record<string, string>>({});
   const [stance, setStance] = useState<CentralBankStance>(data.stance);
   const [geo, setGeo] = useState(data.geopoliticalRisks);
   const [analysis, setAnalysis] = useState(data.qualitativeAnalysis);
@@ -76,7 +85,7 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
     analysis !== data.qualitativeAnalysis ||
     events !== data.eventsToWatch.join("\n");
 
-  const dirty = Object.keys(edits).length > 0 || noteDirty;
+  const dirty = Object.keys(edits).length > 0 || Object.keys(dateEdits).length > 0 || noteDirty;
 
   function save() {
     startTransition(async () => {
@@ -91,8 +100,22 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
           }
         }
 
+        // Changing only a date still needs the value sent, because an override
+        // row carries both: without the value the server would have nothing to
+        // upsert and the date would be dropped on the floor.
+        for (const key of Object.keys(dateEdits)) {
+          if (key in values) continue;
+          const current = data.fields.find((f) => f.key === key)?.value;
+          if (typeof current === "number") values[key] = current;
+        }
+
+        const periods: Record<string, string | null> = {};
+        for (const [key, raw] of Object.entries(dateEdits)) {
+          periods[key] = raw.trim() === "" ? null : raw;
+        }
+
         if (Object.keys(values).length > 0) {
-          await saveIndicatorOverrides({ code: data.code, values });
+          await saveIndicatorOverrides({ code: data.code, values, periods });
         }
 
         if (noteDirty) {
@@ -106,10 +129,13 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
         }
 
         setEdits({});
+        setDateEdits({});
         setStatus("Enregistré");
         router.refresh();
-      } catch {
-        setStatus("Échec de l'enregistrement");
+      } catch (error) {
+        // The server's own message when it refused a date names the indicator
+        // and the rule broken, which "Échec" cannot.
+        setStatus(error instanceof Error ? error.message : "Échec de l'enregistrement");
       }
     });
   }
@@ -119,6 +145,7 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
       try {
         const { removed } = await resetCurrencyOverrides(data.code);
         setEdits({});
+        setDateEdits({});
         setStatus(
           removed > 0
             ? `${removed} correction(s) supprimée(s)`
@@ -165,6 +192,7 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {data.fields.map((field) => {
                 const edited = field.key in edits;
+                const dateEdited = field.key in dateEdits;
                 const shown = edited ? edits[field.key]! : (field.value?.toString() ?? "");
 
                 return (
@@ -200,6 +228,26 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
                         edited && "border-brand-blue",
                       )}
                     />
+                    <div className="mt-1 flex items-center gap-1">
+                      <Icon
+                        name="event"
+                        size={11}
+                        className={field.periodOverridden ? "text-brand-amber" : "text-subtle"}
+                      />
+                      <input
+                        type="date"
+                        aria-label={`Date de publication — ${field.label}`}
+                        value={dateEdited ? dateEdits[field.key]! : (field.period ?? "")}
+                        max={today}
+                        onChange={(e) =>
+                          setDateEdits((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        className={cn(
+                          "bg-panel border-border-app text-muted focus:border-brand-blue tabular w-full rounded-md border px-1.5 py-1 font-mono text-[11px] outline-none",
+                          dateEdited && "border-brand-blue text-fg",
+                        )}
+                      />
+                    </div>
                     {field.overridden && field.sourceValue !== null ? (
                       <p className="text-subtle mt-0.5 font-mono text-[10px]">
                         API : {field.sourceValue}
@@ -210,7 +258,9 @@ export function CurrencyEditor({ data }: { data: CurrencyEditorData }) {
               })}
             </div>
             <p className="text-subtle mt-2 text-[11px]">
-              Vider un champ supprime la correction manuelle et redonne la main à la donnée API.
+              Vider un champ supprime la correction manuelle et redonne la main à la donnée API. La
+              date sous chaque valeur est celle de la <strong>publication</strong> — la période que
+              le chiffre décrit, pas le jour de la saisie. Vidée, elle rend la date de la source.
             </p>
           </div>
 

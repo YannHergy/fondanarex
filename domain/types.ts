@@ -105,6 +105,20 @@ export interface CurrencyData {
     newsLastFetch?: number;
 
     lastUpdate: string;
+    /**
+     * Publication date per indicator, "AAAA-MM-JJ" — the period the reading
+     * DESCRIBES, not when it was fetched.
+     *
+     * The source's date normally, the administrator's when they have set one
+     * on the override. `lastUpdate` is the latest of these, so a release
+     * entered by hand ahead of the API moves the currency forward rather than
+     * being invisible.
+     *
+     * Optional because it is additive: a fixture or an older caller that never
+     * sets it still describes a valid currency, and every reader treats an
+     * absent date the same way it treats an absent source.
+     */
+    periods?: Record<string, string>;
     nextReleases: Record<string, string>;
     previousData: Record<string, number | string>;
     /**

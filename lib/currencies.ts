@@ -264,10 +264,12 @@ export const getCurrencies = cache(
     }
 
     const noteByCode = new Map(notes.map((n) => [n.currencyCode, n]));
-    const overrideByCode = new Map<string, Map<string, number>>();
+    const overrideByCode = new Map<string, Map<string, { value: number; periodEnd: Date | null }>>();
     for (const o of overrides) {
-      const forCurrency = overrideByCode.get(o.currencyCode) ?? new Map<string, number>();
-      forCurrency.set(o.indicatorKey, Number(o.value));
+      const forCurrency =
+        overrideByCode.get(o.currencyCode) ??
+        new Map<string, { value: number; periodEnd: Date | null }>();
+      forCurrency.set(o.indicatorKey, { value: Number(o.value), periodEnd: o.periodEnd });
       overrideByCode.set(o.currencyCode, forCurrency);
     }
 
@@ -275,7 +277,9 @@ export const getCurrencies = cache(
 
     for (const currency of currencies) {
       const note = noteByCode.get(currency.code);
-      const currencyOverrides = overrideByCode.get(currency.code) ?? new Map<string, number>();
+      const currencyOverrides =
+        overrideByCode.get(currency.code) ??
+        new Map<string, { value: number; periodEnd: Date | null }>();
 
       const rows = indicatorRows.filter((r) => r.currencyCode === currency.code);
       const current = new Map<string, IndicatorRow>();
@@ -300,6 +304,8 @@ export const getCurrencies = cache(
       const previousData: Record<string, number | string> = {};
       const dataSources: Record<string, string> = {};
       const staleFields: Record<string, boolean> = {};
+      /** Publication date per indicator — the API's, or the override's when set. */
+      const periods: Record<string, string> = {};
       let lastUpdate = "";
 
       for (const [key, row] of current) {
@@ -308,8 +314,7 @@ export const getCurrencies = cache(
         if (row.nextRelease) nextReleases[key] = toIsoDate(row.nextRelease);
         dataSources[key] = row.source;
         if (row.sourceStale) staleFields[key] = true;
-        const periodEnd = toIsoDate(row.periodEnd);
-        if (periodEnd > lastUpdate) lastUpdate = periodEnd;
+        periods[key] = toIsoDate(row.periodEnd);
       }
 
       for (const [key, row] of previous) {
@@ -319,10 +324,27 @@ export const getCurrencies = cache(
 
       // The override is the user's own reading of the same slot and wins over
       // whatever the API last wrote. Applied after the API values, never before.
-      for (const [key, value] of currencyOverrides) {
-        if (isNumericField(key)) data[key] = value;
+      //
+      // ITS DATE WINS TOO, when it has one. Overriding a value used to leave
+      // the API's publication date beside it, so a figure entered by hand for
+      // a release the API had not caught up with still displayed the older
+      // period — a fresh number wearing a stale date. A null periodEnd keeps
+      // the source's date, which is the right behaviour when merely correcting
+      // a figure for the period the API already holds.
+      for (const [key, override] of currencyOverrides) {
+        if (!isNumericField(key)) continue;
+        data[key] = override.value;
+        if (override.periodEnd) periods[key] = toIsoDate(override.periodEnd);
       }
 
+      // Computed AFTER the overrides, so a hand-entered release the API has
+      // not published yet moves the currency's "last updated" forward instead
+      // of being invisible on the dashboard.
+      for (const period of Object.values(periods)) {
+        if (period > lastUpdate) lastUpdate = period;
+      }
+
+      data.periods = periods;
       data.lastUpdate = lastUpdate;
       data.nextReleases = nextReleases;
       data.previousData = previousData;

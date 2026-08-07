@@ -330,6 +330,16 @@ model IndicatorOverride {
   value Decimal @db.Decimal(18, 6)
   note  String? @db.Text
 
+  /// The period the corrected figure DESCRIBES, not when it was typed.
+  ///
+  /// Nullable, and the null means something: "keep whatever date the API row
+  /// carries". Overriding a value without touching this leaves the reading
+  /// dated by its source, which is right when correcting a figure for the
+  /// period the API already has — and wrong when entering a release the API
+  /// has not caught up with yet, where the stale source date would make a
+  /// fresh number look old.
+  periodEnd DateTime? @db.Date
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

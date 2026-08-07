@@ -58,15 +58,38 @@ const EDITABLE_INDICATORS = [
   "eurChf",
 ] as const;
 
+/**
+ * `partialRecord`, NOT `record`, and the difference is not cosmetic.
+ *
+ * Zod 4 made `z.record(z.enum(...), v)` EXHAUSTIVE: every key of the enum must
+ * be present or parsing fails. The editor deliberately sends only the fields
+ * that were touched — submitting all of them would create an override for each
+ * one and freeze values nobody edited against future refreshes — so every
+ * partial save was rejected, and the action answered 500.
+ *
+ * It went unnoticed because the failure is silent from the outside: the
+ * browser shows "Échec de l'enregistrement" and the value simply does not
+ * change. Verified against the installed Zod: `{ interestRate: 3.5 }` fails
+ * with "expected number, received undefined" on every other key.
+ */
 const overridesSchema = z.object({
   code: CODE,
   // null clears the override and hands the field back to the API value.
-  values: z.record(z.enum(EDITABLE_INDICATORS), z.number().finite().nullable()),
+  values: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.number().finite().nullable()),
+  /**
+   * Publication date per indicator, AAAA-MM-JJ. An entry that is absent, null
+   * or empty keeps the source's own date rather than stamping today onto it.
+   */
+  periods: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.string().max(10).nullish()).optional(),
 });
 
 export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: number }> {
   const userId = await requireUserIdOrThrow();
-  const { code, values } = overridesSchema.parse(input);
+  const { code, values, periods } = overridesSchema.parse(input);
+
+  // One clock for the whole batch: reading it per field could put two
+  // indicators saved in the same click on opposite sides of midnight.
+  const now = new Date();
 
   let saved = 0;
 
@@ -82,10 +105,22 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
       continue;
     }
 
+    // An empty date is not "today" here — it is "leave the source's date
+    // alone", which is why the empty case yields null rather than falling
+    // through to parseObservationDate's today default.
+    const rawPeriod = periods?.[indicatorKey as (typeof EDITABLE_INDICATORS)[number]];
+    let periodEnd: Date | null = null;
+
+    if (typeof rawPeriod === "string" && rawPeriod.trim() !== "") {
+      const parsed = parseObservationDate(rawPeriod, now);
+      if (!parsed.date) throw new Error(`${indicatorKey} — ${parsed.error}`);
+      periodEnd = parsed.date;
+    }
+
     await prisma.indicatorOverride.upsert({
       where: { userId_currencyCode_indicatorKey: { userId, currencyCode: code, indicatorKey } },
-      create: { userId, currencyCode: code, indicatorKey, value },
-      update: { value },
+      create: { userId, currencyCode: code, indicatorKey, value, periodEnd },
+      update: { value, periodEnd },
     });
     saved += 1;
   }

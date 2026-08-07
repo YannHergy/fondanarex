@@ -5,6 +5,7 @@ import { recordScoresAndAlert } from "@/lib/alerts";
 import { refreshChinaDemand } from "@/lib/china";
 import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshMacroData } from "@/lib/macro-refresh";
+import { refreshOilChange } from "@/lib/oil";
 import { currentUserId } from "@/lib/session";
 
 /**
@@ -71,13 +72,15 @@ export async function GET(request: NextRequest) {
   // already committed by the time the slow work times out.
   let china: Awaited<ReturnType<typeof refreshChinaDemand>> | null = null;
   let dairy: Awaited<ReturnType<typeof refreshDairyGdt>> | null = null;
+  let oil: Awaited<ReturnType<typeof refreshOilChange>> | null = null;
   const fastUserId = await currentUserId().catch(() => null);
   if (fastUserId) {
     // Independent sources, so they go out together — one failing must not
-    // delay or lose the other.
-    [china, dairy] = await Promise.all([
+    // delay or lose the others.
+    [china, dairy, oil] = await Promise.all([
       refreshChinaDemand(fastUserId).catch(() => null),
       refreshDairyGdt(fastUserId).catch(() => null),
+      refreshOilChange(fastUserId).catch(() => null),
     ]);
   }
 
@@ -107,7 +110,7 @@ export async function GET(request: NextRequest) {
     revalidatePath("/", "layout");
 
     return NextResponse.json(
-      { ...report, alerts, china, dairy },
+      { ...report, alerts, china, dairy, oil },
       { status: report.written > 0 ? 200 : 502 },
     );
   } catch (error) {

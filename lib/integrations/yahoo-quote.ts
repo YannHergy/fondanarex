@@ -47,10 +47,7 @@ function isoDate(epochSeconds: number): string {
  * @param range Yahoo range token. Three months is enough to always cover the
  *   current month and the one before it, including a long holiday gap.
  */
-export async function fetchMonthlyQuote(
-  symbol: string,
-  range = "3mo",
-): Promise<MonthlyReading> {
+export async function fetchDailyCloses(symbol: string, range = "3mo"): Promise<DailyClose[]> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
 
   const response = await fetch(url, {
@@ -82,6 +79,26 @@ export async function fetchMonthlyQuote(
     if (typeof close !== "number" || !Number.isFinite(close)) continue;
     daily.push({ date: isoDate(ts), close });
   }
+
+  if (daily.length === 0) {
+    throw new YahooQuoteError(`${symbol} indisponible : aucune séance exploitable`);
+  }
+
+  return daily;
+}
+
+/**
+ * The same request, reduced to the latest month-end close and the one before.
+ *
+ * Kept as the entry point for everything that stores a monthly row. Callers
+ * needing the shape of the series itself — a trailing window rather than a
+ * calendar month — use `fetchDailyCloses` and reduce it themselves.
+ */
+export async function fetchMonthlyQuote(
+  symbol: string,
+  range = "3mo",
+): Promise<MonthlyReading> {
+  const daily = await fetchDailyCloses(symbol, range);
 
   const reading = toMonthlyReading(daily);
   if (!reading) throw new YahooQuoteError(`${symbol} indisponible : aucune séance exploitable`);

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { MARKET_FIELDS } from "@/domain/market-context";
-import { parseObservationDate } from "@/domain/market-context/observation-date";
+import { parseObservationDate, parseReleaseDate } from "@/domain/market-context/observation-date";
 import { contextKeyToDb, STANCE_TO_DB } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserIdOrThrow } from "@/lib/session";
@@ -81,11 +81,13 @@ const overridesSchema = z.object({
    * or empty keeps the source's own date rather than stamping today onto it.
    */
   periods: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.string().max(10).nullish()).optional(),
+  /** Next expected publication per indicator, AAAA-MM-JJ. Normally a FUTURE date. */
+  releases: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.string().max(10).nullish()).optional(),
 });
 
 export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: number }> {
   const userId = await requireUserIdOrThrow();
-  const { code, values, periods } = overridesSchema.parse(input);
+  const { code, values, periods, releases } = overridesSchema.parse(input);
 
   // One clock for the whole batch: reading it per field could put two
   // indicators saved in the same click on opposite sides of midnight.
@@ -108,7 +110,9 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
     // An empty date is not "today" here — it is "leave the source's date
     // alone", which is why the empty case yields null rather than falling
     // through to parseObservationDate's today default.
-    const rawPeriod = periods?.[indicatorKey as (typeof EDITABLE_INDICATORS)[number]];
+    const key = indicatorKey as (typeof EDITABLE_INDICATORS)[number];
+
+    const rawPeriod = periods?.[key];
     let periodEnd: Date | null = null;
 
     if (typeof rawPeriod === "string" && rawPeriod.trim() !== "") {
@@ -117,10 +121,22 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
       periodEnd = parsed.date;
     }
 
+    // Deliberately a DIFFERENT parser: a next release is expected to be in the
+    // future, where an observation may never be. Using parseObservationDate
+    // here would refuse every date worth entering.
+    const rawRelease = releases?.[key];
+    let nextRelease: Date | null = null;
+
+    if (typeof rawRelease === "string" && rawRelease.trim() !== "") {
+      const parsed = parseReleaseDate(rawRelease, now);
+      if (!parsed.date) throw new Error(`${indicatorKey} — ${parsed.error}`);
+      nextRelease = parsed.date;
+    }
+
     await prisma.indicatorOverride.upsert({
       where: { userId_currencyCode_indicatorKey: { userId, currencyCode: code, indicatorKey } },
-      create: { userId, currencyCode: code, indicatorKey, value, periodEnd },
-      update: { value, periodEnd },
+      create: { userId, currencyCode: code, indicatorKey, value, periodEnd, nextRelease },
+      update: { value, periodEnd, nextRelease },
     });
     saved += 1;
   }

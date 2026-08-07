@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseObservationDate, todayIso } from './observation-date';
+import {
+    parseObservationDate,
+    parseReleaseDate,
+    releaseCeilingIso,
+    todayIso,
+} from './observation-date';
 
 const TODAY = new Date('2026-08-06T14:32:11Z');
 
@@ -86,6 +91,60 @@ describe('parseObservationDate', () => {
         expect(
             parseObservationDate('2026-08-07', new Date('2026-08-07T09:00:00Z')).date,
         ).not.toBeNull();
+    });
+});
+
+describe('parseReleaseDate', () => {
+    it('ACCEPTS the future, which is the whole point of it', () => {
+        // An observation cannot be in the future; a scheduled release almost
+        // always is. Refusing one there would make the field useless.
+        expect(parseReleaseDate('2026-09-11', TODAY).error).toBeNull();
+        expect(parseReleaseDate('2027-03-01', TODAY).date!.toISOString()).toBe(
+            '2027-03-01T00:00:00.000Z',
+        );
+    });
+
+    it('refuses a date the other parser accepts, and vice versa', () => {
+        // The two bounds are genuinely different, and this is the test that
+        // would catch someone wiring the wrong one into a field.
+        const future = '2026-12-01';
+        expect(parseObservationDate(future, TODAY).date).toBeNull();
+        expect(parseReleaseDate(future, TODAY).date).not.toBeNull();
+
+        const old = '2023-01-01';
+        expect(parseObservationDate(old, TODAY).date).not.toBeNull();
+        expect(parseReleaseDate(old, TODAY).date).toBeNull();
+    });
+
+    it('allows a release that is overdue, which is a real state', () => {
+        expect(parseReleaseDate('2026-07-30', TODAY).date).not.toBeNull();
+    });
+
+    it('refuses a date beyond any published calendar', () => {
+        const result = parseReleaseDate('2031-01-01', TODAY);
+        expect(result.date).toBeNull();
+        expect(result.error).toContain('lointaine');
+    });
+
+    it('turns over exactly at its bounds', () => {
+        expect(parseReleaseDate('2029-08-06', TODAY).date).not.toBeNull();
+        expect(parseReleaseDate('2029-08-07', TODAY).date).toBeNull();
+        expect(parseReleaseDate('2025-08-06', TODAY).date).not.toBeNull();
+        expect(parseReleaseDate('2025-08-05', TODAY).date).toBeNull();
+    });
+
+    it('still refuses an impossible day and a malformed input', () => {
+        expect(parseReleaseDate('2026-11-31', TODAY).date).toBeNull();
+        expect(parseReleaseDate('11/09/2026', TODAY).date).toBeNull();
+    });
+});
+
+describe('releaseCeilingIso', () => {
+    it('matches the bound the parser enforces', () => {
+        const ceiling = releaseCeilingIso(TODAY);
+        expect(ceiling).toBe('2029-08-06');
+        // The ceiling offered by the input must be a date the server accepts.
+        expect(parseReleaseDate(ceiling, TODAY).date).not.toBeNull();
     });
 });
 

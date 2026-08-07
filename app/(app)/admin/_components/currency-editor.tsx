@@ -33,6 +33,10 @@ export interface EditableField {
   period: string | null;
   /** True when that date is the administrator's rather than the source's. */
   periodOverridden: boolean;
+  /** Next expected publication, "AAAA-MM-JJ" — normally a future date. */
+  nextRelease: string | null;
+  /** True when that date is the administrator's rather than the provider's. */
+  nextReleaseOverridden: boolean;
 }
 
 export interface CurrencyEditorData {
@@ -62,7 +66,16 @@ const STANCE_FR: Record<CentralBankStance, string> = {
   "Very Dovish": "Très accommodante",
 };
 
-export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; today: string }) {
+export function CurrencyEditor({
+  data,
+  today,
+  releaseCeiling,
+}: {
+  data: CurrencyEditorData;
+  today: string;
+  /** Furthest a next-release date may be set — the same bound the server enforces. */
+  releaseCeiling: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
@@ -74,6 +87,8 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
   const [edits, setEdits] = useState<Record<string, string>>({});
   /** Publication dates the user has touched, keyed the same way as `edits`. */
   const [dateEdits, setDateEdits] = useState<Record<string, string>>({});
+  /** Next-release dates the user has touched. */
+  const [releaseEdits, setReleaseEdits] = useState<Record<string, string>>({});
   const [stance, setStance] = useState<CentralBankStance>(data.stance);
   const [geo, setGeo] = useState(data.geopoliticalRisks);
   const [analysis, setAnalysis] = useState(data.qualitativeAnalysis);
@@ -85,7 +100,11 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
     analysis !== data.qualitativeAnalysis ||
     events !== data.eventsToWatch.join("\n");
 
-  const dirty = Object.keys(edits).length > 0 || Object.keys(dateEdits).length > 0 || noteDirty;
+  const dirty =
+    Object.keys(edits).length > 0 ||
+    Object.keys(dateEdits).length > 0 ||
+    Object.keys(releaseEdits).length > 0 ||
+    noteDirty;
 
   function save() {
     startTransition(async () => {
@@ -101,21 +120,29 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
         }
 
         // Changing only a date still needs the value sent, because an override
-        // row carries both: without the value the server would have nothing to
-        // upsert and the date would be dropped on the floor.
-        for (const key of Object.keys(dateEdits)) {
+        // row carries all three: without the value the server would have
+        // nothing to upsert and the dates would be dropped on the floor.
+        for (const key of [...Object.keys(dateEdits), ...Object.keys(releaseEdits)]) {
           if (key in values) continue;
           const current = data.fields.find((f) => f.key === key)?.value;
           if (typeof current === "number") values[key] = current;
         }
 
+        // An untouched date must not be sent at all: sending the displayed
+        // value would freeze the source's own date into the override the first
+        // time anything else on that row changed.
         const periods: Record<string, string | null> = {};
         for (const [key, raw] of Object.entries(dateEdits)) {
           periods[key] = raw.trim() === "" ? null : raw;
         }
 
+        const releases: Record<string, string | null> = {};
+        for (const [key, raw] of Object.entries(releaseEdits)) {
+          releases[key] = raw.trim() === "" ? null : raw;
+        }
+
         if (Object.keys(values).length > 0) {
-          await saveIndicatorOverrides({ code: data.code, values, periods });
+          await saveIndicatorOverrides({ code: data.code, values, periods, releases });
         }
 
         if (noteDirty) {
@@ -130,6 +157,7 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
 
         setEdits({});
         setDateEdits({});
+        setReleaseEdits({});
         setStatus("Enregistré");
         router.refresh();
       } catch (error) {
@@ -146,6 +174,7 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
         const { removed } = await resetCurrencyOverrides(data.code);
         setEdits({});
         setDateEdits({});
+        setReleaseEdits({});
         setStatus(
           removed > 0
             ? `${removed} correction(s) supprimée(s)`
@@ -193,6 +222,7 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
               {data.fields.map((field) => {
                 const edited = field.key in edits;
                 const dateEdited = field.key in dateEdits;
+                const releaseEdited = field.key in releaseEdits;
                 const shown = edited ? edits[field.key]! : (field.value?.toString() ?? "");
 
                 return (
@@ -248,6 +278,26 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
                         )}
                       />
                     </div>
+                    <div className="mt-1 flex items-center gap-1">
+                      <Icon
+                        name="event_upcoming"
+                        size={11}
+                        className={field.nextReleaseOverridden ? "text-brand-amber" : "text-subtle"}
+                      />
+                      <input
+                        type="date"
+                        aria-label={`Prochaine publication — ${field.label}`}
+                        value={releaseEdited ? releaseEdits[field.key]! : (field.nextRelease ?? "")}
+                        max={releaseCeiling}
+                        onChange={(e) =>
+                          setReleaseEdits((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        className={cn(
+                          "bg-panel border-border-app text-muted focus:border-brand-blue tabular w-full rounded-md border px-1.5 py-1 font-mono text-[11px] outline-none",
+                          releaseEdited && "border-brand-blue text-fg",
+                        )}
+                      />
+                    </div>
                     {field.overridden && field.sourceValue !== null ? (
                       <p className="text-subtle mt-0.5 font-mono text-[10px]">
                         API : {field.sourceValue}
@@ -259,8 +309,11 @@ export function CurrencyEditor({ data, today }: { data: CurrencyEditorData; toda
             </div>
             <p className="text-subtle mt-2 text-[11px]">
               Vider un champ supprime la correction manuelle et redonne la main à la donnée API. La
-              date sous chaque valeur est celle de la <strong>publication</strong> — la période que
-              le chiffre décrit, pas le jour de la saisie. Vidée, elle rend la date de la source.
+              première date sous chaque valeur est celle de la <strong>publication</strong> — la
+              période que le chiffre décrit, jamais dans le futur. La seconde{" "}
+              <span className="text-subtle">(icône calendrier fléché)</span> est la{" "}
+              <strong>prochaine publication attendue</strong>, elle, normalement à venir. Vider
+              l&apos;une ou l&apos;autre rend la date de la source.
             </p>
           </div>
 

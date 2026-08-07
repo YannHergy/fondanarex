@@ -264,12 +264,15 @@ export const getCurrencies = cache(
     }
 
     const noteByCode = new Map(notes.map((n) => [n.currencyCode, n]));
-    const overrideByCode = new Map<string, Map<string, { value: number; periodEnd: Date | null }>>();
+    type OverrideEntry = { value: number; periodEnd: Date | null; nextRelease: Date | null };
+    const overrideByCode = new Map<string, Map<string, OverrideEntry>>();
     for (const o of overrides) {
-      const forCurrency =
-        overrideByCode.get(o.currencyCode) ??
-        new Map<string, { value: number; periodEnd: Date | null }>();
-      forCurrency.set(o.indicatorKey, { value: Number(o.value), periodEnd: o.periodEnd });
+      const forCurrency = overrideByCode.get(o.currencyCode) ?? new Map<string, OverrideEntry>();
+      forCurrency.set(o.indicatorKey, {
+        value: Number(o.value),
+        periodEnd: o.periodEnd,
+        nextRelease: o.nextRelease,
+      });
       overrideByCode.set(o.currencyCode, forCurrency);
     }
 
@@ -278,8 +281,7 @@ export const getCurrencies = cache(
     for (const currency of currencies) {
       const note = noteByCode.get(currency.code);
       const currencyOverrides =
-        overrideByCode.get(currency.code) ??
-        new Map<string, { value: number; periodEnd: Date | null }>();
+        overrideByCode.get(currency.code) ?? new Map<string, OverrideEntry>();
 
       const rows = indicatorRows.filter((r) => r.currencyCode === currency.code);
       const current = new Map<string, IndicatorRow>();
@@ -335,6 +337,10 @@ export const getCurrencies = cache(
         if (!isNumericField(key)) continue;
         data[key] = override.value;
         if (override.periodEnd) periods[key] = toIsoDate(override.periodEnd);
+        // The next release too: a provider that has no calendar for an
+        // indicator, or has the wrong date for it, is exactly when someone
+        // enters one by hand — and the API's silence must not win over it.
+        if (override.nextRelease) nextReleases[key] = toIsoDate(override.nextRelease);
       }
 
       // Computed AFTER the overrides, so a hand-entered release the API has

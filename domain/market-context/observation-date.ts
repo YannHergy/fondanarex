@@ -18,6 +18,19 @@
 /** Beyond this, a date is a slip of the keyboard rather than a backfill. */
 const MAX_YEARS_BACK = 5;
 
+/**
+ * Bounds for a NEXT-RELEASE date, which is a different animal.
+ *
+ * An observation describes something that has happened, so it can never be in
+ * the future. A scheduled release is the opposite: it is almost always ahead,
+ * and refusing a future date there would make the field useless. It still
+ * needs bounds — a statistical agency publishes a calendar a year or two out,
+ * not a decade — and a little slack backwards, because a release that is
+ * overdue is a real state worth recording rather than an error.
+ */
+const RELEASE_YEARS_BACK = 1;
+const RELEASE_YEARS_FORWARD = 3;
+
 export interface ParsedObservationDate {
     /** Midnight UTC on the chosen day, or null when the input was refused. */
     date: Date | null;
@@ -43,6 +56,45 @@ function startOfUtcDay(value: Date): Date {
 export function parseObservationDate(
     input: string | null | undefined,
     today: Date,
+): ParsedObservationDate {
+    return parseBoundedDate(input, today, {
+        yearsBack: MAX_YEARS_BACK,
+        yearsForward: 0,
+        futureMessage: 'Date dans le futur : aucune donnée de marché ne la couvre.',
+    });
+}
+
+/**
+ * A scheduled next publication.
+ *
+ * Same parsing, opposite expectation about the future. Kept as its own
+ * function rather than a flag at the call site, so the two intents are named
+ * where they are used and a reader never has to decode a boolean.
+ */
+export function parseReleaseDate(
+    input: string | null | undefined,
+    today: Date,
+): ParsedObservationDate {
+    return parseBoundedDate(input, today, {
+        yearsBack: RELEASE_YEARS_BACK,
+        yearsForward: RELEASE_YEARS_FORWARD,
+        futureMessage: `Date trop lointaine : ${RELEASE_YEARS_FORWARD} ans maximum.`,
+        pastMessage: `Date trop ancienne pour une publication à venir : ${RELEASE_YEARS_BACK} an maximum.`,
+    });
+}
+
+interface Bounds {
+    yearsBack: number;
+    /** 0 refuses any future date. */
+    yearsForward: number;
+    futureMessage: string;
+    pastMessage?: string;
+}
+
+function parseBoundedDate(
+    input: string | null | undefined,
+    today: Date,
+    bounds: Bounds,
 ): ParsedObservationDate {
     const reference = startOfUtcDay(today);
 
@@ -71,20 +123,29 @@ export function parseObservationDate(
         return { date: null, error: "Date invalide : ce jour n'existe pas." };
     }
 
-    if (candidate.getTime() > reference.getTime()) {
-        return { date: null, error: 'Date dans le futur : aucune donnée de marché ne la couvre.' };
+    const ceiling = new Date(reference);
+    ceiling.setUTCFullYear(ceiling.getUTCFullYear() + bounds.yearsForward);
+    if (candidate.getTime() > ceiling.getTime()) {
+        return { date: null, error: bounds.futureMessage };
     }
 
     const floor = new Date(reference);
-    floor.setUTCFullYear(floor.getUTCFullYear() - MAX_YEARS_BACK);
+    floor.setUTCFullYear(floor.getUTCFullYear() - bounds.yearsBack);
     if (candidate.getTime() < floor.getTime()) {
         return {
             date: null,
-            error: `Date trop ancienne : ${MAX_YEARS_BACK} ans maximum.`,
+            error: bounds.pastMessage ?? `Date trop ancienne : ${bounds.yearsBack} ans maximum.`,
         };
     }
 
     return { date: candidate, error: null };
+}
+
+/** The furthest a next-release date may be set, as AAAA-MM-JJ. */
+export function releaseCeilingIso(today: Date): string {
+    const ceiling = startOfUtcDay(today);
+    ceiling.setUTCFullYear(ceiling.getUTCFullYear() + RELEASE_YEARS_FORWARD);
+    return ceiling.toISOString().slice(0, 10);
 }
 
 /** The value a date input should start on: today, as AAAA-MM-JJ. */

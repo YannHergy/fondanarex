@@ -340,6 +340,11 @@ model IndicatorOverride {
   /// fresh number look old.
   periodEnd DateTime? @db.Date
 
+  /// When the next figure is expected. Unlike periodEnd this is normally in
+  /// the FUTURE, which is why it is validated against different bounds.
+  /// Null keeps whatever the source's own calendar says.
+  nextRelease DateTime? @db.Date
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

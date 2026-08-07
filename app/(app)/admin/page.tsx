@@ -6,7 +6,7 @@ import { MarketContextEditor } from "@/app/(app)/admin/_components/market-contex
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { MARKET_FIELDS } from "@/domain/market-context";
-import { todayIso } from "@/domain/market-context/observation-date";
+import { releaseCeilingIso, todayIso } from "@/domain/market-context/observation-date";
 import { getApiValues, getMarketContext, getScoredCurrencies } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
@@ -60,13 +60,18 @@ export default async function AdminPage() {
   // Resolved once on the SERVER and shared by every date input on the page, so
   // the ceiling offered matches the clock the action validates against — a
   // device with a skewed clock would otherwise offer a date the server refuses.
-  const today = todayIso(new Date());
+  const now = new Date();
+  const today = todayIso(now);
+  const releaseCeiling = releaseCeilingIso(now);
 
   const overrideSet = new Set(overrides.map((o) => `${o.currencyCode}:${o.indicatorKey}`));
   // Only the overrides that actually carry a date. A row with a null period
   // is still using its source's, and the editor must not claim otherwise.
   const datedOverrides = new Set(
     overrides.filter((o) => o.periodEnd).map((o) => `${o.currencyCode}:${o.indicatorKey}`),
+  );
+  const releaseOverrides = new Set(
+    overrides.filter((o) => o.nextRelease).map((o) => `${o.currencyCode}:${o.indicatorKey}`),
   );
 
   const editors = Object.values(currencies).map((currency) => {
@@ -87,6 +92,10 @@ export default async function AdminPage() {
         sourceValue: apiValues[currency.code]?.[spec.key] ?? null,
         period: currency.periods?.[spec.key] ?? null,
         periodOverridden: datedOverrides.has(`${currency.code}:${spec.key}`),
+        // The date input needs AAAA-MM-JJ; nextReleases can carry a full local
+        // timestamp because the release HOUR matters on the calendar screen.
+        nextRelease: currency.nextReleases?.[spec.key]?.slice(0, 10) ?? null,
+        nextReleaseOverridden: releaseOverrides.has(`${currency.code}:${spec.key}`),
       };
     });
 
@@ -144,7 +153,12 @@ export default async function AdminPage() {
           Devises ({editors.length})
         </h2>
         {editors.map((data) => (
-          <CurrencyEditor key={data.code} data={data} today={today} />
+          <CurrencyEditor
+            key={data.code}
+            data={data}
+            today={today}
+            releaseCeiling={releaseCeiling}
+          />
         ))}
       </div>
 

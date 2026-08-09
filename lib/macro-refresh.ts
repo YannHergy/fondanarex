@@ -1,6 +1,7 @@
 import "server-only";
 
 import { periodEnd, periodLabel } from "@/domain/macro/period";
+import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
 import {
@@ -149,15 +150,68 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   const asError = (error: unknown) =>
     error instanceof Error ? error : new Error(String(error));
 
-  const [oecdResults, fredResults, fxMacroResults, vixResult, oilResult, tokyoCpiResult] =
-    await Promise.all([
-      fetchAllOecdData(options.oecdFields),
-      !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
-      fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
-      fetchVix().catch(asError),
-      fetchOil().catch(asError),
-      fetchTokyoCpi().catch(asError),
-    ]);
+  const [
+    oecdResults,
+    fredResults,
+    fxMacroResults,
+    eurostatResults,
+    vixResult,
+    oilResult,
+    tokyoCpiResult,
+  ] = await Promise.all([
+    fetchAllOecdData(options.oecdFields),
+    !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
+    fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
+    fetchEurostatData(),
+    fetchVix().catch(asError),
+    fetchOil().catch(asError),
+    fetchTokyoCpi().catch(asError),
+  ]);
+
+  // ── Eurostat: the EUR, from its own publisher ───────────────────────────
+  //
+  // The FULL history is written, not just the latest reading. Every other
+  // source here stores at most two periods, which is enough to score momentum
+  // but leaves the score curve with nothing to draw before today. Eurostat
+  // hands over decades in the same response it would take to fetch one point,
+  // so refusing it would be throwing away the only free backfill available.
+  //
+  // Re-running is cheap despite the row count: writeRows upserts on
+  // (currency, indicator, period, source), so a second run updates the same
+  // rows rather than growing the table.
+  if (known.has("EUR")) {
+    for (const series of eurostatResults) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`Eurostat ${series.label}: ${message}`);
+        sources.push({
+          source: "EUROSTAT",
+          label: series.label,
+          written: 0,
+          error: message,
+        });
+        continue;
+      }
+
+      const rows: PendingRow[] = [];
+      for (const point of series.history) {
+        const end = periodEnd(point.period);
+        if (!end) continue;
+
+        rows.push({
+          currencyCode: "EUR",
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.EUROSTAT,
+        });
+      }
+
+      const written = await writeRows(rows);
+      sources.push({ source: "EUROSTAT", label: series.label, written, error: null });
+    }
+  }
 
   // ── OECD: every currency ────────────────────────────────────────────────
   for (const dataset of oecdResults) {

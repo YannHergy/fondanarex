@@ -243,6 +243,10 @@ enum IndicatorSource {
   /// it is an official statistical agency like the OECD, but unlike the OECD
   /// its refresh actually works — so it must count as a live source.
   ESTAT
+  /// Eurostat, the euro area's own statistical office. The PUBLISHER of the
+  /// EUR figures FXMacroData redistributes, so it outranks it: one fewer hop
+  /// that can silently stop moving.
+  EUROSTAT
   MANUAL
   DERIVED
 }
@@ -329,6 +333,19 @@ model IndicatorOverride {
 
   value Decimal @db.Decimal(18, 6)
   note  String? @db.Text
+
+  /// The reading this correction DISPLACED, so momentum survives a manual edit.
+  ///
+  /// Without it, correcting a figure left `previousData` pointing at whatever
+  /// the API last published — often months old — so a value the user had typed
+  /// yesterday never became today's "previous" and every momentum scorer read
+  /// the move as far larger than it was. Captured at write time from the value
+  /// actually on screen, whether that came from an API row or an earlier
+  /// correction.
+  ///
+  /// Null means this is the first correction for the indicator and the API's
+  /// own previous reading is still the right comparison.
+  previousValue Decimal? @db.Decimal(18, 6)
 
   /// The period the corrected figure DESCRIBES, not when it was typed.
   ///

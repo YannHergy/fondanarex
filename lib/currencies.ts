@@ -133,7 +133,15 @@ interface IndicatorRow {
  * Resolution is by SOURCE TIER FIRST, then by period — and that order is the
  * whole point:
  *
- *   FRED (1) > FXMACRODATA (2) > MARKET (3) > ESTAT (4) > OECD (5) > DERIVED (6) > MANUAL (7)
+ *   FRED (1) > EUROSTAT (2) > FXMACRODATA (3) > MARKET (4) > ESTAT (5)
+ *   > OECD (6) > DERIVED (7) > MANUAL (8)
+ *
+ * EUROSTAT sits above FXMacroData because it is the PUBLISHER of the euro-area
+ * figures FXMacroData redistributes. Ranking the redistributor higher would
+ * mean a stalled aggregator could pin an indicator to a stale value while the
+ * publisher's own fresher row sat unused — which is the failure this source
+ * was added to end. It touches the EUR alone; no other currency has a
+ * Eurostat row, so the tier is inert everywhere else.
  *
  * MARKET is the VIX and anything else quoted continuously rather than
  * published on a calendar. It never competes with the others in practice —
@@ -180,12 +188,13 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         v.*,
         CASE v."source"
           WHEN 'FRED' THEN 1
-          WHEN 'FXMACRODATA' THEN 2
-          WHEN 'MARKET' THEN 3
-          WHEN 'ESTAT' THEN 4
-          WHEN 'OECD' THEN 5
-          WHEN 'DERIVED' THEN 6
-          ELSE 7
+          WHEN 'EUROSTAT' THEN 2
+          WHEN 'FXMACRODATA' THEN 3
+          WHEN 'MARKET' THEN 4
+          WHEN 'ESTAT' THEN 5
+          WHEN 'OECD' THEN 6
+          WHEN 'DERIVED' THEN 7
+          ELSE 8
         END AS tier
       FROM "IndicatorValue" v
     ),
@@ -264,12 +273,18 @@ export const getCurrencies = cache(
     }
 
     const noteByCode = new Map(notes.map((n) => [n.currencyCode, n]));
-    type OverrideEntry = { value: number; periodEnd: Date | null; nextRelease: Date | null };
+    type OverrideEntry = {
+      value: number;
+      previousValue: number | null;
+      periodEnd: Date | null;
+      nextRelease: Date | null;
+    };
     const overrideByCode = new Map<string, Map<string, OverrideEntry>>();
     for (const o of overrides) {
       const forCurrency = overrideByCode.get(o.currencyCode) ?? new Map<string, OverrideEntry>();
       forCurrency.set(o.indicatorKey, {
         value: Number(o.value),
+        previousValue: o.previousValue === null ? null : Number(o.previousValue),
         periodEnd: o.periodEnd,
         nextRelease: o.nextRelease,
       });
@@ -336,6 +351,13 @@ export const getCurrencies = cache(
       for (const [key, override] of currencyOverrides) {
         if (!isNumericField(key)) continue;
         data[key] = override.value;
+
+        // The displaced reading becomes "previous", so momentum compares the
+        // correction against what it replaced. Without this the comparison
+        // stayed pinned to the API's last publication — often months old — and
+        // a second correction was measured against a figure two edits stale.
+        if (override.previousValue !== null) previousData[key] = override.previousValue;
+
         if (override.periodEnd) periods[key] = toIsoDate(override.periodEnd);
         // The next release too: a provider that has no calendar for an
         // indicator, or has the wrong date for it, is exactly when someone

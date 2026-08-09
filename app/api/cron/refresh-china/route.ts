@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { recordScoresAndAlert } from "@/lib/alerts";
 import { refreshChinaDemand } from "@/lib/china";
 import { currentUserId } from "@/lib/session";
 
@@ -57,7 +58,18 @@ export async function GET(request: NextRequest) {
 
   // The AUD and NZD scores move with this value, so every screen that shows
   // them is invalidated — not just the two currency pages.
-  if (report.written > 0) revalidatePath("/", "layout");
+  if (report.written > 0) {
+    revalidatePath("/", "layout");
+
+    // A written value moves the scores, and the score curve has to record it.
+    // Without this the history only ever reflects the full macro refresh, and
+    // a change arriving through this route is invisible on the chart.
+    try {
+      await recordScoresAndAlert(userId);
+    } catch {
+      /* the reading stands; only the curve point is lost */
+    }
+  }
 
   return NextResponse.json(report, { status: report.error ? 502 : 200 });
 }

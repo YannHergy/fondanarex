@@ -5,7 +5,8 @@ import { z } from "zod";
 
 import { MARKET_FIELDS } from "@/domain/market-context";
 import { parseObservationDate, parseReleaseDate } from "@/domain/market-context/observation-date";
-import { contextKeyToDb, STANCE_TO_DB } from "@/lib/currencies";
+import { recordScoresAndAlert } from "@/lib/alerts";
+import { contextKeyToDb, getScoredCurrencies, STANCE_TO_DB } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { requireUserIdOrThrow } from "@/lib/session";
 import { IndicatorSource } from "@/lib/generated/prisma/enums";
@@ -93,6 +94,15 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
   // indicators saved in the same click on opposite sides of midnight.
   const now = new Date();
 
+  // What each indicator READS AS RIGHT NOW, before anything is written. This
+  // is the value a correction displaces, and it has to be captured up front:
+  // once the override row is updated, the figure it replaced is gone.
+  //
+  // Taken from the resolved currency data rather than from IndicatorValue, so
+  // it reflects what the user actually sees — which may itself be an earlier
+  // correction rather than an API reading.
+  const before = (await getScoredCurrencies(userId))[code];
+
   let saved = 0;
 
   for (const [indicatorKey, value] of Object.entries(values)) {
@@ -133,15 +143,50 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
       nextRelease = parsed.date;
     }
 
+    // The reading being displaced. Recorded only when it genuinely differs:
+    // re-saving the same number is a no-op edit, and treating it as a move
+    // would erase the real previous value behind an identical one.
+    const displaced = (before as unknown as Record<string, unknown>)?.[indicatorKey];
+    const previousValue =
+      typeof displaced === "number" && displaced !== value ? displaced : undefined;
+
     await prisma.indicatorOverride.upsert({
       where: { userId_currencyCode_indicatorKey: { userId, currencyCode: code, indicatorKey } },
-      create: { userId, currencyCode: code, indicatorKey, value, periodEnd, nextRelease },
-      update: { value, periodEnd, nextRelease },
+      create: {
+        userId,
+        currencyCode: code,
+        indicatorKey,
+        value,
+        periodEnd,
+        nextRelease,
+        previousValue: previousValue ?? null,
+      },
+      update: {
+        value,
+        periodEnd,
+        nextRelease,
+        // Omitted when unchanged, so an edit that only moves a date keeps the
+        // previous reading it already had.
+        ...(previousValue !== undefined ? { previousValue } : {}),
+      },
     });
     saved += 1;
   }
 
   revalidatePath("/", "layout");
+
+  // A corrected figure changes the score, and the score curve must record that
+  // — otherwise the history only ever reflects automatic refreshes and a
+  // manual correction is invisible on the chart. Best-effort: the correction
+  // itself is already saved, and losing a snapshot must not fail the write.
+  //
+  // After revalidatePath so the snapshot is computed from the new values.
+  try {
+    await recordScoresAndAlert(userId);
+  } catch {
+    /* the correction stands; only the curve point is lost */
+  }
+
   return { saved };
 }
 
@@ -225,6 +270,16 @@ export async function saveMarketContext(input: unknown): Promise<{ saved: number
   }
 
   revalidatePath("/", "layout");
+
+  // Market-context values feed the specifique indicators (oil, China, VIX...),
+  // so editing one moves the scores exactly as an indicator correction does —
+  // and the curve has to record it for the same reason.
+  try {
+    await recordScoresAndAlert(userId);
+  } catch {
+    /* the values stand; only the curve point is lost */
+  }
+
   return { saved, date: observedOn.toISOString().slice(0, 10) };
 }
 
@@ -241,6 +296,15 @@ export async function resetCurrencyOverrides(input: unknown): Promise<{ removed:
   });
 
   revalidatePath("/", "layout");
+
+  // Handing an indicator back to its API value changes the score too — a
+  // reset is a move like any other and belongs on the curve.
+  try {
+    await recordScoresAndAlert(userId);
+  } catch {
+    /* the reset stands; only the curve point is lost */
+  }
+
   return { removed: count };
 }
 

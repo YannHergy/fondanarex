@@ -66,6 +66,59 @@ export const GROQ_SYSTEM_PROMPT =
 export const GROQ_VERDICT_SYSTEM_PROMPT =
     "Tu as challengé cette analyse. Donne maintenant ta position finale honnête, en tenant compte des réponses apportées à tes objections. Si les contre-arguments t'ont convaincu, dis-le : ton rôle de contradicteur est terminé, on te demande ton vrai avis. Réponds en français.";
 
+/**
+ * Groq as an INDEPENDENT second analyst rather than a contrarian.
+ *
+ * The five-round debate could not finish inside a serverless function, so the
+ * shortened run has the two models analyse the same evidence SEPARATELY and
+ * only then read each other. That changes what Groq must be told: a model
+ * instructed to always disagree produces a challenge, not a belief, and its
+ * vote would deadlock every currency by construction — which is exactly what a
+ * verified run showed before the verdict round was split out.
+ *
+ * Two independent readings that converge is a real signal, and arguably a
+ * cleaner one than agreement reached after one model has seen the other's
+ * conclusion.
+ */
+export const GROQ_ANALYSIS_SYSTEM_PROMPT =
+    "Tu es un analyste macro forex indépendant, sceptique par tempérament. Tu formes ton propre avis à partir des faits, sans complaisance : si les données sont faibles ou contradictoires, tu conclus Neutral plutôt que d'inventer une direction. Tu n'as vu l'avis d'aucun autre analyste. Réponds en français.";
+
+/**
+ * Each model's final position after reading the other's.
+ *
+ * This is the whole debate compressed into one exchange: both takes were
+ * formed independently, each model now sees where the other landed and why,
+ * and either holds its ground with a reason or moves. `changed` is what makes
+ * a move visible instead of silent.
+ */
+export function buildPeerReviewPrompt(
+    group: CurrencyGroup,
+    macroSummary: string,
+    ownTake: string,
+    peerTake: string,
+): string {
+    return [
+        `${group.label} — ${group.theme}`,
+        '',
+        '=== DONNÉES MACRO ===',
+        macroSummary,
+        '',
+        '=== TON ANALYSE INDÉPENDANTE ===',
+        ownTake || '(indisponible)',
+        '',
+        "=== L'ANALYSE D'UN AUTRE MODÈLE, FORMÉE SANS VOIR LA TIENNE ===",
+        peerTake || '(indisponible)',
+        '',
+        'Les deux analyses ont été produites séparément sur les mêmes faits.',
+        "Là où vous divergez, dis lequel des deux raisonnements tient et pourquoi.",
+        "Là où vous convergez, vérifie que ce n'est pas la même erreur commise deux fois.",
+        '',
+        'Donne ta position FINALE. Si tu changes d\'avis, mets "changed": true et dis ce qui t\'a fait bouger.',
+        '',
+        jsonInstruction(group.codes, true),
+    ].join('\n');
+}
+
 /** Compact macro table the models reason over. */
 export function buildMacroSummary(currencies: readonly CurrencyWithScore[]): string {
     const rows = currencies.map(currency => {

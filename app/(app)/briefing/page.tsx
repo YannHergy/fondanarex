@@ -64,7 +64,7 @@ export default async function BriefingPage() {
     <div className="mx-auto w-full max-w-5xl space-y-4 p-5 md:p-6">
       <PageHeader
         title="Briefing IA"
-        subtitle="Débat contradictoire en cinq tours entre trois modèles"
+        subtitle="Recherche, deux analyses indépendantes, puis relecture croisée — trois modèles"
       />
 
       <Card>

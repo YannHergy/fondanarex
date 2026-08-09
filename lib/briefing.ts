@@ -2,21 +2,20 @@ import "server-only";
 
 import {
   calculateConsensus,
+  type AIName,
   type AnalysisVote,
+  type CurrencyBias,
   type CurrencyConsensus,
 } from "@/domain/briefing/consensus";
 import {
   CLAUDE_SYSTEM_PROMPT,
   CURRENCY_GROUPS,
-  GROQ_SYSTEM_PROMPT,
+  GROQ_ANALYSIS_SYSTEM_PROMPT,
   GROQ_VERDICT_SYSTEM_PROMPT,
   buildAnalysisPrompt,
-  buildContradictionPrompt,
-  buildDefencePrompt,
   buildMacroSummary,
+  buildPeerReviewPrompt,
   buildResearchPrompt,
-  buildVerdictPrompt,
-  summariseBiases,
   type CurrencyGroup,
 } from "@/domain/briefing/prompts";
 import { getScoredCurrencyList } from "@/lib/currencies";
@@ -31,28 +30,62 @@ import { prisma } from "@/lib/prisma";
 import { AIName as DbAIName } from "@/lib/generated/prisma/enums";
 
 /**
- * Multi-model briefing.
+ * Multi-model briefing, ONE GROUP PER INVOCATION.
  *
- * Every round is persisted as it completes, including failed ones. The legacy
- * version kept the last five sessions in localStorage and, critically, rendered
- * a failed call as an empty-but-successful analysis — the error field existed
- * on the message type and nothing branched on it. Here a failure is stored with
- * its message and the UI shows it as a failure.
+ * WHY IT IS SPLIT. The briefing used to be a single `runBriefing` that walked
+ * all four currency groups through five rounds each — around twenty sequential
+ * model calls, ten minutes of wall time. A server action gets the platform's
+ * function budget, sixty seconds, and nothing more. Every round persisted as it
+ * completed, so the session filled with messages and LOOKED like it worked,
+ * and then the function was killed before the last statement — the one that
+ * computes and writes the consensus. A full briefing with an empty consensus
+ * was the guaranteed outcome, not a flake.
+ *
+ * So the orchestration moved to the client: it creates a session, fires the
+ * four groups CONCURRENTLY as separate actions, then asks for the consensus.
+ * Each invocation now carries one group and finishes well inside the budget,
+ * and the four groups run at once instead of one after another.
+ *
+ * WHY THE DEBATE IS SHORTER. Five rounds cannot fit, so the two models now
+ * analyse the same evidence SEPARATELY and only then read each other. Two
+ * independent readings that converge is a real signal — arguably a cleaner one
+ * than agreement reached after one model has seen the other's conclusion.
  */
-
-const ROUND_LABELS = [
-  "Recherche",
-  "Analyse",
-  "Contradiction",
-  "Défense",
-  "Verdict final",
-] as const;
 
 const AI_TO_DB: Record<string, DbAIName> = {
   Perplexity: DbAIName.PERPLEXITY,
   Claude: DbAIName.CLAUDE,
   Groq: DbAIName.GROQ,
 };
+
+/**
+ * How long one group may spend before the peer-review stage is skipped.
+ *
+ * Measured against a sixty-second function budget with headroom for the
+ * database writes. Research plus two parallel analyses is normally around
+ * thirty seconds; when an upstream is slow the run gives up the last stage
+ * rather than the whole group, and votes on the independent analyses instead.
+ * A shorter debate always beats a killed one.
+ */
+const PEER_REVIEW_DEADLINE_MS = 32_000;
+
+/** Round numbers, kept stable because the UI groups messages by them. */
+const ROUND = { research: 0, analysis: 1, peerReview: 4 } as const;
+
+const ROUND_LABEL: Record<number, string> = {
+  0: "Recherche",
+  1: "Analyse indépendante",
+  4: "Position finale",
+};
+
+export interface BriefingGroupResult {
+  groupLabel: string;
+  calls: number;
+  failures: number;
+  costUsd: number;
+  /** False when the run was too slow for the models to read each other. */
+  peerReviewed: boolean;
+}
 
 export interface BriefingProgress {
   sessionId: string;
@@ -74,7 +107,7 @@ async function persist(
       ai: AI_TO_DB[result.ai] ?? DbAIName.CLAUDE,
       model: result.model,
       round,
-      roundLabel: `${ROUND_LABELS[round] ?? `Tour ${round}`} — ${group.label}`,
+      roundLabel: `${ROUND_LABEL[round] ?? `Tour ${round}`} — ${group.label}`,
       groupCodes: [...group.codes],
       content: result.content,
       researchText: result.researchText ?? null,
@@ -89,175 +122,197 @@ async function persist(
   });
 }
 
-/** Runs the five-round debate for one currency group. */
-async function runGroup(
+/** The groups the client must walk, in order. */
+export function briefingGroups(): Array<{ index: number; label: string }> {
+  return CURRENCY_GROUPS.map((group, index) => ({ index, label: group.label }));
+}
+
+/** Opens a session. The rounds are run separately, one call per group. */
+export async function createBriefingSession(userId: string): Promise<string> {
+  const session = await prisma.briefingSession.create({
+    data: { userId, status: "running" },
+  });
+  return session.id;
+}
+
+/**
+ * Runs one currency group: research, two independent analyses, then a peer
+ * review if there is time for it.
+ *
+ * Never throws for an upstream failure. A group that loses a model still
+ * writes what it has, and the consensus is computed from whatever voted —
+ * losing one group must not cost the other three.
+ */
+export async function runBriefingGroup(
+  userId: string,
   sessionId: string,
-  group: CurrencyGroup,
-  macroSummary: string,
-): Promise<{ votes: AnalysisVote[]; results: LlmResult[] }> {
+  groupIndex: number,
+): Promise<BriefingGroupResult> {
+  const group = CURRENCY_GROUPS[groupIndex];
+  if (!group) throw new Error(`Groupe ${groupIndex} inconnu`);
+
+  const startedAt = Date.now();
+  const currencies = await getScoredCurrencyList(userId);
+  const macroSummary = buildMacroSummary(currencies);
+
   const results: LlmResult[] = [];
 
-  // Round 0 — research. A failure here is tolerated: the debate continues on
-  // internal macro data alone rather than aborting the whole briefing.
+  // Stage 1 — live research. A failure is tolerated: the analyses fall back on
+  // the macro table alone rather than the group being abandoned.
   const research = await callPerplexity({ prompt: buildResearchPrompt(group) });
-  await persist(sessionId, research, 0, group);
+  await persist(sessionId, research, ROUND.research, group);
   results.push(research);
 
-  // Round 1 — first directional read.
-  const analysis = await callClaude({
-    system: CLAUDE_SYSTEM_PROMPT,
-    prompt: buildAnalysisPrompt(group, macroSummary, research.researchText ?? ""),
-    codes: group.codes,
-  });
-  await persist(sessionId, analysis, 1, group);
-  results.push(analysis);
+  const evidence = research.researchText ?? "";
 
-  // Round 2 — adversarial. Runs even if round 1 failed, so the session still
-  // produces something to look at.
-  const contradiction = await callGroq({
-    system: GROQ_SYSTEM_PROMPT,
-    prompt: buildContradictionPrompt(
-      group,
-      macroSummary,
-      analysis.content,
-      summariseBiases(group.codes, analysis.biases),
-    ),
-    codes: group.codes,
-  });
-  await persist(sessionId, contradiction, 2, group);
-  results.push(contradiction);
-
-  // Round 3 — defence or concession.
-  const defence = await callClaude({
-    system: CLAUDE_SYSTEM_PROMPT,
-    prompt: buildDefencePrompt(
-      group,
-      macroSummary,
-      `${contradiction.content}\n${summariseBiases(group.codes, contradiction.biases)}`,
-    ),
-    codes: group.codes,
-  });
-  await persist(sessionId, defence, 3, group);
-  results.push(defence);
-
-  // Everything said so far, fed into the final round.
-  const debateSummary = [
-    `Analyse initiale : ${analysis.content}`,
-    summariseBiases(group.codes, analysis.biases),
-    `Contradiction : ${contradiction.content}`,
-    summariseBiases(group.codes, contradiction.biases),
-    `Défense : ${defence.content}`,
-    summariseBiases(group.codes, defence.biases),
-  ].join("\n\n");
-
-  // Round 4 — both models give a final, considered position.
-  //
-  // Groq gets its own verdict round rather than voting with its round-2
-  // contradiction. That distinction is load-bearing: Groq is instructed to
-  // disagree and to find a flaw in every currency, so its adversarial round is
-  // a challenge, not a belief. Using it as a vote made Claude and Groq deadlock
-  // on all eight currencies BY CONSTRUCTION — a verified full run produced
-  // "contested, 50%" across the board and therefore no signal at all.
-  //
-  // Voting on the post-debate position is what makes agreement meaningful:
-  // unanimity now means the contrarian looked for a flaw, failed to find one,
-  // and said so.
-  const [verdict, groqVerdict] = await Promise.all([
+  // Stage 2 — both models read the same evidence, NEITHER sees the other.
+  // Parallel, because they are independent by design; running them in sequence
+  // would double the wall time for no analytical gain.
+  const [claudeTake, groqTake] = await Promise.all([
     callClaude({
       system: CLAUDE_SYSTEM_PROMPT,
-      prompt: buildVerdictPrompt(group, debateSummary),
+      prompt: buildAnalysisPrompt(group, macroSummary, evidence),
       codes: group.codes,
     }),
     callGroq({
-      system: GROQ_VERDICT_SYSTEM_PROMPT,
-      prompt: buildVerdictPrompt(group, debateSummary),
+      system: GROQ_ANALYSIS_SYSTEM_PROMPT,
+      prompt: buildAnalysisPrompt(group, macroSummary, evidence),
       codes: group.codes,
     }),
   ]);
 
-  await persist(sessionId, verdict, 4, group);
-  await persist(sessionId, groqVerdict, 4, group);
-  results.push(verdict, groqVerdict);
+  await persist(sessionId, claudeTake, ROUND.analysis, group);
+  await persist(sessionId, groqTake, ROUND.analysis, group);
+  results.push(claudeTake, groqTake);
 
-  // Only the FINAL positions vote. Counting every round would let a model's
-  // discarded opening opinion outvote the conclusion it reached after debate.
-  const votes: AnalysisVote[] = [
-    { ai: "Claude", biases: verdict.biases, error: verdict.error },
-    { ai: "Groq", biases: groqVerdict.biases, error: groqVerdict.error },
-  ];
+  // Stage 3 — each reads the other and settles. Skipped when the first two
+  // stages have already eaten the budget.
+  const elapsed = Date.now() - startedAt;
+  const peerReviewed = elapsed < PEER_REVIEW_DEADLINE_MS;
 
-  return { votes, results };
+  if (peerReviewed) {
+    const [claudeFinal, groqFinal] = await Promise.all([
+      callClaude({
+        system: CLAUDE_SYSTEM_PROMPT,
+        prompt: buildPeerReviewPrompt(group, macroSummary, claudeTake.content, groqTake.content),
+        codes: group.codes,
+      }),
+      callGroq({
+        system: GROQ_VERDICT_SYSTEM_PROMPT,
+        prompt: buildPeerReviewPrompt(group, macroSummary, groqTake.content, claudeTake.content),
+        codes: group.codes,
+      }),
+    ]);
+
+    await persist(sessionId, claudeFinal, ROUND.peerReview, group);
+    await persist(sessionId, groqFinal, ROUND.peerReview, group);
+    results.push(claudeFinal, groqFinal);
+  }
+
+  const failures = results.filter((r) => r.error).length;
+  const costUsd = results
+    .filter((r) => r.ai === "Claude")
+    .reduce((sum, r) => sum + claudeCostUsd(r.inputTokens, r.outputTokens), 0);
+
+  return { groupLabel: group.label, calls: results.length, failures, peerReviewed, costUsd };
 }
 
 /**
- * Runs a full briefing across all currency groups.
+ * Computes the consensus from what was actually stored, and closes the session.
  *
- * Groups run sequentially: each is five model calls, and firing four groups in
- * parallel would mean twenty concurrent requests across three providers, which
- * reliably trips rate limits on at least one of them.
+ * READ BACK FROM THE DATABASE rather than passed in from the client. The votes
+ * were produced by four independent invocations; asking the browser to carry
+ * them back would make the verdict depend on a client that may have lost a
+ * response, and would let anything reaching this action decide the outcome.
+ *
+ * The final round votes when it exists, and the independent analyses stand in
+ * when a group ran out of time. Taking both rounds unconditionally would let a
+ * model's opening opinion outvote the position it settled on after reading its
+ * peer.
  */
-export async function runBriefing(userId: string): Promise<BriefingProgress> {
-  const currencies = await getScoredCurrencyList(userId);
-  const macroSummary = buildMacroSummary(currencies);
-
-  const session = await prisma.briefingSession.create({
-    data: { userId, status: "running" },
+export async function finaliseBriefing(
+  userId: string,
+  sessionId: string,
+): Promise<BriefingProgress> {
+  const messages = await prisma.briefingMessage.findMany({
+    where: { sessionId, session: { userId } },
+    select: {
+      ai: true,
+      round: true,
+      groupCodes: true,
+      biases: true,
+      errorMessage: true,
+      inputTokens: true,
+      outputTokens: true,
+    },
   });
 
-  const allVotes: AnalysisVote[] = [];
-  const allResults: LlmResult[] = [];
+  // Per group, the highest round that produced any vote at all.
+  const bestRound = new Map<string, number>();
+  for (const message of messages) {
+    if (message.errorMessage || !message.biases) continue;
+    if (message.round !== ROUND.analysis && message.round !== ROUND.peerReview) continue;
 
-  try {
-    for (const group of CURRENCY_GROUPS) {
-      const { votes, results } = await runGroup(session.id, group, macroSummary);
-      allVotes.push(...votes);
-      allResults.push(...results);
-    }
-
-    const codes = currencies.map((c) => c.code);
-    const consensus = calculateConsensus(codes, allVotes);
-
-    const inputTokens = allResults.reduce((sum, r) => sum + (r.inputTokens ?? 0), 0);
-    const outputTokens = allResults.reduce((sum, r) => sum + (r.outputTokens ?? 0), 0);
-
-    // Cost accounting covers the Anthropic calls only — Groq and Perplexity
-    // price differently and are not tracked here rather than being guessed at.
-    const costUsd = allResults
-      .filter((r) => r.ai === "Claude")
-      .reduce((sum, r) => sum + claudeCostUsd(r.inputTokens, r.outputTokens), 0);
-
-    const failures = allResults.filter((r) => r.error).length;
-
-    await prisma.briefingSession.update({
-      where: { id: session.id },
-      data: {
-        status: "complete",
-        completedAt: new Date(),
-        consensus: consensus as unknown as object,
-        totalInputTokens: inputTokens,
-        totalOutputTokens: outputTokens,
-        costUsd,
-        errorMessage:
-          failures > 0 ? `${failures} appel(s) en erreur sur ${allResults.length}` : null,
-      },
-    });
-
-    return {
-      sessionId: session.id,
-      consensus,
-      rounds: allResults.length,
-      failures,
-      costUsd: Number(costUsd.toFixed(4)),
-    };
-  } catch (error) {
-    await prisma.briefingSession.update({
-      where: { id: session.id },
-      data: {
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: error instanceof Error ? error.message : String(error),
-      },
-    });
-    throw error;
+    const key = message.groupCodes.join(",");
+    bestRound.set(key, Math.max(bestRound.get(key) ?? -1, message.round));
   }
+
+  const votes: AnalysisVote[] = [];
+  for (const message of messages) {
+    if (message.errorMessage || !message.biases) continue;
+
+    const key = message.groupCodes.join(",");
+    if (message.round !== bestRound.get(key)) continue;
+    if (message.ai !== DbAIName.CLAUDE && message.ai !== DbAIName.GROQ) continue;
+
+    votes.push({
+      ai: message.ai === DbAIName.CLAUDE ? "Claude" : ("Groq" as AIName),
+      biases: message.biases as unknown as Record<string, CurrencyBias>,
+      error: null,
+    });
+  }
+
+  const currencies = await getScoredCurrencyList(userId);
+  const consensus = calculateConsensus(
+    currencies.map((c) => c.code),
+    votes,
+  );
+
+  const inputTokens = messages.reduce((sum, m) => sum + (m.inputTokens ?? 0), 0);
+  const outputTokens = messages.reduce((sum, m) => sum + (m.outputTokens ?? 0), 0);
+  const failures = messages.filter((m) => m.errorMessage).length;
+
+  const costUsd = messages
+    .filter((m) => m.ai === DbAIName.CLAUDE)
+    .reduce((sum, m) => sum + claudeCostUsd(m.inputTokens, m.outputTokens), 0);
+
+  await prisma.briefingSession.update({
+    where: { id: sessionId },
+    data: {
+      status: "complete",
+      completedAt: new Date(),
+      consensus: consensus as unknown as object,
+      totalInputTokens: inputTokens,
+      totalOutputTokens: outputTokens,
+      costUsd,
+      errorMessage:
+        failures > 0 ? `${failures} appel(s) en erreur sur ${messages.length}` : null,
+    },
+  });
+
+  return {
+    sessionId,
+    consensus,
+    rounds: messages.length,
+    failures,
+    costUsd: Number(costUsd.toFixed(4)),
+  };
+}
+
+/** Marks a session failed when the client could not finish it. */
+export async function abandonBriefing(sessionId: string, reason: string): Promise<void> {
+  await prisma.briefingSession.update({
+    where: { id: sessionId },
+    data: { status: "failed", completedAt: new Date(), errorMessage: reason },
+  });
 }

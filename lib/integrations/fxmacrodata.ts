@@ -176,6 +176,8 @@ export interface PressRelease {
   currency: CurrencyCode;
   title: string;
   date: string;
+  /** Direct link to the central bank's own publication of this release. */
+  url: string | null;
 }
 
 export interface ConsensusPrediction {
@@ -415,11 +417,21 @@ export async function getLatestAnnouncements(
 }
 
 export async function getPressReleases(currency: CurrencyCode): Promise<PressRelease[]> {
-  const payload = await fxFetch<{ data?: Array<{ date: string; title: string }> }>(
-    `/press-releases/${currency.toLowerCase()}?limit=10`,
-    TTL.pressReleases,
-  );
-  return (payload.data ?? []).map((p) => ({ currency, title: p.title, date: p.date }));
+  const payload = await fxFetch<{
+    // The central bank's own domain, e.g. "https://www.ecb.europa.eu" — used
+    // only when a specific release is missing its own `url`, which has not
+    // been observed across any of the eight currencies but costs nothing to
+    // guard against.
+    source_url?: string;
+    data?: Array<{ date: string; title: string; url?: string }>;
+  }>(`/press-releases/${currency.toLowerCase()}?limit=10`, TTL.pressReleases);
+
+  return (payload.data ?? []).map((p) => ({
+    currency,
+    title: p.title,
+    date: p.date,
+    url: p.url ?? payload.source_url ?? null,
+  }));
 }
 
 export async function getAllPressReleases(): Promise<PressRelease[]> {

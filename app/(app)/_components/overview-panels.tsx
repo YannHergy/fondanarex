@@ -361,7 +361,26 @@ export async function PressReleasesPanel() {
                 <span className="text-subtle font-mono text-[10px]">{p.date}</span>
                 <span className="text-brand-blue text-[10px] font-bold">{p.currency}</span>
               </div>
-              <p className="text-muted text-xs leading-snug">{p.title}</p>
+              {p.url ? (
+                // The banks publish these themselves — a title alone read like
+                // a claim with no way to check it. Opens on the bank's own
+                // site, never redistributed, so the source is unambiguous.
+                <a
+                  href={p.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted hover:text-brand-blue group flex items-start gap-1 text-xs leading-snug transition-colors"
+                >
+                  <span className="flex-1">{p.title}</span>
+                  <Icon
+                    name="open_in_new"
+                    size={11}
+                    className="text-subtle group-hover:text-brand-blue mt-0.5 shrink-0"
+                  />
+                </a>
+              ) : (
+                <p className="text-muted text-xs leading-snug">{p.title}</p>
+              )}
             </li>
           ))}
         </ul>

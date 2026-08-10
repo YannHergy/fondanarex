@@ -105,7 +105,6 @@ export function IndicatorCategoryGrid({
               const field = FIELD_FOR_KIND[kind];
               const previous = field ? currency.previousData[field] : undefined;
               const nextDate = field ? currency.nextReleases[field] : undefined;
-              const comment = field ? currency.comments?.[field] : undefined;
               const stale = isStale(nextDate, now);
               const clickable = field && hasIndicatorHistory(field);
               const manualCheck = needsManualCheck(
@@ -153,9 +152,6 @@ export function IndicatorCategoryGrid({
                     Prochaine : {nextDate ?? "—"}
                     {stale ? " ⚠ À MAJ" : ""}
                   </span>
-                  {comment ? (
-                    <p className="text-subtle mt-1.5 text-[10px] leading-snug italic">{comment}</p>
-                  ) : null}
                 </>
               );
 

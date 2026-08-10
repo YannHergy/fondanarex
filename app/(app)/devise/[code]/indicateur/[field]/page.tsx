@@ -79,8 +79,15 @@ export default async function IndicatorHistoryPage({
     error = "FXMACRODATA_API_KEY non configurée.";
   }
 
+  // The one French sentence for this field, when one exists — see
+  // lib/commentary.ts. Shown here, below the enlarged chart, rather than on
+  // the small card on the overview grid: a sentence of context earns a
+  // reader's attention once they have already clicked through for the detail,
+  // not while they are scanning eight cards at once.
+  const comment = currency.comments?.[field];
+
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-5 md:p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-4 p-5 md:p-6">
       <Link
         href={`/devise/${code.toLowerCase()}`}
         className="text-muted hover:text-fg inline-flex items-center gap-1.5 text-xs transition-colors"
@@ -97,19 +104,23 @@ export default async function IndicatorHistoryPage({
             Historique indisponible : {error}
           </p>
         ) : history && history.points.length > 0 ? (
-          <HistoryChart points={history.points} unit={unitFor(field, upperCode, meta.unit)} />
+          <>
+            <HistoryChart points={history.points} unit={unitFor(field, upperCode, meta.unit)} />
+            {/* Caption folded into the same card as the chart it describes,
+                rather than a second stacked card — two cards for one graph
+                left a visible gap of empty space between them for no
+                content. */}
+            <p className="text-subtle border-border-app mt-3 border-t pt-3 text-xs">
+              {history.points.length} publications · source : FXMacroData ({history.name})
+            </p>
+            {comment ? (
+              <p className="text-muted mt-2 text-sm leading-relaxed">{comment}</p>
+            ) : null}
+          </>
         ) : (
           <p className="text-subtle text-sm">Aucune donnée historique trouvée.</p>
         )}
       </Card>
-
-      {history && history.points.length > 0 ? (
-        <Card>
-          <p className="text-subtle text-xs">
-            {history.points.length} publications · source : FXMacroData ({history.name})
-          </p>
-        </Card>
-      ) : null}
     </div>
   );
 }

@@ -193,10 +193,25 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         continue;
       }
 
+      // Eurostat's bulk API carries no release calendar — only FXMacroData
+      // does, and it is still fetched and written in parallel for the very
+      // same fields, just losing the tier race now that Eurostat outranks it.
+      // Without this, every EUR indicator Eurostat now sources would show
+      // "Prochaine : —" despite a real date sitting one row away in the same
+      // table, under a different source.
+      //
+      // Attached to the LATEST point only: `nextRelease` is read from rn=1
+      // alone (see lib/currencies.ts), so a historical row has no use for one
+      // and older Eurostat rows are correctly left without.
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values.EUR?.nextRelease ?? null,
+      );
+      const latestIndex = series.history.length - 1;
+
       const rows: PendingRow[] = [];
-      for (const point of series.history) {
+      series.history.forEach((point, index) => {
         const end = periodEnd(point.period);
-        if (!end) continue;
+        if (!end) return;
 
         rows.push({
           currencyCode: "EUR",
@@ -205,8 +220,9 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           period: periodLabel(point.period),
           periodEnd: end,
           source: IndicatorSource.EUROSTAT,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
         });
-      }
+      });
 
       const written = await writeRows(rows);
       sources.push({ source: "EUROSTAT", label: series.label, written, error: null });

@@ -124,6 +124,7 @@ interface IndicatorRow {
   nextRelease: Date | null;
   source: string;
   sourceStale: boolean;
+  comment: string | null;
   rn: number;
 }
 
@@ -220,7 +221,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         ) AS same_period_rank
       FROM in_tier i
     )
-    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", "source", "sourceStale", rn
+    SELECT "currencyCode", "indicatorKey", "value", "periodEnd", "nextRelease", "source", "sourceStale", "comment", rn
     FROM (
       SELECT
         d."currencyCode",
@@ -230,6 +231,7 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
         d."nextRelease",
         d."source",
         d."sourceStale",
+        d."comment",
         ROW_NUMBER() OVER (
           PARTITION BY d."currencyCode", d."indicatorKey"
           ORDER BY d."periodEnd" DESC
@@ -323,6 +325,12 @@ export const getCurrencies = cache(
       const staleFields: Record<string, boolean> = {};
       /** Publication date per indicator — the API's, or the override's when set. */
       const periods: Record<string, string> = {};
+      /**
+       * One French sentence explaining the current reading, when generation
+       * has happened for it. Absent is the normal case for most rows — see
+       * lib/commentary.ts for why it is not generated on every refresh.
+       */
+      const comments: Record<string, string> = {};
       let lastUpdate = "";
 
       for (const [key, row] of current) {
@@ -332,6 +340,7 @@ export const getCurrencies = cache(
         dataSources[key] = row.source;
         if (row.sourceStale) staleFields[key] = true;
         periods[key] = toIsoDate(row.periodEnd);
+        if (row.comment) comments[key] = row.comment;
       }
 
       for (const [key, row] of previous) {
@@ -373,6 +382,7 @@ export const getCurrencies = cache(
       }
 
       data.periods = periods;
+      data.comments = comments;
       data.lastUpdate = lastUpdate;
       data.nextReleases = nextReleases;
       data.previousData = previousData;

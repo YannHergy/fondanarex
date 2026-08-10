@@ -511,12 +511,29 @@ export function geminiConfigured(): boolean {
 }
 
 /**
+ * Whether the SEPARATE commentary key is set.
+ *
+ * Gemini's free-tier quota is scoped to the Google Cloud PROJECT, not the
+ * key — a second key in the same project shares the first key's daily budget
+ * rather than adding to it. The commentary feature therefore runs on a key
+ * from a distinct project, checked and used independently of the one news
+ * translation already spends against.
+ */
+export function geminiCommentaryConfigured(): boolean {
+  return (process.env.GEMINI_API_KEY_COMMENTARY ?? "").length > 0;
+}
+
+/**
  * Structured Gemini call against a response schema.
  *
  * Mirrors `callClaudeStructured`: the schema is enforced by the API and the
  * Zod pass afterwards proves the parsed value matches what the CALLER expects,
  * so a schema drifting from a type is a caught error rather than a surprise at
  * render time.
+ *
+ * `apiKey` defaults to the shared `GEMINI_API_KEY` so every existing caller
+ * (news translation, the journal's analysis and chat) is unaffected. A caller
+ * spending against a dedicated project's quota — commentary — passes its own.
  */
 export async function callGeminiStructured<T>(options: {
   system: string;
@@ -524,10 +541,12 @@ export async function callGeminiStructured<T>(options: {
   schema: object;
   validate: (value: unknown) => T | null;
   maxTokens?: number;
+  apiKey?: string;
 }): Promise<{ data: T | null; error: string | null; inputTokens: number; outputTokens: number }> {
   const empty = { inputTokens: 0, outputTokens: 0 };
+  const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY ?? "";
 
-  if (!geminiConfigured()) {
+  if (!apiKey) {
     return { data: null, error: "GEMINI_API_KEY absente", ...empty };
   }
 
@@ -540,7 +559,7 @@ export async function callGeminiStructured<T>(options: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": process.env.GEMINI_API_KEY ?? "",
+        "x-goog-api-key": apiKey,
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: options.system }] },

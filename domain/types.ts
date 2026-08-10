@@ -119,6 +119,15 @@ export interface CurrencyData {
      * absent date the same way it treats an absent source.
      */
     periods?: Record<string, string>;
+    /**
+     * One French sentence explaining the current reading, per field — when one
+     * has been generated for it. Neither Eurostat nor FXMacroData publishes
+     * this; it is written once, by an LLM, the first time a period is seen,
+     * and never regenerated on a later refresh of the same period. Optional
+     * for the same reason `periods` is: most rows, and every fixture, have
+     * none.
+     */
+    comments?: Record<string, string>;
     nextReleases: Record<string, string>;
     previousData: Record<string, number | string>;
     /**

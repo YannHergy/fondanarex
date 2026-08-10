@@ -283,6 +283,12 @@ model IndicatorValue {
   /// release still in the future and looked perfectly current.
   sourceStale Boolean @default(false)
 
+  /// One French sentence explaining this reading, generated once when the
+  /// row is first written and never regenerated on a later refresh of the
+  /// same period. Null for every historical row and for any period whose
+  /// generation failed or was never attempted — absence is not an error.
+  comment String? @db.Text
+
   fetchedAt DateTime @default(now())
 
   currency Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)

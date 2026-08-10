@@ -1,6 +1,7 @@
 import "server-only";
 
 import { periodEnd, periodLabel } from "@/domain/macro/period";
+import { ensureIndicatorCommentary } from "@/lib/commentary";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
@@ -226,6 +227,20 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
 
       const written = await writeRows(rows);
       sources.push({ source: "EUROSTAT", label: series.label, written, error: null });
+
+      // Best-effort, and deliberately outside `writeRows`: the reading is
+      // already committed by the time this runs, so a Gemini failure here —
+      // quota, timeout, an unparsable reply — must cost only the sentence.
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "EUR",
+          indicatorKey: series.field,
+          source: IndicatorSource.EUROSTAT,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: "Eurostat",
+        }).catch(() => {});
+      }
     }
   }
 

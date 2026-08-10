@@ -59,6 +59,8 @@ interface SeriesConfig {
    * percentage points.
    */
   validate?: (value: number) => boolean;
+  /** Unit suffix for display and for the commentary prompt, e.g. "%", " Md€". */
+  displayUnit: string;
 }
 
 /**
@@ -91,6 +93,7 @@ const SERIES: readonly SeriesConfig[] = [
     label: "Inflation (IPCH)",
     dataset: "ei_cphi_m",
     params: { geo: "EA", unit: "RT12", indic: "TOTAL" },
+    displayUnit: "%",
   },
   {
     field: "coreCpi",
@@ -99,6 +102,7 @@ const SERIES: readonly SeriesConfig[] = [
     // Excludes energy, food, alcohol and tobacco — the ECB's own core measure,
     // and what "core" means on every other currency in this app.
     params: { geo: "EA", unit: "RT12", indic: "CP-HI00XEF" },
+    displayUnit: "%",
   },
   {
     field: "gdpQoQ",
@@ -108,6 +112,7 @@ const SERIES: readonly SeriesConfig[] = [
     // is what `gdpQoQ` means. The same dataset also publishes year-on-year and
     // absolute levels under different unit codes.
     params: { geo: "EA", unit: "CLV_PCH_PRE", s_adj: "SCA", na_item: "B1GQ" },
+    displayUnit: "%",
   },
   {
     field: "unemployment",
@@ -115,6 +120,7 @@ const SERIES: readonly SeriesConfig[] = [
     dataset: "une_rt_m",
     // EA21, not EA20 — this dataset carries no other euro-area aggregate.
     params: { geo: "EA21", unit: "PC_ACT", s_adj: "SA", age: "TOTAL", sex: "T" },
+    displayUnit: "%",
   },
   // ── Trade balance: ext_st_easitc, found by matching a published headline ──
   //
@@ -155,12 +161,14 @@ const SERIES: readonly SeriesConfig[] = [
     },
     scale: 1000,
     validate: isPlausibleBalance,
+    displayUnit: " Md€",
   },
 ];
 
 export interface EurostatSeriesResult {
   field: string;
   label: string;
+  displayUnit: string;
   /** The most recent published reading, or null when the series came back empty. */
   latest: EurostatPoint | null;
   /** Full history, oldest first — used to backfill the score curve. */
@@ -169,7 +177,7 @@ export interface EurostatSeriesResult {
 }
 
 async function fetchSeries(config: SeriesConfig): Promise<EurostatSeriesResult> {
-  const base = { field: config.field, label: config.label };
+  const base = { field: config.field, label: config.label, displayUnit: config.displayUnit };
 
   const url = new URL(`${BASE}/${config.dataset}`);
   url.searchParams.set("format", "JSON");

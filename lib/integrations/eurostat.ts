@@ -54,19 +54,36 @@ interface SeriesConfig {
  * 139-point index, and the API reports neither as an error.
  */
 const SERIES: readonly SeriesConfig[] = [
+  // ── Inflation: ei_cphi_m, NOT prc_hicp_manr ─────────────────────────────
+  //
+  // Both publish the euro-area HICP annual rate and they do NOT stay in step.
+  // `prc_hicp_manr` is the reference database, revised and republished on a
+  // long cycle; it stopped at December 2025 while the euro area had already
+  // printed July 2026. `ei_cphi_m` is the short-term indicators table, which
+  // carries the flash estimate — the number the market actually trades and the
+  // one Trading Economics shows against an "Source: EUROSTAT" credit.
+  //
+  // Taking the reference database made the dashboard read 2.0% when inflation
+  // was 2.9%: not stale by a rounding error but by seven months and a full
+  // percentage point, at a moment when energy was reflating hard. Verified
+  // against the published series: 2026-05 3.2, 2026-06 2.8, 2026-07 2.9.
+  //
+  // `unit=RT12` is the twelve-month growth rate. The same table also offers
+  // RT1 (month on month) and an index level, either of which would be scored
+  // as an inflation rate and be badly wrong.
   {
     field: "cpi",
     label: "Inflation (IPCH)",
-    dataset: "prc_hicp_manr",
-    // RCH_A is the annual rate of change. Without it the dataset also carries
-    // index levels, which would score as runaway inflation.
-    params: { geo: "EA", coicop: "CP00", unit: "RCH_A" },
+    dataset: "ei_cphi_m",
+    params: { geo: "EA", unit: "RT12", indic: "TOTAL" },
   },
   {
     field: "coreCpi",
     label: "Inflation sous-jacente (IPCH hors énergie/alimentation)",
-    dataset: "prc_hicp_manr",
-    params: { geo: "EA", coicop: "TOT_X_NRG_FOOD", unit: "RCH_A" },
+    dataset: "ei_cphi_m",
+    // Excludes energy, food, alcohol and tobacco — the ECB's own core measure,
+    // and what "core" means on every other currency in this app.
+    params: { geo: "EA", unit: "RT12", indic: "CP-HI00XEF" },
   },
   {
     field: "gdpQoQ",

@@ -61,6 +61,24 @@ interface SeriesConfig {
   validate?: (value: number) => boolean;
   /** Unit suffix for display and for the commentary prompt, e.g. "%", " Md€". */
   displayUnit: string;
+  /**
+   * What this reading is FOR, given to the commentary model so it can say
+   * whether 2.9% is good or bad, not just that it moved from 2.8%.
+   *
+   * Each one is a claim to stand behind, not decoration — wrong here means
+   * every future comment on this field is wrong. The inflation target is the
+   * ECB's own mandate, unambiguous. The GDP one is written in the field's OWN
+   * unit (quarter-on-quarter, not annualised): CLAUDE.md's scoring
+   * methodology names "2-3%" as the optimal zone for "GDP QoQ", but that
+   * figure is an ANNUALISED rate — a real 2-3% QUARTERLY reading has not
+   * happened in the euro area outside a sharp post-recession rebound, and
+   * the current genuine reading is +0.4%. Repeating that "2-3%" figure
+   * verbatim would have the model call a normal quarter alarmingly weak.
+   * Rephrased here in the convention this field actually uses, checked
+   * against what a healthy euro-area quarter has looked like rather than
+   * copied from a table written for a different convention.
+   */
+  context: string | null;
 }
 
 /**
@@ -94,6 +112,8 @@ const SERIES: readonly SeriesConfig[] = [
     dataset: "ei_cphi_m",
     params: { geo: "EA", unit: "RT12", indic: "TOTAL" },
     displayUnit: "%",
+    context:
+      "L'objectif de politique monétaire de la Banque centrale européenne est une inflation proche de 2% à moyen terme.",
   },
   {
     field: "coreCpi",
@@ -103,6 +123,8 @@ const SERIES: readonly SeriesConfig[] = [
     // and what "core" means on every other currency in this app.
     params: { geo: "EA", unit: "RT12", indic: "CP-HI00XEF" },
     displayUnit: "%",
+    context:
+      "Comme pour l'inflation totale, la BCE vise une inflation proche de 2% à moyen terme ; l'inflation sous-jacente exclut l'énergie et l'alimentation, jugées trop volatiles pour guider la politique monétaire.",
   },
   {
     field: "gdpQoQ",
@@ -113,6 +135,11 @@ const SERIES: readonly SeriesConfig[] = [
     // absolute levels under different unit codes.
     params: { geo: "EA", unit: "CLV_PCH_PRE", s_adj: "SCA", na_item: "B1GQ" },
     displayUnit: "%",
+    // In the field's own convention (quarter-on-quarter) — see the note on
+    // `context` above for why this is not the "2-3%" the app's own scoring
+    // methodology names, which is an annualised figure.
+    context:
+      "Une croissance trimestrielle de la zone euro entre 0,2% et 0,5% est généralement considérée comme solide ; en dessous de 0%, l'économie se contracte.",
   },
   {
     field: "unemployment",
@@ -121,6 +148,8 @@ const SERIES: readonly SeriesConfig[] = [
     // EA21, not EA20 — this dataset carries no other euro-area aggregate.
     params: { geo: "EA21", unit: "PC_ACT", s_adj: "SA", age: "TOTAL", sex: "T" },
     displayUnit: "%",
+    context:
+      "Un taux de chômage inférieur à 7% est généralement considéré comme proche du plein emploi dans la zone euro ; plus il baisse, mieux la devise s'en porte.",
   },
   // ── Trade balance: ext_st_easitc, found by matching a published headline ──
   //
@@ -162,6 +191,8 @@ const SERIES: readonly SeriesConfig[] = [
     scale: 1000,
     validate: isPlausibleBalance,
     displayUnit: " Md€",
+    context:
+      "Un excédent commercial (valeur positive) est généralement perçu comme un signe de compétitivité pour la zone euro ; un déficit qui se creuse, notamment sous l'effet d'une facture énergétique élevée, est un signal de vigilance.",
   },
 ];
 
@@ -169,6 +200,7 @@ export interface EurostatSeriesResult {
   field: string;
   label: string;
   displayUnit: string;
+  context: string | null;
   /** The most recent published reading, or null when the series came back empty. */
   latest: EurostatPoint | null;
   /** Full history, oldest first — used to backfill the score curve. */
@@ -177,7 +209,12 @@ export interface EurostatSeriesResult {
 }
 
 async function fetchSeries(config: SeriesConfig): Promise<EurostatSeriesResult> {
-  const base = { field: config.field, label: config.label, displayUnit: config.displayUnit };
+  const base = {
+    field: config.field,
+    label: config.label,
+    displayUnit: config.displayUnit,
+    context: config.context,
+  };
 
   const url = new URL(`${BASE}/${config.dataset}`);
   url.searchParams.set("format", "JSON");

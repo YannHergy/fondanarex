@@ -239,6 +239,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           label: series.label,
           unit: series.displayUnit,
           sourceLabel: "Eurostat",
+          context: series.context,
         }).catch(() => {});
       }
     }

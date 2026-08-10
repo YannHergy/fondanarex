@@ -11,6 +11,7 @@ const BASE: CommentaryInput = {
     previousValue: 2.8,
     previousPeriod: 'juin 2026',
     source: 'Eurostat',
+    context: null,
 };
 
 describe('buildCommentaryPrompt', () => {
@@ -33,6 +34,20 @@ describe('buildCommentaryPrompt', () => {
         const prompt = buildCommentaryPrompt({ ...BASE, previousPeriod: null });
         expect(prompt).toContain('Valeur précédente : 2.8%');
         expect(prompt).not.toContain('(juin 2026)');
+    });
+
+    it('inclut le contexte quand il est fourni, pour situer la valeur par rapport a un objectif', () => {
+        const prompt = buildCommentaryPrompt({
+            ...BASE,
+            context: "L'objectif de la BCE est une inflation proche de 2% à moyen terme.",
+        });
+        expect(prompt).toContain('Contexte : ');
+        expect(prompt).toContain("L'objectif de la BCE est une inflation proche de 2% à moyen terme.");
+    });
+
+    it("n'ajoute aucune ligne de contexte quand il est absent, plutot que d'en inventer un", () => {
+        const prompt = buildCommentaryPrompt({ ...BASE, context: null });
+        expect(prompt).not.toContain('Contexte : ');
     });
 });
 

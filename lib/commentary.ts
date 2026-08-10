@@ -40,6 +40,13 @@ export interface CommentaryTarget {
   unit: string;
   /** Human-readable source name for the prompt, e.g. "Eurostat". */
   sourceLabel: string;
+  /**
+   * What this field is FOR — a policy target or a normal range — so the
+   * comment says whether the reading is good or bad, not just whether it
+   * moved. See the note on `CommentaryInput.context` for why this is owned
+   * by the caller rather than guessed here.
+   */
+  context?: string | null;
 }
 
 export interface CommentaryResult {
@@ -94,6 +101,7 @@ export async function ensureIndicatorCommentary(target: CommentaryTarget): Promi
     previousValue: previous ? Number(previous.value) : null,
     previousPeriod: previous ? humanPeriod(previous.period) : null,
     source: target.sourceLabel,
+    context: target.context ?? null,
   });
 
   const result = await callGeminiStructured({

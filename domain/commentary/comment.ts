@@ -24,13 +24,30 @@ export interface CommentaryInput {
     previousValue: number | null;
     previousPeriod: string | null;
     source: string;
+    /**
+     * What this indicator is FOR — a policy target, a normal range, a
+     * directional rule of thumb. "2.9%" means nothing on its own; "2.9%,
+     * against a 2% target" is the actual news, and the target is not
+     * something the reading itself carries.
+     *
+     * Owned by the caller, not this module: a wrong or outdated target here
+     * would make every comment for that field wrong, so each one is set
+     * once, deliberately, next to the series it describes — see
+     * `EUROSTAT_CONTEXT` in lib/integrations/eurostat.ts — rather than
+     * guessed generically for "a percentage" or "a growth rate".
+     *
+     * Null when the field genuinely has none (nothing invented in its place).
+     */
+    context: string | null;
 }
 
 export const COMMENTARY_SYSTEM =
-    "Tu es un analyste macroéconomique qui commente une publication de donnée chiffrée en une phrase, en français, dans le style d'une brève financière (Reuters, Trading Economics). " +
-    "Tu commentes UNIQUEMENT les chiffres fournis : la valeur, la précédente, la période. " +
-    "N'invente jamais de consensus de marché, de prévision, de ventilation par pays ou de cause que le prompt ne te donne pas explicitement — une brève qui se trompe sur un fait vérifiable est pire qu'une brève plus sobre. " +
-    "Une seule phrase, deux au maximum. Pas de guillemets, pas de markdown.";
+    "Tu es un analyste macroéconomique qui commente une publication de donnée chiffrée en une ou deux phrases, en français, dans le style d'une brève financière (Reuters, Trading Economics). " +
+    "Une brève qui se contente de dire qu'un chiffre a bougé n'apporte rien : le lecteur veut savoir ce que ce chiffre SIGNIFIE. " +
+    "Quand un contexte t'est donné (objectif de banque centrale, zone jugée saine, seuil habituel), situe la nouvelle valeur PAR RAPPORT à ce contexte — au-dessus, en dessous, dans la zone, combien de points d'écart — et pas seulement par rapport à la valeur précédente. " +
+    "Tu commentes UNIQUEMENT les chiffres et le contexte fournis : la valeur, la précédente, la période, l'objectif donné. " +
+    "N'invente jamais de consensus de marché, de prévision, de ventilation par pays, ou un objectif que le prompt ne te donne pas explicitement — une brève qui se trompe sur un fait vérifiable est pire qu'une brève plus sobre. " +
+    "Une ou deux phrases, jamais plus. Pas de guillemets, pas de markdown.";
 
 /**
  * No `additionalProperties`. Gemini's `responseSchema` is a restricted
@@ -97,6 +114,10 @@ export function buildCommentaryPrompt(input: CommentaryInput): string {
         );
     } else {
         lines.push("Aucune valeur précédente connue — c'est la première lecture de cette série.");
+    }
+
+    if (input.context) {
+        lines.push(`Contexte : ${input.context}`);
     }
 
     lines.push(`Source : ${input.source}.`);

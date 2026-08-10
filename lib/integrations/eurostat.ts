@@ -194,6 +194,36 @@ const SERIES: readonly SeriesConfig[] = [
     context:
       "Un excédent commercial (valeur positive) est généralement perçu comme un signe de compétitivité pour la zone euro ; un déficit qui se creuse, notamment sous l'effet d'une facture énergétique élevée, est un signal de vigilance.",
   },
+  // ── Wages: ei_lmlc_q, replacing a MANUAL entry ──────────────────────────
+  //
+  // EUR's wagePPI was not sourced from FXMacroData at all — it was a MANUAL
+  // row (2.46% for 2026-07), meaning nobody was refreshing it automatically.
+  // Eurostat's labour cost index carries a wages-and-salaries component
+  // (`indic=LM-LCI-SAL`, excluding employer social contributions, which is
+  // what "wage growth" means here) as a year-on-year percentage
+  // (`unit=PCH_SM`), quarterly rather than monthly since that is the only
+  // frequency this table publishes.
+  //
+  // `s_adj=SCA` (seasonally AND calendar adjusted) is the variant that
+  // actually reaches the latest quarter — `NSA` came back empty for 2025-2026
+  // entirely, and `CA` alone gives a slightly different reading (3.1% vs
+  // 3.4% for 2025-Q4) from smoothing out fewer effects. SCA is the standard
+  // headline convention for this kind of series.
+  {
+    field: "wagePPI",
+    label: "Croissance des salaires",
+    dataset: "ei_lmlc_q",
+    params: {
+      geo: "EA",
+      unit: "PCH_SM",
+      s_adj: "SCA",
+      nace_r2: "B-S",
+      indic: "LM-LCI-SAL",
+    },
+    displayUnit: "%",
+    context:
+      "Une croissance des salaires entre 2% et 4% est jugée compatible avec l'objectif d'inflation de la BCE ; au-delà, elle nourrit le risque d'une spirale prix-salaires que la banque centrale surveille de près.",
+  },
 ];
 
 export interface EurostatSeriesResult {

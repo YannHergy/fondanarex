@@ -101,7 +101,13 @@ export async function ensureIndicatorCommentary(target: CommentaryTarget): Promi
     prompt,
     schema: commentarySchema(),
     validate: parseCommentaryResponse,
-    maxTokens: 300,
+    // Measured live, not guessed: gemini-3.5-flash spent 709 tokens on
+    // internal reasoning before writing a 59-token answer. 300 was consumed
+    // entirely by that reasoning, truncated the response before the JSON ever
+    // started, and failed silently — a real one-sentence comment needs
+    // nowhere near this much, but the budget has to cover the thinking that
+    // precedes it, not just the visible output.
+    maxTokens: 2000,
     apiKey: process.env.GEMINI_API_KEY_COMMENTARY,
   });
 

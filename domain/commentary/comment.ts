@@ -32,13 +32,22 @@ export const COMMENTARY_SYSTEM =
     "N'invente jamais de consensus de marché, de prévision, de ventilation par pays ou de cause que le prompt ne te donne pas explicitement — une brève qui se trompe sur un fait vérifiable est pire qu'une brève plus sobre. " +
     "Une seule phrase, deux au maximum. Pas de guillemets, pas de markdown.";
 
+/**
+ * No `additionalProperties`. Gemini's `responseSchema` is a restricted
+ * OpenAPI-style dialect, not full JSON Schema — that keyword makes it reject
+ * the request outright with HTTP 400 rather than ignore it, confirmed live:
+ * ["Invalid JSON payload received. Unknown name \"additionalProperties\"..."].
+ * A 400 is not in `geminiRetryable`'s list, so the call failed on every one
+ * of the three fallback models identically and silently, since the caller in
+ * macro-refresh.ts treats commentary as best-effort and never surfaces the
+ * returned error.
+ */
 const COMMENTARY_SCHEMA = {
     type: "object",
     properties: {
         comment: { type: "string" },
     },
     required: ["comment"],
-    additionalProperties: false,
 } as const;
 
 export function commentarySchema(): typeof COMMENTARY_SCHEMA {

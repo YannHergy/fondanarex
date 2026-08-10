@@ -71,3 +71,26 @@ const MAX_PLAUSIBLE = 100;
 export function isPlausibleRate(value: number): boolean {
     return Number.isFinite(value) && value > MIN_PLAUSIBLE && value < MAX_PLAUSIBLE;
 }
+
+/**
+ * Sanity bound for the euro-area trade balance, in BILLIONS.
+ *
+ * Distinct from `isPlausibleRate` on purpose: this is a monetary aggregate,
+ * not a percentage, and the two must never share a bound. Eurostat serves it
+ * in millions — get the scale conversion wrong by a factor of 1000 and this
+ * is exactly the check that would catch it, the same way the percentage bound
+ * catches an index level mistaken for a rate.
+ *
+ * ±500bn is generous against anything the euro area has ever printed in a
+ * single month (the widest swing seen while building this was under 55bn
+ * either way) — wide enough to never reject a real reading, tight enough to
+ * catch an actual units mistake.
+ */
+const MIN_PLAUSIBLE_BALANCE = -500;
+const MAX_PLAUSIBLE_BALANCE = 500;
+
+export function isPlausibleBalance(value: number): boolean {
+    return (
+        Number.isFinite(value) && value > MIN_PLAUSIBLE_BALANCE && value < MAX_PLAUSIBLE_BALANCE
+    );
+}

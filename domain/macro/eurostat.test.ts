@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    isPlausibleBalance,
     isPlausibleRate,
     latestPoint,
     parseJsonStat,
@@ -110,5 +111,39 @@ describe('isPlausibleRate', () => {
     it('refuse ce qui n\'est pas un nombre fini', () => {
         expect(isPlausibleRate(Number.NaN)).toBe(false);
         expect(isPlausibleRate(Number.POSITIVE_INFINITY)).toBe(false);
+    });
+});
+
+describe('isPlausibleBalance', () => {
+    it('accepte les vrais deficits et excedents observes en direct (en milliards)', () => {
+        // -7.7762 et -1.2478 : la balance commerciale de mai et avril 2026,
+        // convertie de ext_st_easitc (millions) vers l'echelle du moteur.
+        for (const v of [-7.7762, -1.2478, 35.483, -54.995, 0]) {
+            expect(isPlausibleBalance(v)).toBe(true);
+        }
+    });
+
+    it('refuse une valeur encore en millions, non convertie', () => {
+        // L'erreur qu'un oubli de conversion produirait : -7776.2 au lieu de
+        // -7.7762. isPlausibleRate la refuserait aussi, mais pour la mauvaise
+        // raison (elle est pensee pour des pourcentages) -- ce test verifie
+        // que le bon garde-fou, pense pour un montant, la refuse lui aussi.
+        expect(isPlausibleBalance(-7776.2)).toBe(false);
+        expect(isPlausibleBalance(243624.1)).toBe(false);
+    });
+
+    it('ne partage pas la borne de isPlausibleRate', () => {
+        // Un vrai montant de balance commerciale (35.483 Md) depasserait la
+        // borne pensee pour un pourcentage : les deux gardes-fous doivent
+        // rester independants.
+        expect(isPlausibleRate(35.483)).toBe(true); // coincidence numerique
+        expect(isPlausibleBalance(139.4)).toBe(true); // 139.4 Md est un vrai montant plausible
+        expect(isPlausibleBalance(-499)).toBe(true);
+        expect(isPlausibleBalance(-501)).toBe(false);
+    });
+
+    it('refuse ce qui n\'est pas un nombre fini', () => {
+        expect(isPlausibleBalance(Number.NaN)).toBe(false);
+        expect(isPlausibleBalance(Number.POSITIVE_INFINITY)).toBe(false);
     });
 });

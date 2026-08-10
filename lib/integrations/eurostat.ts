@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  isPlausibleBalance,
   isPlausibleRate,
   latestPoint,
   parseJsonStat,
@@ -44,6 +45,20 @@ interface SeriesConfig {
   dataset: string;
   /** Dimension filters, verified live — see the note on geo codes above. */
   params: Record<string, string>;
+  /**
+   * Divides the raw value before anything else sees it. Eurostat serves the
+   * trade balance in millions; the scoring engine's thresholds (±15, ±5) are
+   * written for billions, the same convention FXMacroData's own `/ 1000`
+   * already used. Defaults to 1 — the three percentage series need no scaling.
+   */
+  scale?: number;
+  /**
+   * Plausibility check, run AFTER scaling. Defaults to `isPlausibleRate`,
+   * which is wrong for a monetary aggregate: the trade balance passes
+   * `isPlausibleBalance` instead, its own bound in billions rather than
+   * percentage points.
+   */
+  validate?: (value: number) => boolean;
 }
 
 /**
@@ -101,6 +116,46 @@ const SERIES: readonly SeriesConfig[] = [
     // EA21, not EA20 — this dataset carries no other euro-area aggregate.
     params: { geo: "EA21", unit: "PC_ACT", s_adj: "SA", age: "TOTAL", sex: "T" },
   },
+  // ── Trade balance: ext_st_easitc, found by matching a published headline ──
+  //
+  // Two OTHER Eurostat tables were tried first and both were wrong, discovered
+  // only because a reader compared the dashboard against a published figure.
+  // `ei_bpm6ca_m` (balance of payments, goods) stayed positive every month of
+  // 2025–2026 in the tens of billions — a genuinely different concept, not a
+  // stale or misfiltered version of the right one. `ei_eteu27_2020_m` (short-
+  // term indicators) answered with real numbers too, just two orders of
+  // magnitude too small (hundreds of millions, not tens of billions) — its
+  // BAL_RT is scoped to a narrower flow, not total extra-area trade.
+  //
+  // `ext_st_easitc` — "Euro area trade by SITC product group" — is the right
+  // one. Confirmed against a published headline citing EA exports €243.6bn
+  // and imports €251.4bn for May 2026: `indic_et=TRD_VAL` (raw trade value,
+  // not `TRD_VAL_SCA`) gives EXP=243624.1 and IMP=251400.3 for exactly that
+  // month, matching to the hundred thousand. `stk_flow=BAL_RT` on the same
+  // filter gives -7776.2 for May and -1247.8 for April — the precise pair the
+  // headline reported, to the tenth.
+  //
+  // NSA over SCA is a deliberate reading of that match, not a guess: the
+  // seasonally adjusted variant gave -4969.9 for the same May, which is a
+  // real number from a real series but not the one anyone was quoting.
+  //
+  // `geo=EA21` is the only reporter this dataset carries (no EA/EA20 alias),
+  // and its matching partner is `EXT_EA21`, not `EXT_EA20` — the newest
+  // instance yet of the geo-code trap documented above.
+  {
+    field: "tradeBalance",
+    label: "Balance commerciale",
+    dataset: "ext_st_easitc",
+    params: {
+      geo: "EA21",
+      partner: "EXT_EA21",
+      sitc06: "TOTAL",
+      stk_flow: "BAL_RT",
+      indic_et: "TRD_VAL",
+    },
+    scale: 1000,
+    validate: isPlausibleBalance,
+  },
 ];
 
 export interface EurostatSeriesResult {
@@ -133,7 +188,12 @@ async function fetchSeries(config: SeriesConfig): Promise<EurostatSeriesResult> 
     }
 
     const payload = (await response.json()) as JsonStatResponse;
-    const history = parseJsonStat(payload).filter((point) => isPlausibleRate(point.value));
+    const scale = config.scale ?? 1;
+    const validate = config.validate ?? isPlausibleRate;
+
+    const history = parseJsonStat(payload)
+      .map((point) => ({ ...point, value: point.value / scale }))
+      .filter((point) => validate(point.value));
 
     if (history.length === 0) {
       // A 200 with nothing in it is the signature of a wrong dimension code,

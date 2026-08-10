@@ -31,6 +31,17 @@ const BASE = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/dat
 /** Twelve hours. These are monthly and quarterly releases, not quotes. */
 const REVALIDATE = 12 * 60 * 60;
 
+/**
+ * A single common start date for every series' chart history, chosen over
+ * per-indicator windows (the old "3Y/5Y/10Y" chart buttons) so the detail
+ * page shows everything Eurostat has published since one fixed point rather
+ * than a re-slice of the same short window three different ways. Each series
+ * still returns however many points its OWN frequency produces since this
+ * date — monthly series come back with roughly 3x the points of quarterly
+ * ones, deliberately not normalised against each other.
+ */
+const HISTORY_SINCE = "2023-01";
+
 export class EurostatError extends Error {
   constructor(message: string) {
     super(message);
@@ -248,6 +259,7 @@ async function fetchSeries(config: SeriesConfig): Promise<EurostatSeriesResult> 
 
   const url = new URL(`${BASE}/${config.dataset}`);
   url.searchParams.set("format", "JSON");
+  url.searchParams.set("sinceTimePeriod", HISTORY_SINCE);
   for (const [key, value] of Object.entries(config.params)) {
     url.searchParams.set(key, value);
   }
@@ -301,4 +313,29 @@ async function fetchSeries(config: SeriesConfig): Promise<EurostatSeriesResult> 
  */
 export async function fetchEurostatData(): Promise<EurostatSeriesResult[]> {
   return Promise.all(SERIES.map(fetchSeries));
+}
+
+/** True when Eurostat is the source wired for this field — see SERIES above. */
+export function hasEurostatHistory(field: string): boolean {
+  return SERIES.some((s) => s.field === field);
+}
+
+/**
+ * Full history for one EUR field, straight from Eurostat rather than
+ * FXMacroData — used by the indicator detail page's chart.
+ *
+ * FXMacroData's `/announcements` endpoint caps out at 20 points on our plan
+ * (a Professional subscription is required to go deeper, confirmed live: a
+ * `limit` above 100 and any `offset` both return HTTP 401 `api_key_required`),
+ * while Eurostat has no such ceiling and already backs the score and the
+ * generated commentary for these five fields — reading the same source for
+ * the chart removes the chart/commentary contradiction a mismatch would
+ * otherwise create (verified concretely on trade balance: FXMacroData showed
+ * a surplus while Eurostat, now driving the commentary, showed a deficit for
+ * the same month).
+ */
+export async function getEurostatHistory(field: string): Promise<EurostatSeriesResult | null> {
+  const config = SERIES.find((s) => s.field === field);
+  if (!config) return null;
+  return fetchSeries(config);
 }

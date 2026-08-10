@@ -5,7 +5,9 @@ import { notFound } from "next/navigation";
 import { HistoryChart } from "@/app/(app)/devise/[code]/indicateur/[field]/_components/history-chart";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
+import { periodEnd } from "@/domain/macro/period";
 import * as fx from "@/lib/integrations/fxmacrodata";
+import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { requireUserId } from "@/lib/session";
 import { isCurrencyCode } from "@/lib/utils";
@@ -60,7 +62,15 @@ export default async function IndicatorHistoryPage({
   const upperCode = code.toUpperCase();
 
   const meta = FIELD_LABELS[field];
-  if (!meta || !isCurrencyCode(upperCode) || !fx.hasIndicatorHistory(field)) notFound();
+  // Eurostat covers EUR for five fields with no depth limit; FXMacroData's
+  // `/announcements` endpoint caps at 20 points on our plan (see
+  // lib/integrations/eurostat.ts). A field is chartable here if EITHER source
+  // has it — Eurostat is only wired for EUR, so every other currency and
+  // every field Eurostat doesn't cover still falls through to FXMacroData.
+  const useEurostat = upperCode === "EUR" && hasEurostatHistory(field);
+  if (!meta || !isCurrencyCode(upperCode) || (!useEurostat && !fx.hasIndicatorHistory(field))) {
+    notFound();
+  }
 
   const currencies = await getScoredCurrencies(userId);
   const currency = currencies[upperCode];
@@ -68,8 +78,29 @@ export default async function IndicatorHistoryPage({
 
   let history: fx.IndicatorHistory | null = null;
   let error: string | null = null;
+  let sourceLabel = "FXMacroData";
 
-  if (fx.isConfigured()) {
+  if (useEurostat) {
+    sourceLabel = "Eurostat";
+    try {
+      const series = await getEurostatHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée Eurostat disponible.";
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur Eurostat";
+    }
+  } else if (fx.isConfigured()) {
     try {
       history = await fx.getIndicatorHistory(upperCode, field);
     } catch (err) {
@@ -111,7 +142,7 @@ export default async function IndicatorHistoryPage({
                 left a visible gap of empty space between them for no
                 content. */}
             <p className="text-subtle border-border-app mt-3 border-t pt-3 text-xs">
-              {history.points.length} publications · source : FXMacroData ({history.name})
+              {history.points.length} publications · source : {sourceLabel} ({history.name})
             </p>
             {comment ? (
               <p className="text-muted mt-2 text-sm leading-relaxed">{comment}</p>

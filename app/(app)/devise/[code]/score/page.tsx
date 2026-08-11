@@ -125,7 +125,7 @@ export default async function ScorePage({ params }: { params: Promise<{ code: st
           </dl>
         </div>
 
-        <ScoreHistoryChart points={points} code={upperCode} height={300} />
+        <ScoreHistoryChart points={points} code={upperCode} height={360} />
       </Card>
 
       <Card>

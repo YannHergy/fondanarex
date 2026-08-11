@@ -58,28 +58,81 @@ function formatDate(iso: string): string {
   });
 }
 
+/**
+ * The visible slice of the 0–100 scale.
+ *
+ * Drawn full-scale, a series that lives between 39 and 66 uses a quarter of
+ * the plot and reads as a flat line — the month-to-month movement, which is
+ * the whole point of the chart, disappears. So the axis frames the data
+ * instead, padded and snapped to a multiple of 5.
+ *
+ * Two guards keep the zoom from lying. A minimum span stops a quiet stretch
+ * from being magnified into drama, and the range is widened to keep every
+ * verdict boundary it can inside view — the bands are what tell a reader
+ * whether 58 is good, and a zoom that cropped them would leave a curve with
+ * no absolute meaning.
+ */
+const MIN_SPAN = 30;
+
+function computeDomain(values: number[]): { min: number; max: number } {
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = Math.max(2, (hi - lo) * 0.12);
+
+  let min = Math.floor((lo - pad) / 5) * 5;
+  let max = Math.ceil((hi + pad) / 5) * 5;
+
+  if (max - min < MIN_SPAN) {
+    const extra = (MIN_SPAN - (max - min)) / 2;
+    min = Math.floor((min - extra) / 5) * 5;
+    max = Math.ceil((max + extra) / 5) * 5;
+  }
+
+  // Keep the thresholds the bands are drawn from in view where the data allows.
+  if (lo < 60 && hi >= 45) {
+    min = Math.min(min, 40);
+    max = Math.max(max, 65);
+  }
+
+  return { min: Math.max(0, min), max: Math.min(100, max) };
+}
+
+/** Gridline values inside the domain, at a step that yields ~5 lines. */
+function computeTicks(min: number, max: number): number[] {
+  const step = max - min > 50 ? 25 : max - min > 30 ? 10 : 5;
+  const ticks: number[] = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) ticks.push(v);
+  return ticks;
+}
+
 export function ScoreHistoryChart({
   points,
   code,
-  height = 180,
+  height = 120,
 }: {
   points: ScorePoint[];
   code: string;
-  /** Plot height in viewBox units. The big page passes a taller one. */
+  /**
+   * Plot height in viewBox units — and, because the element is `h-auto`, what
+   * sets its rendered height relative to the 720-unit width. The default is
+   * the compact card on the currency page; the dedicated page passes a much
+   * taller one.
+   */
   height?: number;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const gradientId = useId();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
+  const domain = computeDomain(points.map((p) => p.value));
+  const ticks = computeTicks(domain.min, domain.max);
+
   const x = (i: number) =>
     points.length === 1
       ? (PAD_LEFT + WIDTH - PAD_RIGHT) / 2
       : PAD_LEFT + (i / (points.length - 1)) * (WIDTH - PAD_LEFT - PAD_RIGHT);
-  // The score is a 0–100 scale, so the axis is fixed rather than fitted to the
-  // data: a curve that rescales itself every time makes two visits
-  // incomparable, and 50 must always sit in the middle.
-  const y = (v: number) => PAD_Y + (1 - v / 100) * (height - PAD_Y * 2);
+  const y = (v: number) =>
+    PAD_Y + (1 - (v - domain.min) / (domain.max - domain.min)) * (height - PAD_Y * 2);
 
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.value)}`).join(" ");
 
@@ -142,31 +195,42 @@ export function ScoreHistoryChart({
           </linearGradient>
         </defs>
 
-        {/* Zone bands. Kept very faint — a saturated block behind a thin line
-            would drown it — and always LABELLED, never colour alone. */}
-        {ZONES.map((zone) => (
-          <g key={zone.label}>
-            <rect
-              x={PAD_LEFT}
-              y={y(zone.to)}
-              width={WIDTH - PAD_LEFT - PAD_RIGHT}
-              height={y(zone.from) - y(zone.to)}
-              fill={zone.colour}
-              opacity={0.07}
-            />
-            <text
-              x={WIDTH - PAD_RIGHT + 8}
-              y={(y(zone.from) + y(zone.to)) / 2 + 3}
-              className="fill-[var(--color-subtle)] text-[9px] font-semibold tracking-wide uppercase"
-            >
-              {zone.label}
-            </text>
-          </g>
-        ))}
+        {/* Zone bands, clipped to the visible slice of the scale. Kept very
+            faint — a saturated block behind a thin line would drown it — and
+            always LABELLED, never colour alone. A band whose visible sliver is
+            too short to hold its label goes unlabelled rather than drawing text
+            across its neighbour. */}
+        {ZONES.map((zone) => {
+          const top = Math.min(zone.to, domain.max);
+          const bottom = Math.max(zone.from, domain.min);
+          if (top <= bottom) return null;
+          const bandHeight = y(bottom) - y(top);
+          return (
+            <g key={zone.label}>
+              <rect
+                x={PAD_LEFT}
+                y={y(top)}
+                width={WIDTH - PAD_LEFT - PAD_RIGHT}
+                height={bandHeight}
+                fill={zone.colour}
+                opacity={0.07}
+              />
+              {bandHeight >= 14 ? (
+                <text
+                  x={WIDTH - PAD_RIGHT + 8}
+                  y={(y(top) + y(bottom)) / 2 + 3}
+                  className="fill-[var(--color-subtle)] text-[9px] font-semibold tracking-wide uppercase"
+                >
+                  {zone.label}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
 
         {/* Solid hairlines: a dashed rule reads as a threshold, and the bands
             are what carry the thresholds now. */}
-        {[0, 25, 50, 75, 100].map((tick) => (
+        {ticks.map((tick) => (
           <g key={tick}>
             <line
               x1={PAD_LEFT}

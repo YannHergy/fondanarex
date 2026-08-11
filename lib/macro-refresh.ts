@@ -4,6 +4,7 @@ import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { ensureIndicatorCommentary } from "@/lib/commentary";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
+import { fetchOnsData } from "@/lib/integrations/ons";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
 import {
@@ -158,6 +159,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fxMacroResults,
     eurostatResults,
     ecbResults,
+    onsResults,
     vixResult,
     oilResult,
     tokyoCpiResult,
@@ -167,6 +169,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
     fetchEurostatData(),
     fetchEcbData(),
+    fetchOnsData(),
     fetchVix().catch(asError),
     fetchOil().catch(asError),
     fetchTokyoCpi().catch(asError),
@@ -298,6 +301,61 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           label: series.label,
           unit: series.displayUnit,
           sourceLabel: "BCE",
+          context: series.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── ONS: the GBP, from its own statistical office ───────────────────────
+  //
+  // Same shape as the Eurostat block, with one difference worth having: the
+  // ONS publishes its own release calendar on every series, so the next
+  // release comes from the source rather than being borrowed from
+  // FXMacroData the way the euro-area rows have to.
+  if (known.has("GBP")) {
+    for (const series of onsResults) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`ONS ${series.label}: ${message}`);
+        sources.push({ source: "ONS", label: series.label, written: 0, error: message });
+        continue;
+      }
+
+      const nextRelease =
+        parseInstant(series.nextRelease) ??
+        parseInstant(
+          fxMacroResults.find((d) => d.field === series.field)?.values.GBP?.nextRelease ?? null,
+        );
+      const latestIndex = series.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      series.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+
+        rows.push({
+          currencyCode: "GBP",
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.ONS,
+          ...(index === latestIndex ? { nextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "ONS", label: series.label, written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "GBP",
+          indicatorKey: series.field,
+          source: IndicatorSource.ONS,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: "ONS",
           context: series.context,
         }).catch(() => {});
       }

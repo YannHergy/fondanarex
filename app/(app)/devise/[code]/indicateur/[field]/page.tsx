@@ -9,6 +9,7 @@ import { periodEnd } from "@/domain/macro/period";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
+import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { getManualHistory, hasManualHistory } from "@/lib/manual-history";
 import { requireUserId } from "@/lib/session";
@@ -77,11 +78,12 @@ export default async function IndicatorHistoryPage({
   // field neither covers still falls through to FXMacroData.
   const useEurostat = upperCode === "EUR" && hasEurostatHistory(field);
   const useEcb = upperCode === "EUR" && !useEurostat && hasEcbHistory(field);
-  const useManual = !useEurostat && !useEcb && hasManualHistory(upperCode, field);
+  const useOns = upperCode === "GBP" && hasOnsHistory(field);
+  const useManual = !useEurostat && !useEcb && !useOns && hasManualHistory(upperCode, field);
   if (
     !meta ||
     !isCurrencyCode(upperCode) ||
-    (!useEurostat && !useEcb && !useManual && !fx.hasIndicatorHistory(field))
+    (!useEurostat && !useEcb && !useOns && !useManual && !fx.hasIndicatorHistory(field))
   ) {
     notFound();
   }
@@ -140,6 +142,26 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur BCE";
+    }
+  } else if (useOns) {
+    sourceLabel = "ONS";
+    try {
+      const series = await getOnsHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée ONS disponible.";
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur ONS";
     }
   } else if (useManual) {
     sourceLabel = "saisie manuelle";

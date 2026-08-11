@@ -10,6 +10,7 @@ import type { CurrencyWithScore, MarketContext } from "@/domain/types";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
+import { hasOnsHistory } from "@/lib/integrations/ons";
 import { hasManualHistory } from "@/lib/manual-history";
 import { cn } from "@/lib/utils";
 
@@ -119,6 +120,7 @@ export function IndicatorCategoryGrid({
                 !!field &&
                 (hasIndicatorHistory(field) ||
                   (currency.code === "EUR" && (hasEurostatHistory(field) || hasEcbHistory(field))) ||
+                  (currency.code === "GBP" && hasOnsHistory(field)) ||
                   hasManualHistory(currency.code, field));
               const manualCheck = needsManualCheck(
                 field,

@@ -252,6 +252,10 @@ enum IndicatorSource {
   /// (verified live: Eurostat's money-market table only has interbank rates,
   /// never the rate the ECB sets).
   ECB
+  /// The UK's Office for National Statistics — what Eurostat is to the EUR.
+  /// Same tier for the same reason: the publisher of the figures FXMacroData
+  /// redistributes.
+  ONS
   MANUAL
   DERIVED
 }

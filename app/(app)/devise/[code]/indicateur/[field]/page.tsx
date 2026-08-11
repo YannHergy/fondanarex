@@ -7,6 +7,7 @@ import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { periodEnd } from "@/domain/macro/period";
 import * as fx from "@/lib/integrations/fxmacrodata";
+import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { requireUserId } from "@/lib/session";
@@ -62,13 +63,18 @@ export default async function IndicatorHistoryPage({
   const upperCode = code.toUpperCase();
 
   const meta = FIELD_LABELS[field];
-  // Eurostat covers EUR for five fields with no depth limit; FXMacroData's
+  // Eurostat and the ECB cover EUR with no depth limit; FXMacroData's
   // `/announcements` endpoint caps at 20 points on our plan (see
-  // lib/integrations/eurostat.ts). A field is chartable here if EITHER source
-  // has it — Eurostat is only wired for EUR, so every other currency and
-  // every field Eurostat doesn't cover still falls through to FXMacroData.
+  // lib/integrations/eurostat.ts). A field is chartable here if ANY source
+  // has it — both are only wired for EUR, so every other currency and every
+  // field neither covers still falls through to FXMacroData.
   const useEurostat = upperCode === "EUR" && hasEurostatHistory(field);
-  if (!meta || !isCurrencyCode(upperCode) || (!useEurostat && !fx.hasIndicatorHistory(field))) {
+  const useEcb = upperCode === "EUR" && !useEurostat && hasEcbHistory(field);
+  if (
+    !meta ||
+    !isCurrencyCode(upperCode) ||
+    (!useEurostat && !useEcb && !fx.hasIndicatorHistory(field))
+  ) {
     notFound();
   }
 
@@ -99,6 +105,33 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur Eurostat";
+    }
+  } else if (useEcb) {
+    sourceLabel = "BCE";
+    try {
+      const series = await getEcbHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée BCE disponible.";
+      } else {
+        // The DFR/MRR series publish daily but the rate only moves on
+        // decision dates — collapsing consecutive equal values down to one
+        // point per actual change turns ~1300 raw points into ~16 without
+        // altering the step-line shape the chart already draws between them.
+        const collapsed = series.history.filter(
+          (p, i) => i === 0 || p.value !== series.history[i - 1]!.value,
+        );
+        history = {
+          name: series.label,
+          points: collapsed
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur BCE";
     }
   } else if (fx.isConfigured()) {
     try {

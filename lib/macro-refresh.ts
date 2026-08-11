@@ -2,6 +2,7 @@ import "server-only";
 
 import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { ensureIndicatorCommentary } from "@/lib/commentary";
+import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
@@ -156,6 +157,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fredResults,
     fxMacroResults,
     eurostatResults,
+    ecbResults,
     vixResult,
     oilResult,
     tokyoCpiResult,
@@ -164,6 +166,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
     fetchEurostatData(),
+    fetchEcbData(),
     fetchVix().catch(asError),
     fetchOil().catch(asError),
     fetchTokyoCpi().catch(asError),
@@ -239,6 +242,62 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           label: series.label,
           unit: series.displayUnit,
           sourceLabel: "Eurostat",
+          context: series.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── ECB: the EUR policy rate, from the central bank itself ──────────────
+  //
+  // Eurostat does not publish this (verified live — its money-market table
+  // only carries interbank rates, never the rate the ECB itself sets), so it
+  // cannot join the loop above. Same free-and-unlimited-history reasoning as
+  // Eurostat otherwise: the full series is written, not just the latest
+  // reading, and periodLabel() collapses this DAILY series down to one row
+  // per month on write (the unique key is currency+indicator+period+source),
+  // so upserting ~1300 daily points costs about 43 rows, not 1300.
+  if (known.has("EUR")) {
+    for (const series of ecbResults) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`BCE ${series.label}: ${message}`);
+        sources.push({ source: "ECB", label: series.label, written: 0, error: message });
+        continue;
+      }
+
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values.EUR?.nextRelease ?? null,
+      );
+      const latestIndex = series.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      series.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+
+        rows.push({
+          currencyCode: "EUR",
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.ECB,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "ECB", label: series.label, written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "EUR",
+          indicatorKey: series.field,
+          source: IndicatorSource.ECB,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: "BCE",
           context: series.context,
         }).catch(() => {});
       }

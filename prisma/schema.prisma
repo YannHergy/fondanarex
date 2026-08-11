@@ -247,6 +247,11 @@ enum IndicatorSource {
   /// EUR figures FXMacroData redistributes, so it outranks it: one fewer hop
   /// that can silently stop moving.
   EUROSTAT
+  /// The European Central Bank's own Data Portal. Same tier as Eurostat — the
+  /// PUBLISHER of the EUR policy rate, which Eurostat itself does not carry
+  /// (verified live: Eurostat's money-market table only has interbank rates,
+  /// never the rate the ECB sets).
+  ECB
   MANUAL
   DERIVED
 }

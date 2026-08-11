@@ -7,6 +7,8 @@ import { Icon } from "@/components/ui/icon";
 import { getCurrencyProfile, indicatorKind } from "@/domain/data/currency-weights";
 import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
+import { hasEcbHistory } from "@/lib/integrations/ecb";
+import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
 import { cn } from "@/lib/utils";
 
@@ -108,7 +110,15 @@ export function IndicatorCategoryGrid({
               const previous = field ? currency.previousData[field] : undefined;
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
-              const clickable = field && hasIndicatorHistory(field);
+              // Eurostat and the ECB are EUR-only and have no FXMacroData
+              // counterpart for every field they cover — industrialProduction
+              // in particular has never existed there at all (see
+              // eurostat.ts), unlike the six other EUR fields Eurostat/the
+              // ECB source, which happen to also carry an FXMacroData slug.
+              const clickable =
+                !!field &&
+                (hasIndicatorHistory(field) ||
+                  (currency.code === "EUR" && (hasEurostatHistory(field) || hasEcbHistory(field))));
               const manualCheck = needsManualCheck(
                 field,
                 currency.dataSources,

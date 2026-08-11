@@ -19,6 +19,7 @@ import {
     scoreGdp,
     scoreIfoLevel,
     scoreIndicator,
+    scoreIndustrialProduction,
     scoreInflationValue,
     scoreInterestRateDifferential,
     scoreMonthlyWages,
@@ -90,6 +91,7 @@ function makeFullCurrency(code: string, overrides: Partial<CurrencyData> = {}): 
         usSpillover: 10,
         tokyoCpi: 2.6,
         eurChf: -0.5,
+        industrialProduction: 1.5,
         ...overrides,
     });
 }
@@ -215,6 +217,30 @@ describe('scoreGdp', () => {
         expect(scoreGdp(1.5, 2.5)).toBe(1);    // 3 - 2
         expect(scoreGdp(4, 1)).toBe(10);       // 10 + 2 clamped
         expect(scoreGdp(-3, 0)).toBe(-10);     // -10 - 2 clamped
+    });
+});
+
+describe('scoreIndustrialProduction', () => {
+    it('scores below the range, at the neutral point and above the range', () => {
+        expect(scoreIndustrialProduction(-5, -5)).toBe(-10);  // deep contraction
+        expect(scoreIndustrialProduction(0, 0)).toBe(-3);     // 0 is NOT > 0: falls in the >= -2 rung
+        expect(scoreIndustrialProduction(5, 5)).toBe(10);     // strong expansion
+    });
+
+    it('walks every rung of the ladder', () => {
+        expect(scoreIndustrialProduction(4.5, 4.5)).toBe(10);
+        expect(scoreIndustrialProduction(2.5, 2.5)).toBe(7);
+        expect(scoreIndustrialProduction(0.5, 0.5)).toBe(3);
+        expect(scoreIndustrialProduction(-1, -1)).toBe(-3);
+        expect(scoreIndustrialProduction(-3, -3)).toBe(-7);
+        expect(scoreIndustrialProduction(-4.5, -4.5)).toBe(-10);
+    });
+
+    it('adds ±2 of momentum and clamps at the boundaries', () => {
+        expect(scoreIndustrialProduction(1, -1.5)).toBe(5);    // 3 + 2
+        expect(scoreIndustrialProduction(1, 3.5)).toBe(1);     // 3 - 2
+        expect(scoreIndustrialProduction(5, 0)).toBe(10);      // 10 + 2 clamped
+        expect(scoreIndustrialProduction(-5, 0)).toBe(-10);    // -10 - 2 clamped
     });
 });
 
@@ -618,15 +644,15 @@ describe('weight exclusion rule', () => {
         expect(normalizeScore(weightedAverage([]))).toBe(50);
     });
 
-    it('end to end: the EUR excludes ZEW and ifo when neither is provided', () => {
+    it('end to end: the EUR excludes ZEW, ifo and the industrial-production proxy when none is provided', () => {
         const eur = makeCurrency({ code: 'EUR' });
         const scores = calculateInstitutionalScore(eur, RATES, EMPTY_MARKET_CONTEXT);
 
         const unavailable = breakdownOf(scores).filter(i => !i.disponible).map(i => i.id).sort();
-        expect(unavailable).toEqual(['eu_ifo', 'eu_zew']);
+        expect(unavailable).toEqual(['eu_ifo', 'eu_prod_indus', 'eu_zew']);
 
         expect(scores.poidsTotal).toBe(100);
-        expect(scores.poidsUtilise).toBe(93);   // 100 - 4 (ZEW) - 3 (ifo)
+        expect(scores.poidsUtilise).toBe(79);   // 100 - 4 (ZEW) - 3 (ifo) - 14 (prod_indus)
 
         // The engine's own total equals the average over the AVAILABLE indicators only
         const available = breakdownOf(scores).filter(i => i.disponible);
@@ -641,9 +667,11 @@ describe('weight exclusion rule', () => {
     it('end to end: providing the missing data brings the full weight back', () => {
         const bare = calculateInstitutionalScore(makeCurrency({ code: 'EUR' }), RATES, EMPTY_MARKET_CONTEXT);
         const rich = calculateInstitutionalScore(
-            makeCurrency({ code: 'EUR', zew: 12, ifo: 92 }), RATES, EMPTY_MARKET_CONTEXT);
+            makeCurrency({ code: 'EUR', zew: 12, ifo: 92, industrialProduction: 1.5 }), RATES, EMPTY_MARKET_CONTEXT);
 
-        expect(bare.poidsUtilise).toBe(93);
+        // 93 (zew/ifo missing, as before) minus 14 for eu_prod_indus, whose
+        // weight eu_pmi_manu no longer carries now that it sits at 0.
+        expect(bare.poidsUtilise).toBe(79);
         expect(rich.poidsUtilise).toBe(100);
         expect(breakdownOf(rich).every(i => i.disponible)).toBe(true);
     });
@@ -651,7 +679,7 @@ describe('weight exclusion rule', () => {
     it('every currency drops exactly the indicators it has no data for', () => {
         const expected: Record<string, [string[], number]> = {
             USD: [['us_nfp'], 88],
-            EUR: [['eu_ifo', 'eu_zew'], 93],
+            EUR: [['eu_ifo', 'eu_prod_indus', 'eu_zew'], 79],
             GBP: [[], 100],
             JPY: [['jp_cpi_tokyo', 'jp_risque'], 66],
             AUD: [['au_chine', 'au_fer', 'au_risque'], 57],
@@ -781,6 +809,27 @@ describe('scoreIndicator dispatch', () => {
         const curr = makeCurrency({ code: 'CAD', pmiManufacturing: 46, pmiServices: 56 });
         // composite = 51 -> level 2, no momentum
         expect(scoreIndicator('ca_pmi', { ...base, curr })).toBe(2);
+    });
+
+    it('keeps pmi_manu scoring the manual PMI figurant, unaffected by industrial production', () => {
+        const curr = makeCurrency({
+            code: 'EUR',
+            pmiManufacturing: 58,             // scores 10 on the PMI ladder
+            industrialProduction: -5,          // would score -10 if it leaked in here
+            previousData: { pmiManufacturing: 58, industrialProduction: -5 },
+        });
+        expect(scoreIndicator('eu_pmi_manu', { ...base, curr })).toBe(10);
+    });
+
+    it('scores prod_indus (the EUR PMI proxy) from industrial production, or not at all without it', () => {
+        const withIndProd = makeCurrency({
+            code: 'EUR',
+            industrialProduction: 3,          // scores 7 on the industrial-production ladder
+            previousData: { industrialProduction: 3 },
+        });
+        expect(scoreIndicator('eu_prod_indus', { ...base, curr: withIndProd })).toBe(7);
+
+        expect(scoreIndicator('eu_prod_indus', { ...base, curr: makeCurrency({ code: 'EUR' }) })).toBeNull();
     });
 
     it('inverts the risk score between safe havens and pro-cyclicals', () => {

@@ -20,7 +20,12 @@ describe('CURRENCY_WEIGHTS', () => {
         expect(getCurrencyProfile('XXX')).toBeUndefined();
     });
 
-    it('every indicator carries a strictly positive weight and a label', () => {
+    it('every indicator carries a non-negative weight and a label', () => {
+        // A weight of exactly 0 is a deliberate, documented exception: EUR's
+        // eu_pmi_manu is a manually-entered figurant with no free source
+        // (see currency-weights.ts), kept visible but excluded from the
+        // score by construction — weightedAverage/familyScore both treat a
+        // 0 weight as "never contributes", not as an error case.
         for (const code of CODES) {
             const profile = getCurrencyProfile(code);
             if (profile === undefined) throw new Error(`profile ${code} is missing`);
@@ -28,7 +33,7 @@ describe('CURRENCY_WEIGHTS', () => {
             expect(profile.banqueCentrale.length).toBeGreaterThan(0);
             expect(profile.moteurN1.length).toBeGreaterThan(0);
             for (const ind of profile.indicateurs) {
-                expect(ind.poids).toBeGreaterThan(0);
+                expect(ind.poids).toBeGreaterThanOrEqual(0);
                 expect(ind.nom.length).toBeGreaterThan(0);
             }
         }
@@ -80,7 +85,7 @@ describe('indicatorKind', () => {
         // The exhaustive list of kinds handled by the switch of scoreIndicator.
         const known = new Set([
             'taux', 'orientation', 'cpi', 'hicp', 'core_cpi', 'core_hicp', 'cpi_tokyo',
-            'pib', 'pmi_manu', 'pmi_serv', 'pmi', 'ivey', 'kof', 'zew', 'ifo', 'sentiment',
+            'pib', 'pmi_manu', 'prod_indus', 'pmi_serv', 'pmi', 'ivey', 'kof', 'zew', 'ifo', 'sentiment',
             'chomage', 'nfp', 'salaires', 'emploi', 'balance', 'retail',
             'petrole', 'fer', 'laitiers', 'chine', 'risque', 'us', 'eurchf', 'interventions',
         ]);

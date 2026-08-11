@@ -75,7 +75,10 @@ export const CURRENCY_WEIGHTS: Record<string, CurrencyProfile> = {
         particularite: "PMI Manufacturier allemand crucial · l'EUR bouge sur l'industrie allemande et les enquêtes ZEW/ifo",
         indicateurs: [
             { id: 'eu_hicp',        nom: 'HICP (Inflation)',                 poids: 14 },
-            { id: 'eu_pmi_manu',    nom: 'PMI Manufacturier (allemand)',     poids: 14 },
+            // Carries the weight eu_pmi_manu used to hold — see the
+            // `prod_indus` case in scoring/engine.ts and
+            // CurrencyData.industrialProduction.
+            { id: 'eu_prod_indus',  nom: 'Production industrielle (proxy PMI)', poids: 14 },
             { id: 'eu_taux',        nom: 'Taux BCE',                         poids: 13 },
             { id: 'eu_core_hicp',   nom: 'Core HICP',                        poids: 12 },
             { id: 'eu_pmi_serv',    nom: 'PMI Services (zone euro)',         poids: 11 },
@@ -86,6 +89,10 @@ export const CURRENCY_WEIGHTS: Record<string, CurrencyProfile> = {
             { id: 'eu_ifo',         nom: 'ifo (Allemagne)',                  poids: 3, specifique: true },
             { id: 'eu_salaires',    nom: 'Croissance salaires',              poids: 2 },
             { id: 'eu_balance',     nom: 'Balance commerciale',              poids: 2 },
+            // No free source exists for the PMI itself (S&P Global/Markit
+            // sells it): kept visible as a manually-entered figurant, at
+            // weight 0, so it is shown but never contributes to the score.
+            { id: 'eu_pmi_manu',    nom: 'PMI Manufacturier (allemand)',     poids: 0 },
         ],
     },
 

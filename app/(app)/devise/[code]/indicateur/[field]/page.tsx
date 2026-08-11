@@ -36,6 +36,9 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   // No free source exists anywhere (S&P Global sells it) — backfilled by
   // hand from Trading Economics' published history, see lib/manual-history.ts.
   pmiManufacturing: { label: "PMI Manufacturier (allemand)", unit: "" },
+  // Same treatment: no free automated source, backfilled by hand.
+  zew: { label: "ZEW (Allemagne)", unit: "" },
+  ifo: { label: "ifo Business Climate (Allemagne)", unit: "" },
   // Thousands of jobs for the AUD and the CAD, a quarterly percentage for the
   // NZD, which is why the unit is resolved per currency below.
   employmentChange: { label: "Emploi", unit: "" },

@@ -52,7 +52,15 @@ export async function ScoreHistory({ code, current }: { code: string; current: n
 
   const first = points[0]!;
   const last = points.at(-1)!;
-  const dateFmt = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
+  // The year is included as soon as the span crosses one. The history used to
+  // be a few days long, where "30 janv. → 11 août" was unambiguous; it now
+  // reaches back to 2023, and the same label would read as a single year.
+  const spansYears = first.at.getFullYear() !== last.at.getFullYear();
+  const dateFmt = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    ...(spansYears ? { year: "numeric" } : {}),
+  });
 
   return (
     <Card>

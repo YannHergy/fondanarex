@@ -51,7 +51,11 @@ export async function getManualHistory(
  * historique trouvée."), so listing a pair here ahead of its first backfill
  * would only cost a dead link, never a crash.
  */
-const MANUAL_HISTORY_FIELDS: ReadonlySet<string> = new Set(["EUR:pmiManufacturing"]);
+const MANUAL_HISTORY_FIELDS: ReadonlySet<string> = new Set([
+  "EUR:pmiManufacturing",
+  "EUR:zew",
+  "EUR:ifo",
+]);
 
 export function hasManualHistory(currencyCode: string, field: string): boolean {
   return MANUAL_HISTORY_FIELDS.has(`${currencyCode}:${field}`);

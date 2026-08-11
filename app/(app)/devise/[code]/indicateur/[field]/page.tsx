@@ -10,6 +10,7 @@ import * as fx from "@/lib/integrations/fxmacrodata";
 import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { getScoredCurrencies } from "@/lib/currencies";
+import { getManualHistory, hasManualHistory } from "@/lib/manual-history";
 import { requireUserId } from "@/lib/session";
 import { isCurrencyCode } from "@/lib/utils";
 
@@ -32,6 +33,9 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   // Stored as a year-on-year percentage, not the raw RBA index level — see
   // FIELD_EXTRACTORS in fxmacrodata.ts.
   commodityPrice: { label: "Matières premières", unit: "%" },
+  // No free source exists anywhere (S&P Global sells it) — backfilled by
+  // hand from Trading Economics' published history, see lib/manual-history.ts.
+  pmiManufacturing: { label: "PMI Manufacturier (allemand)", unit: "" },
   // Thousands of jobs for the AUD and the CAD, a quarterly percentage for the
   // NZD, which is why the unit is resolved per currency below.
   employmentChange: { label: "Emploi", unit: "" },
@@ -70,10 +74,11 @@ export default async function IndicatorHistoryPage({
   // field neither covers still falls through to FXMacroData.
   const useEurostat = upperCode === "EUR" && hasEurostatHistory(field);
   const useEcb = upperCode === "EUR" && !useEurostat && hasEcbHistory(field);
+  const useManual = !useEurostat && !useEcb && hasManualHistory(upperCode, field);
   if (
     !meta ||
     !isCurrencyCode(upperCode) ||
-    (!useEurostat && !useEcb && !fx.hasIndicatorHistory(field))
+    (!useEurostat && !useEcb && !useManual && !fx.hasIndicatorHistory(field))
   ) {
     notFound();
   }
@@ -132,6 +137,17 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur BCE";
+    }
+  } else if (useManual) {
+    sourceLabel = "saisie manuelle";
+    try {
+      history = await getManualHistory(upperCode, field, meta.label);
+      if (history.points.length === 0) {
+        error = "Aucune publication saisie pour le moment.";
+        history = null;
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur de lecture de l'historique";
     }
   } else if (fx.isConfigured()) {
     try {

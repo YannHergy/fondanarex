@@ -235,41 +235,6 @@ const SERIES: readonly SeriesConfig[] = [
     context:
       "Une croissance des salaires entre 2% et 4% est jugée compatible avec l'objectif d'inflation de la BCE ; au-delà, elle nourrit le risque d'une spirale prix-salaires que la banque centrale surveille de près.",
   },
-  // ── Industrial production: proxy for the manufacturing PMI ─────────────
-  //
-  // The PMI itself (S&P Global/Markit) is proprietary — no free source
-  // exists anywhere, confirmed by searching Eurostat's own catalogue (no
-  // "purchasing manager" entry at all). `pmiManufacturing` stays a manual,
-  // display-only field for that reason. This series — real manufacturing
-  // output, not a survey — is Eurostat's closest free substitute and is
-  // what now drives the score for that category (see engine.ts's `pmi_manu`
-  // case), while the manual PMI card keeps showing on the currency page.
-  //
-  // `sts_inpr_m` (Eurostat's classic short-term-statistics table), not the
-  // newer `ei_is_m_vtg` "vintages" dataset tried first: the vintages table
-  // requires pinning an exact `revdate` and even the latest one returned an
-  // empty value set for every combination tried — a dataset built for
-  // tracking historical revisions, not for a simple "give me the current
-  // series" read.
-  //
-  // `geo=EA21`, not `EA` — this table has no `EA` alias at all (confirmed by
-  // listing every geo code it accepts), the newest instance of the
-  // per-dataset geo-code trap documented at the top of this file.
-  //
-  // `s_adj=CA` (calendar-adjusted only), not `SCA`: for a year-on-year
-  // percentage change (`unit=PCH_SM`) the comparison already cancels out
-  // seasonality by construction, and `SCA` returned an empty series for this
-  // exact filter combination while `CA` returned real numbers — confirmed
-  // live (2026-04: +0.4%, 2026-05: -1.3%).
-  {
-    field: "industrialProduction",
-    label: "Production industrielle (manufacturière)",
-    dataset: "sts_inpr_m",
-    params: { geo: "EA21", nace_r2: "C", unit: "PCH_SM", s_adj: "CA" },
-    displayUnit: "%",
-    context:
-      "Proxy de l'activité manufacturière en l'absence de source gratuite pour le PMI (donnée propriétaire) : une production en hausse reflète une industrie en expansion, une baisse prolongée un ralentissement — à lire avec plus de volatilité mois à mois qu'un indice d'enquête comme le PMI.",
-  },
 ];
 
 export interface EurostatSeriesResult {

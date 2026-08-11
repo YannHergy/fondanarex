@@ -173,29 +173,6 @@ export function scoreGdp(gdpQoQ: number, prevGdpQoQ: number): number {
     return clamp10(level + momentum);
 }
 
-/**
- * Manufacturing industrial production, % YoY (EUR): level + acceleration
- * momentum, same shape as scoreGdp but with its own thresholds — this
- * series runs far more volatile than GDP QoQ (real EA readings since 2023
- * have ranged roughly -8% to +4%, against GDP QoQ's typical -1% to +1%),
- * so GDP's bands would call an ordinary industrial-production month either
- * always extreme or never.
- */
-export function scoreIndustrialProduction(value: number, prev: number): number {
-    let level: number;
-    if (value > 4)        level = 10;
-    else if (value > 2)   level = 7;
-    else if (value > 0)   level = 3;
-    else if (value >= -2) level = -3;
-    else if (value >= -4) level = -7;
-    else                  level = -10;
-
-    const delta    = value - prev;
-    const momentum = delta > 2 ? 2 : delta < -2 ? -2 : 0;
-
-    return clamp10(level + momentum);
-}
-
 /** PMI (manufacturing, services or composite): level vs 50 + momentum */
 export function scoreSinglePmi(value: number, prev: number): number {
     let level: number;
@@ -498,20 +475,6 @@ export function scoreIndicator(id: string, inputs: ScoringInputs): number | null
         case 'pmi_manu':
             return scoreSinglePmi(curr.pmiManufacturing, prevNum(curr, 'pmiManufacturing', curr.pmiManufacturing));
 
-        // EUR: proxy for the manufacturing PMI, which has no free source
-        // anywhere (S&P Global/Markit sells it) — see
-        // CurrencyData.industrialProduction. eu_pmi_manu, above, stays a
-        // manually-entered figurant at weight 0 in the profile; this
-        // indicator carries the weight it used to hold and actually drives
-        // the score.
-        case 'prod_indus':
-            return typeof curr.industrialProduction === 'number'
-                ? scoreIndustrialProduction(
-                      curr.industrialProduction,
-                      prevNum(curr, 'industrialProduction', curr.industrialProduction),
-                  )
-                : null;
-
         case 'pmi_serv':
             return scoreSinglePmi(curr.pmiServices, prevNum(curr, 'pmiServices', curr.pmiServices));
 
@@ -666,7 +629,7 @@ const RADAR_FAMILIES = {
     employment: ['chomage', 'emploi', 'salaires', 'nfp'],
     trade:      ['balance', 'petrole', 'fer', 'laitiers', 'eurchf'],
     monetary:   ['taux', 'orientation', 'interventions'],
-    pmi:        ['pmi', 'pmi_manu', 'prod_indus', 'pmi_serv', 'ivey', 'kof'],
+    pmi:        ['pmi', 'pmi_manu', 'pmi_serv', 'ivey', 'kof'],
     sentiment:  ['risque', 'chine', 'us', 'sentiment', 'retail', 'zew', 'ifo'],
 } as const;
 

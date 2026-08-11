@@ -28,11 +28,6 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   unemployment: { label: "Chômage", unit: "%" },
   wagePPI: { label: "Salaires", unit: "%" },
   tradeBalance: { label: "Balance commerciale", unit: "" },
-  // Proxy for the manufacturing PMI (no free source exists — see
-  // lib/integrations/eurostat.ts). pmiManufacturing itself has no chartable
-  // history (FXMacroData has no slug for it), so this is a separate field
-  // with its own card and its own page rather than a swap-in for the PMI's.
-  industrialProduction: { label: "Production industrielle (proxy PMI)", unit: "%" },
   retailSales: { label: "Ventes au détail", unit: "%" },
   // Stored as a year-on-year percentage, not the raw RBA index level — see
   // FIELD_EXTRACTORS in fxmacrodata.ts.

@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
  */
 const CATEGORIES = [
   { key: "monetary", label: "Politique monétaire", icon: "percent", kinds: ["taux", "orientation", "interventions"] },
-  { key: "growth", label: "Croissance & Activité", icon: "trending_up", kinds: ["pib", "pmi_manu", "prod_indus", "pmi_serv", "chine", "risque", "zew", "ifo"] },
+  { key: "growth", label: "Croissance & Activité", icon: "trending_up", kinds: ["pib", "pmi_manu", "pmi_serv", "chine", "risque", "zew", "ifo"] },
   { key: "inflation", label: "Inflation & Prix", icon: "payments", kinds: ["cpi", "core_cpi", "hicp", "core_hicp", "cpi_tokyo"] },
   { key: "trade", label: "Emploi & Trade", icon: "work", kinds: ["emploi", "nfp", "chomage", "salaires", "balance", "retail", "eurchf", "fer", "petrole", "laitiers", "us"] },
 ] as const;
@@ -44,8 +44,6 @@ const FIELD_FOR_KIND: Record<string, string> = {
   chomage: "unemployment",
   salaires: "wagePPI",
   pmi_manu: "pmiManufacturing",
-  // EUR's free proxy for the manufacturing PMI — see CurrencyData.industrialProduction.
-  prod_indus: "industrialProduction",
   pmi_serv: "pmiServices",
   retail: "retailSales",
   balance: "tradeBalance",
@@ -110,11 +108,12 @@ export function IndicatorCategoryGrid({
               const previous = field ? currency.previousData[field] : undefined;
               const nextDate = field ? currency.nextReleases[field] : undefined;
               const stale = isStale(nextDate, now);
-              // Eurostat and the ECB are EUR-only and have no FXMacroData
-              // counterpart for every field they cover — industrialProduction
-              // in particular has never existed there at all (see
-              // eurostat.ts), unlike the six other EUR fields Eurostat/the
-              // ECB source, which happen to also carry an FXMacroData slug.
+              // Eurostat and the ECB are EUR-only, but every field they cover
+              // (inflation, GDP, unemployment, wages, trade balance, the
+              // policy rate) also happens to carry an FXMacroData slug — the
+              // check still needs both, since Eurostat/the ECB now WIN the
+              // tier race and drive the chart, but FXMacroData is what
+              // originally made the field chartable at all.
               const clickable =
                 !!field &&
                 (hasIndicatorHistory(field) ||

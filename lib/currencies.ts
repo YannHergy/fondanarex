@@ -91,7 +91,6 @@ const NUMERIC_FIELDS = [
   "usSpillover",
   "tokyoCpi",
   "eurChf",
-  "industrialProduction",
 ] as const;
 
 type NumericField = (typeof NUMERIC_FIELDS)[number];

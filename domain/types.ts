@@ -89,16 +89,6 @@ export interface CurrencyData {
     tokyoCpi?: number;
     /** EUR/CHF — % change; a DROP means the franc is strengthening (CHF) */
     eurChf?: number;
-    /**
-     * Manufacturing industrial production, % YoY (EUR).
-     *
-     * A free proxy for the manufacturing PMI, which has no free source
-     * anywhere (S&P Global/Markit sells it) — see pmiManufacturing, which
-     * stays a manually-entered display-only field. This one drives the score
-     * instead: real production volume rather than a purchasing-manager
-     * survey, but the two move together closely enough to stand in.
-     */
-    industrialProduction?: number;
 
     // ── Qualitative data ──────────────────────────────────────────
     geopoliticalRisks: string;

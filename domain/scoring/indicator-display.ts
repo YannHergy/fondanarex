@@ -83,10 +83,6 @@ export function getIndicatorDisplay(
             return { label: 'GDP', value: fmtPct(curr.gdpQoQ), available: true };
         case 'pmi_manu':
             return { label: 'PMI MFG', value: `${curr.pmiManufacturing}`, available: true };
-        case 'prod_indus':
-            return typeof curr.industrialProduction === 'number'
-                ? { label: 'PROD IND', value: fmtPct(curr.industrialProduction), available: true }
-                : na('PROD IND');
         case 'pmi_serv':
             return { label: 'PMI SRV', value: `${curr.pmiServices}`, available: true };
         case 'pmi':

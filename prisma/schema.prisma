@@ -266,6 +266,10 @@ enum IndicatorSource {
   /// Statistics Canada. Publisher of the Canadian CPI, which FRED could not
   /// supply — its OECD feed for Canada stopped in March 2025.
   STATCAN
+  /// The Bank of Canada's Valet API. Publisher of the CAD policy rate, which
+  /// Statistics Canada does not carry — the same split as every other
+  /// currency here.
+  BOC
   /// The Reserve Bank of Australia's statistical tables. Publisher of the
   /// Australian CPI and of the trimmed mean the AUD profile scores.
   RBA

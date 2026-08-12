@@ -17,6 +17,7 @@ const LIVE_SOURCES = new Set([
   "BOE",
   "SNB",
   "STATCAN",
+  "BOC",
   "RBA",
   "STATSNZ",
 ]);

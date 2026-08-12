@@ -2,6 +2,7 @@ import "server-only";
 
 import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { ensureIndicatorCommentary } from "@/lib/commentary";
+import { fetchBocData } from "@/lib/integrations/boc";
 import { fetchBoeData } from "@/lib/integrations/boe";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
@@ -207,6 +208,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     rbaResults,
     statsNzCpiResult,
     boeResults,
+    bocResults,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
@@ -223,6 +225,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchRbaData(),
     fetchStatsNzCpi(),
     fetchBoeData(),
+    fetchBocData(),
   ]);
 
   // ── Ordering note ────────────────────────────────────────────────────────
@@ -501,12 +504,15 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     }
   }
 
-  // ── The RBA, Stats NZ and Statistics Canada: the AUD/NZD/CAD price indices ──
+  // ── The RBA, Stats NZ, Statistics Canada and the BoC: the AUD/NZD/CAD data ──
   //
-  // All three fill the same gap for their currency: FRED carries a CPI for
-  // each and all come through OECD's Main Economic Indicators, a feed that
-  // stopped in 2025 while still answering HTTP 200. Same shape as the blocks
-  // above, so they share one loop.
+  // All four fill the same gap for their currency: FRED carries a CPI for
+  // AUD/CAD/NZD and all come through OECD's Main Economic Indicators, a feed
+  // that stopped in 2025 while still answering HTTP 200; none of them carry
+  // a central bank's own policy rate at all. Same shape as the blocks above,
+  // so they share one loop — CAD appears twice, once for StatCan's fields
+  // and once for the BoC's rate, since a currency here is just whichever
+  // (code, source, results) entries name it.
   //
   // AUD and NZD go first within it: measured directly, a run that reaches
   // this loop at all still sometimes runs out of budget partway through —
@@ -517,6 +523,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
     { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
     { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
+    { code: "CAD", source: IndicatorSource.BOC, label: "BoC", results: bocResults },
   ] as const) {
     if (!known.has(national.code)) continue;
 

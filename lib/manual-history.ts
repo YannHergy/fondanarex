@@ -55,6 +55,8 @@ const MANUAL_HISTORY_FIELDS: ReadonlySet<string> = new Set([
   "EUR:pmiManufacturing",
   "EUR:zew",
   "EUR:ifo",
+  "GBP:pmiManufacturing",
+  "GBP:pmiServices",
 ]);
 
 export function hasManualHistory(currencyCode: string, field: string): boolean {

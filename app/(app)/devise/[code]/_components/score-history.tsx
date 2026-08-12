@@ -12,11 +12,11 @@ import { prisma } from "@/lib/prisma";
  * The currency's score over time.
  *
  * Reads ScoreSnapshot, which a refresh writes one row per currency into, plus
- * — for every currency except JPY and CHF — a monthly series rebuilt back to
+ * — for every currency except JPY — a monthly series rebuilt back to
  * January 2023 by replaying the scoring engine against the indicator table
- * as it stood each month. JPY and CHF still only have what daily refreshes
- * have accumulated since — the same backfill applies to them cleanly
- * whenever they get a source with comparable historical depth.
+ * as it stood each month. JPY still only has what daily refreshes
+ * have accumulated since — the same backfill applies to it cleanly
+ * whenever it gets a source with comparable historical depth.
  *
  * Deliberately rendered even with a single point rather than hidden: showing
  * where the score sits now, with the axis already in place, makes it obvious

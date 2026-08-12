@@ -11,6 +11,7 @@ import { hasBocHistory } from "@/lib/integrations/boc";
 import { hasBoeHistory } from "@/lib/integrations/boe";
 import { hasGdtHistory } from "@/lib/dairy";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
+import { hasEurChfHistory } from "@/lib/integrations/eurchf";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
@@ -133,7 +134,8 @@ export function IndicatorCategoryGrid({
                   (currency.code === "CAD" && (hasStatCanHistory(field) || hasBocHistory(field))) ||
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
                   (currency.code === "JPY" && hasJapanHistory(field)) ||
-                  (currency.code === "CHF" && hasSnbHistory(field)) ||
+                  (currency.code === "CHF" &&
+                    (hasSnbHistory(field) || hasEurChfHistory(field))) ||
                   (currency.code === "NZD" &&
                     (hasStatsNzHistory(field) || hasGdtHistory(field))) ||
                   // No time series to chart — see china-demand-breakdown.tsx

@@ -5,6 +5,7 @@ import { ensureIndicatorCommentary } from "@/lib/commentary";
 import { fetchBocData } from "@/lib/integrations/boc";
 import { fetchBoeData } from "@/lib/integrations/boe";
 import { fetchEcbData } from "@/lib/integrations/ecb";
+import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchOnsData } from "@/lib/integrations/ons";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
@@ -209,6 +210,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     statsNzCpiResult,
     boeResults,
     bocResults,
+    eurChfResults,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
@@ -226,6 +228,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchStatsNzCpi(),
     fetchBoeData(),
     fetchBocData(),
+    fetchEurChfData(),
   ]);
 
   // ── Ordering note ────────────────────────────────────────────────────────
@@ -454,6 +457,43 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           sourceLabel: "BNS",
           context: snbCpiResult.context,
         }).catch(() => {});
+      }
+    }
+  }
+
+  // ── EUR/CHF: the franc's capital-flow signal, 20% of its score ──────────
+  //
+  // A continuously-quoted rate, not a scheduled release — filed under MARKET
+  // like the VIX and oil. Full monthly history, not just current+previous,
+  // same reasoning as the RBA/BoE/BoC rates: the score-history backfill and
+  // the detail chart both need real depth, not two points.
+  if (known.has("CHF")) {
+    for (const series of eurChfResults) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`EUR/CHF: ${message}`);
+        sources.push({ source: "MARKET", label: series.label, written: 0, error: message });
+      } else {
+        const latestIndex = series.history.length - 1;
+        const rows: PendingRow[] = [];
+        series.history.forEach((point, index) => {
+          const end = periodEnd(point.period);
+          if (!end) return;
+          rows.push({
+            currencyCode: "CHF",
+            indicatorKey: series.field,
+            value: point.value,
+            period: periodLabel(point.period),
+            periodEnd: end,
+            source: IndicatorSource.MARKET,
+            // Frankfurter carries no forward calendar — it is a rate, not a
+            // scheduled release — so there is nothing to attach here.
+            ...(index === latestIndex ? { nextRelease: null } : {}),
+          });
+        });
+
+        const written = await writeRows(rows);
+        sources.push({ source: "MARKET", label: series.label, written, error: null });
       }
     }
   }

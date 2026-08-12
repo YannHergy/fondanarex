@@ -9,6 +9,7 @@ import { Icon } from "@/components/ui/icon";
 import { periodEnd } from "@/domain/macro/period";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
+import { getEurChfHistory, hasEurChfHistory } from "@/lib/integrations/eurchf";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { getFredCsvHistory, hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { fetchJapanCpi, hasJapanHistory } from "@/lib/integrations/estat";
@@ -58,6 +59,8 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   // Same treatment: no free automated source, backfilled by hand.
   zew: { label: "ZEW (Allemagne)", unit: "" },
   ifo: { label: "ifo Business Climate (Allemagne)", unit: "" },
+  // CHF only. Derived from Frankfurter's daily rate — see lib/integrations/eurchf.ts.
+  eurChf: { label: "EUR/CHF (variation)", unit: "%" },
   // Thousands of jobs for the AUD and the CAD, a quarterly percentage for the
   // NZD, which is why the unit is resolved per currency below.
   employmentChange: { label: "Emploi", unit: "" },
@@ -115,6 +118,7 @@ export default async function IndicatorHistoryPage({
   const useRba = upperCode === "AUD" && hasRbaHistory(field);
   const useEstat = upperCode === "JPY" && hasJapanHistory(field);
   const useSnb = upperCode === "CHF" && hasSnbHistory(field);
+  const useEurChf = upperCode === "CHF" && !useSnb && hasEurChfHistory(field);
   const useStatsNz = upperCode === "NZD" && hasStatsNzHistory(field);
   const useGdt = upperCode === "NZD" && !useStatsNz && hasGdtHistory(field);
   const national =
@@ -127,6 +131,7 @@ export default async function IndicatorHistoryPage({
     useRba ||
     useEstat ||
     useSnb ||
+    useEurChf ||
     useStatsNz ||
     useGdt;
   const useFred = !national && hasFredCsvHistory(upperCode, field);
@@ -259,6 +264,26 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur GDT";
+    }
+  } else if (useEurChf) {
+    sourceLabel = "Frankfurter (BCE)";
+    try {
+      const series = await getEurChfHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée EUR/CHF disponible.";
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur EUR/CHF";
     }
   } else if (useEstat || useSnb || useStatsNz) {
     sourceLabel = useEstat ? "Statistics Bureau of Japan" : useSnb ? "BNS" : "Stats NZ";

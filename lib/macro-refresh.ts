@@ -5,6 +5,7 @@ import { ensureIndicatorCommentary } from "@/lib/commentary";
 import { fetchBocData } from "@/lib/integrations/boc";
 import { fetchBoeData } from "@/lib/integrations/boe";
 import { fetchBojRateData, fetchBojTradeBalanceData } from "@/lib/integrations/boj";
+import { nextBfsCpiRelease } from "@/lib/integrations/ch-calendar";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
@@ -429,9 +430,13 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
       errors.push(`CPI Suisse: ${message}`);
       sources.push({ source: "SNB", label: "CPI Suisse", written: 0, error: message });
     } else {
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === "cpi")?.values.CHF?.nextRelease ?? null,
-      );
+      // FXMacroData carries no forecast-calendar entry for the Swiss CPI —
+      // its own nextRelease came back null even when its VALUE was fresh, so
+      // borrowing from it (the pattern every other currency here uses) left
+      // this field permanently dateless. The BFS publishes its full-year
+      // release calendar itself; see ch-calendar.ts for why it's a static
+      // verified list rather than a live fetch.
+      const bfsNextRelease = nextBfsCpiRelease(new Date());
       const latestIndex = snbCpiResult.history.length - 1;
 
       const rows: PendingRow[] = [];
@@ -445,7 +450,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           period: periodLabel(point.period),
           periodEnd: end,
           source: IndicatorSource.SNB,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+          ...(index === latestIndex ? { nextRelease: bfsNextRelease } : {}),
         });
       });
 

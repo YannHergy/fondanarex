@@ -5,6 +5,7 @@ import { recordScoresAndAlert } from "@/lib/alerts";
 import { refreshChinaDemand } from "@/lib/china";
 import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshJpCurrentAccount } from "@/lib/jp-current-account";
+import { refreshChfRateDate } from "@/lib/chf-rate-date";
 import { OECD_FIELDS } from "@/lib/integrations/oecd";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { refreshOilChange } from "@/lib/oil";
@@ -102,15 +103,17 @@ export async function GET(request: NextRequest) {
   let dairy: Awaited<ReturnType<typeof refreshDairyGdt>> | null = null;
   let oil: Awaited<ReturnType<typeof refreshOilChange>> | null = null;
   let jpCurrentAccount: Awaited<ReturnType<typeof refreshJpCurrentAccount>> | null = null;
+  let chfRateDate: Awaited<ReturnType<typeof refreshChfRateDate>> | null = null;
   const fastUserId = await currentUserId().catch(() => null);
   if (fastUserId) {
     // Independent sources, so they go out together — one failing must not
     // delay or lose the others.
-    [china, dairy, oil, jpCurrentAccount] = await Promise.all([
+    [china, dairy, oil, jpCurrentAccount, chfRateDate] = await Promise.all([
       refreshChinaDemand(fastUserId).catch(() => null),
       refreshDairyGdt(fastUserId).catch(() => null),
       refreshOilChange(fastUserId).catch(() => null),
       refreshJpCurrentAccount(fastUserId).catch(() => null),
+      refreshChfRateDate(fastUserId).catch(() => null),
     ]);
   }
 
@@ -140,7 +143,7 @@ export async function GET(request: NextRequest) {
     revalidatePath("/", "layout");
 
     return NextResponse.json(
-      { ...report, alerts, china, dairy, oil, jpCurrentAccount },
+      { ...report, alerts, china, dairy, oil, jpCurrentAccount, chfRateDate },
       { status: report.written > 0 ? 200 : 502 },
     );
   } catch (error) {

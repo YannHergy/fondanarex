@@ -844,8 +844,15 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   // Same shape as the Eurostat block, with one difference worth having: the
   // ONS publishes its own release calendar on every series, so the next
   // release comes from the source rather than being borrowed from
-  // FXMacroData the way the euro-area rows have to.
+  // FXMacroData the way the euro-area rows have to — EXCEPT when the ONS's
+  // own field has gone stale. Observed live on GDP: the ONS kept advertising
+  // 30 June as the next release well after that date had passed, while
+  // FXMacroData's forecast (13 August) matched Trading Economics' calendar
+  // exactly. A next-release date already in the past is never useful, so a
+  // stale ONS value falls through to FXMacroData instead of being trusted
+  // over a fresher one just because it is the tier-preferred source.
   if (known.has("GBP")) {
+    const now = new Date(started);
     for (const series of onsResults) {
       if (series.error || series.history.length === 0) {
         const message = series.error ?? "aucune donnée";
@@ -854,11 +861,12 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         continue;
       }
 
+      const onsNextRelease = parseInstant(series.nextRelease);
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values.GBP?.nextRelease ?? null,
+      );
       const nextRelease =
-        parseInstant(series.nextRelease) ??
-        parseInstant(
-          fxMacroResults.find((d) => d.field === series.field)?.values.GBP?.nextRelease ?? null,
-        );
+        onsNextRelease && onsNextRelease.getTime() > now.getTime() ? onsNextRelease : fxNextRelease;
       const latestIndex = series.history.length - 1;
 
       const rows: PendingRow[] = [];

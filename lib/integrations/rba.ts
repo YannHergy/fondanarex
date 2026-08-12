@@ -1,7 +1,8 @@
 import "server-only";
 
 /**
- * Reserve Bank of Australia — statistical table G1, Consumer Price Inflation.
+ * Reserve Bank of Australia — statistical tables G1 (inflation), H5 (labour
+ * force) and F1 (the cash rate target).
  *
  * The RBA publishes its statistical tables as plain CSV at fixed URLs: no key,
  * no registration, and — unlike most of the sources here — the rates come out
@@ -15,6 +16,11 @@ import "server-only";
  * The table is QUARTERLY, which is what the AUD profile scores ("CPI
  * trimestriel"). Australia also publishes a monthly CPI indicator; it is a
  * different series and not the one weighted here.
+ *
+ * The cash rate target (table F1) is fetched the same way: no OECD relay
+ * involved at all for this one, since FXMacroData/OECD were never the
+ * question — the RBA is the primary source for its own policy rate by
+ * definition, the way the ECB and the SNB are for theirs.
  *
  * A `User-Agent` is set on purpose: rba.gov.au refuses a bare programmatic
  * request.
@@ -32,7 +38,7 @@ const USER_AGENT =
 const HISTORY_SINCE = "2015";
 
 export interface RbaPoint {
-  /** "2026-Q2" */
+  /** "2026-Q2", "2026-06", or "2026-08-07" — grain depends on the series. */
   period: string;
   value: number;
 }
@@ -44,8 +50,13 @@ interface SeriesConfig {
   table: string;
   /** RBA series identifier, matched against the "Series ID" row. */
   seriesId: string;
-  /** Monthly tables stamp a month; quarterly ones stamp a quarter. */
-  frequency: "monthly" | "quarterly";
+  /**
+   * Monthly and quarterly tables (G1, H5) stamp a month or a quarter and
+   * date it "DD/MM/YYYY". F1 is daily and dates itself "DD-Mon-YYYY" — a
+   * different format, not just a different grain, so toPeriod() branches on
+   * the date string itself rather than trusting this field alone.
+   */
+  frequency: "daily" | "monthly" | "quarterly";
   /**
    * "level" keeps the published figure — the rate tables already carry one.
    * "chg" turns a level into its change on the previous period, which is what
@@ -100,6 +111,21 @@ const SERIES: readonly SeriesConfig[] = [
       "La variation mensuelle de l'emploi est le principal indicateur du marché du travail australien : au-dessus de 20 000 créations, le marché est jugé solide.",
     verifiedAgainst: "+76,4 k en juin 2026 contre 76 343 publiés",
   },
+  {
+    field: "interestRate",
+    label: "Taux directeur (Cash Rate Target)",
+    // Daily, flat between the Board's eight meetings a year — the same shape
+    // as the ECB's deposit rate in ecb.ts, collapsed to one row per month by
+    // periodLabel() at write time.
+    table: "f1",
+    seriesId: "FIRMMCRTD",
+    frequency: "daily",
+    transform: "level",
+    displayUnit: "%",
+    context:
+      "Le Cash Rate Target est le taux directeur de la Reserve Bank of Australia : chaque décision du Board déplace directement l'attractivité du dollar australien face aux autres devises.",
+    verifiedAgainst: "4,35% (inchangé à la réunion d'août 2026), identique à Trading Economics",
+  },
 ];
 
 export interface RbaSeriesResult {
@@ -127,18 +153,45 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
+const MONTH_ABBR: Record<string, string> = {
+  Jan: "01",
+  Feb: "02",
+  Mar: "03",
+  Apr: "04",
+  May: "05",
+  Jun: "06",
+  Jul: "07",
+  Aug: "08",
+  Sep: "09",
+  Oct: "10",
+  Nov: "11",
+  Dec: "12",
+};
+
 /**
- * "30/06/2026" -> "2026-Q2" or "2026-06". The RBA stamps every period with its
- * LAST day, so a quarter is identified by the month it ends in.
+ * G1 and H5 date themselves "30/06/2026" -> "2026-Q2" or "2026-06": the RBA
+ * stamps every period with its LAST day, so a quarter or month is identified
+ * by the date's own month. F1 is daily and dates itself "07-Aug-2026" -> the
+ * full date IS the period, so it skips the quarter/month collapsing entirely.
  */
-function toPeriod(australianDate: string, frequency: "monthly" | "quarterly"): string | null {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(australianDate.trim());
-  if (!match) return null;
-  const month = Number(match[2]);
-  if (month < 1 || month > 12) return null;
-  return frequency === "quarterly"
-    ? `${match[3]}-Q${Math.ceil(month / 3)}`
-    : `${match[3]}-${match[2]}`;
+function toPeriod(rbaDate: string, frequency: "daily" | "monthly" | "quarterly"): string | null {
+  const trimmed = rbaDate.trim();
+
+  const slash = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (slash) {
+    const month = Number(slash[2]);
+    if (month < 1 || month > 12) return null;
+    return frequency === "quarterly" ? `${slash[3]}-Q${Math.ceil(month / 3)}` : `${slash[3]}-${slash[2]}`;
+  }
+
+  const dashed = /^(\d{2})-([A-Za-z]{3})-(\d{4})$/.exec(trimmed);
+  if (dashed) {
+    const month = MONTH_ABBR[dashed[2]!];
+    if (!month) return null;
+    return `${dashed[3]}-${month}-${dashed[1]}`;
+  }
+
+  return null;
 }
 
 /** One RBA statistical table, parsed into its rows once per refresh. */
@@ -155,7 +208,10 @@ async function fetchTable(table: string): Promise<{ idRow: string[]; dataRows: s
     idRow: splitCsvLine(lines.find((l) => l.startsWith("Series ID")) ?? ""),
     // Rows whose first cell is a date are the observations. The files also
     // carry future periods with empty cells, which fall out when parsed.
-    dataRows: lines.filter((l) => /^\d{2}\/\d{2}\/\d{4},/.test(l)).map((l) => splitCsvLine(l)),
+    // G1/H5 date "30/06/2026"; F1 dates "07-Aug-2026" — both accepted here.
+    dataRows: lines
+      .filter((l) => /^(\d{2}\/\d{2}\/\d{4}|\d{2}-[A-Za-z]{3}-\d{4}),/.test(l))
+      .map((l) => splitCsvLine(l)),
   };
 }
 

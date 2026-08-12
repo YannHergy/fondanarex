@@ -412,16 +412,22 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     }
   }
 
-  // ── Statistics Canada and the RBA: the CAD and AUD price indices ────────
+  // ── The RBA, Stats NZ and Statistics Canada: the AUD/NZD/CAD price indices ──
   //
-  // Both fill the same gap for their currency: FRED carries a CPI for each
-  // and both come through OECD's Main Economic Indicators, a feed that
+  // All three fill the same gap for their currency: FRED carries a CPI for
+  // each and all come through OECD's Main Economic Indicators, a feed that
   // stopped in 2025 while still answering HTTP 200. Same shape as the blocks
   // above, so they share one loop.
+  //
+  // AUD and NZD go first within it: measured directly, a run that reaches
+  // this loop at all still sometimes runs out of budget partway through —
+  // CAD has the deepest existing history of the three (StatCan has been
+  // wired the longest), so it can better afford to be the one occasionally
+  // skipped for a day.
   for (const national of [
-    { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
     { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
     { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
+    { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
   ] as const) {
     if (!known.has(national.code)) continue;
 

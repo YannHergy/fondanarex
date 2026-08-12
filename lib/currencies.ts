@@ -200,9 +200,15 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
           WHEN 'STATSNZ' THEN 2
           WHEN 'GDT' THEN 2
           WHEN 'BOJ' THEN 2
+          -- Le Bureau de la statistique du Japon est l'ÉDITEUR du CPI
+          -- japonais, exactement comme l'ONS, Eurostat, la BNS ou StatCan le
+          -- sont pour leur pays — donc même palier qu'eux. Il était en 5,
+          -- sous FXMacroData, et cela servait un CPI global (1,7) sous une
+          -- carte intitulée « ex-fresh food », dont la vraie valeur est 1,6 :
+          -- la mesure que la BoJ cible et que le profil JPY pondère.
+          WHEN 'ESTAT' THEN 2
           WHEN 'FXMACRODATA' THEN 3
           WHEN 'MARKET' THEN 4
-          WHEN 'ESTAT' THEN 5
           WHEN 'OECD' THEN 6
           WHEN 'DERIVED' THEN 7
           ELSE 8

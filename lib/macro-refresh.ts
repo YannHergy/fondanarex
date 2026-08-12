@@ -6,6 +6,12 @@ import { fetchBocData } from "@/lib/integrations/boc";
 import { fetchBoeData } from "@/lib/integrations/boe";
 import { fetchBojRateData, fetchBojTradeBalanceData } from "@/lib/integrations/boj";
 import { nextBfsCpiRelease } from "@/lib/integrations/ch-calendar";
+import {
+  nextBojDecision,
+  nextJpBopRelease,
+  nextJpNationalCpiRelease,
+  nextJpTokyoCpiRelease,
+} from "@/lib/integrations/jp-calendar";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
@@ -163,6 +169,23 @@ function parseInstant(value: string | null): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * La date de prochaine publication annoncée par l'institution qui publie
+ * elle-même la série, quand elle en annonce une.
+ *
+ * `undefined` (et non `null`) signifie « aucun calendrier officiel câblé pour
+ * ce champ » : l'appelant retombe alors sur le calendrier prévisionnel de
+ * FXMacroData. `null` signifierait « calendrier connu mais épuisé », ce qui
+ * doit effacer la date plutôt que ressusciter la source payante.
+ */
+function officialNextRelease(code: string, field: string): Date | null | undefined {
+  if (code !== "JPY") return undefined;
+  const now = new Date();
+  if (field === "interestRate") return nextBojDecision(now);
+  if (field === "tradeBalance") return nextJpBopRelease(now);
+  return undefined;
 }
 
 /** Currencies that exist in the database, so a reading for an untracked area is dropped. */
@@ -384,9 +407,10 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
       errors.push(`CPI Japon: ${message}`);
       sources.push({ source: "ESTAT", label: "CPI Japon", written: 0, error: message });
     } else {
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === "cpi")?.values.JPY?.nextRelease ?? null,
-      );
+      // Le calendrier du Bureau de la statistique, pas celui de FXMacroData
+      // (payant) : c'est lui qui publie la série, il annonce ses dates un an
+      // à l'avance. Voir jp-calendar.ts.
+      const jpNextRelease = nextJpNationalCpiRelease(new Date());
       const latestIndex = japanCpiResult.history.length - 1;
 
       const rows: PendingRow[] = [];
@@ -400,7 +424,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           period: periodLabel(point.period),
           periodEnd: end,
           source: IndicatorSource.ESTAT,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+          ...(index === latestIndex ? { nextRelease: jpNextRelease } : {}),
         });
       });
 
@@ -600,10 +624,19 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         continue;
       }
 
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === series.field)?.values[national.code]?.nextRelease ??
-          null,
-      );
+      // Les dates du JPY viennent des calendriers publiés par les
+      // institutions japonaises elles-mêmes (BoJ pour ses décisions, MoF pour
+      // la balance des paiements) plutôt que du calendrier prévisionnel de
+      // FXMacroData, qui est payant. `undefined` = pas de calendrier officiel
+      // câblé pour ce champ, on retombe sur l'emprunt habituel.
+      const official = officialNextRelease(national.code, series.field);
+      const fxNextRelease =
+        official !== undefined
+          ? official
+          : parseInstant(
+              fxMacroResults.find((d) => d.field === series.field)?.values[national.code]
+                ?.nextRelease ?? null,
+            );
       const latestIndex = series.history.length - 1;
 
       const rows: PendingRow[] = [];
@@ -750,6 +783,9 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         period: tokyoCpiResult.period,
         periodEnd: end,
         source: IndicatorSource.ESTAT,
+        // Le Bureau de la statistique publie le calendrier du CPI Tokyo en
+        // même temps que celui du national — aucune autre source n'en a.
+        nextRelease: nextJpTokyoCpiRelease(new Date()),
       });
     }
     if (tokyoCpiResult.previousPeriod) {

@@ -239,9 +239,11 @@ enum IndicatorSource {
   /// Market-quoted data rather than a statistical release: the VIX today,
   /// and whatever else is priced continuously (oil, gold) if added later.
   MARKET
-  /// Statistics Bureau of Japan (Statistics Dashboard). Its own tier because
-  /// it is an official statistical agency like the OECD, but unlike the OECD
-  /// its refresh actually works — so it must count as a live source.
+  /// Statistics Bureau of Japan (Statistics Dashboard). The PUBLISHER of the
+  /// Japanese CPI, so it sits at the same tier as the ONS, Eurostat, the SNB
+  /// and StatCan rather than below FXMacroData: it serves the ex-fresh-food
+  /// measure the BoJ targets and the JPY profile weights, where FXMacroData
+  /// served the headline index under that same label.
   ESTAT
   /// Eurostat, the euro area's own statistical office. The PUBLISHER of the
   /// EUR figures FXMacroData redistributes, so it outranks it: one fewer hop

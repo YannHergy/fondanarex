@@ -133,7 +133,12 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       // cible, ce qui est le comportement normal de ce taux de marché. Même
       // écart que le CPI/chômage suisses : mesure plus précise, pas erreur.
       { key: "interestRate", status: "MISMATCH", reference: "1 (cible BoJ arrondie)" },
-      { key: "cpi", status: "MATCH", reference: "1.7" },
+      // Le profil pondère le CPI HORS PRODUITS FRAIS — la mesure que cible la
+      // BoJ — et c'est ce que dit le libellé de la carte. TE l'affiche sur sa
+      // page « Core Inflation Rate » : 1.6 en juin 2026, ce que sert
+      // désormais le Bureau de la statistique. Son 1.7 « Inflation Rate »
+      // est l'indice global, une autre mesure.
+      { key: "cpi", status: "MATCH", reference: "1.6 (hors produits frais)" },
       { key: "unemployment", status: "MATCH", reference: "2.5" },
       // Le Japon publie son PIB en trimestriel brut, directement comparable
       // (contrairement aux États-Unis) : 0.45 contre 0.5 arrondi par TE.

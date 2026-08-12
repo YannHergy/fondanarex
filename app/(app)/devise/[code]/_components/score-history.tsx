@@ -12,8 +12,11 @@ import { prisma } from "@/lib/prisma";
  * The currency's score over time.
  *
  * Reads ScoreSnapshot, which a refresh writes one row per currency into, plus
- * — for the EUR — a monthly series rebuilt back to January 2023 by replaying
- * the scoring engine against the indicator table as it stood each month.
+ * — for the EUR, AUD, CAD and NZD — a monthly series rebuilt back to January
+ * 2023 by replaying the scoring engine against the indicator table as it
+ * stood each month. The other four currencies still only have what daily
+ * refreshes have accumulated since — the same backfill applies to them
+ * cleanly whenever they get a source with comparable historical depth.
  *
  * Deliberately rendered even with a single point rather than hidden: showing
  * where the score sits now, with the axis already in place, makes it obvious

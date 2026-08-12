@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ChinaDemandBreakdown } from "@/app/(app)/devise/[code]/indicateur/[field]/_components/china-demand-breakdown";
 import { HistoryChart } from "@/app/(app)/devise/[code]/indicateur/[field]/_components/history-chart";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
@@ -73,6 +74,7 @@ export async function generateMetadata({
   params: Promise<{ code: string; field: string }>;
 }): Promise<Metadata> {
   const { code, field } = await params;
+  if (field === "chinaDemand") return { title: `Demande chinoise — ${code.toUpperCase()}` };
   const meta = FIELD_LABELS[field];
   return { title: meta ? `${meta.label} — ${code.toUpperCase()}` : code.toUpperCase() };
 }
@@ -85,6 +87,17 @@ export default async function IndicatorHistoryPage({
   const userId = await requireUserId();
   const { code, field } = await params;
   const upperCode = code.toUpperCase();
+
+  // "Demande chinoise" has no history of its own — it is a composite
+  // recombined fresh on every request (see lib/china.ts) — so it takes a
+  // completely different page instead of falling through the chart logic
+  // below, which assumes one field has one time series to plot.
+  if (field === "chinaDemand" && (upperCode === "AUD" || upperCode === "NZD")) {
+    const currencies = await getScoredCurrencies(userId);
+    const currency = currencies[upperCode];
+    if (!currency) notFound();
+    return <ChinaDemandBreakdown code={upperCode} currencyName={currency.name} />;
+  }
 
   const meta = FIELD_LABELS[field];
   // Eurostat and the ECB cover EUR with no depth limit; FXMacroData's

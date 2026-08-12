@@ -6,7 +6,11 @@ import {
   saneGdpGrowth,
   type ChinaDemandIndex,
 } from "@/domain/china/demand";
-import { fetchChinaReadings, isConfigured } from "@/lib/integrations/fxmacrodata";
+import {
+  fetchChinaReadings,
+  isConfigured,
+  type ChinaReadings,
+} from "@/lib/integrations/fxmacrodata";
 import { contextKeyToDb } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { IndicatorSource } from "@/lib/generated/prisma/enums";
@@ -40,6 +44,29 @@ export interface ChinaRefreshReport {
 /** Both keys land on the same observation date, so a page reads a matched pair. */
 const KEYS = { current: "chinaPmi", previous: "chinaPmiPrev" } as const;
 
+/**
+ * Builds the composite for one reading slot (0 = newest, 1 = the one before).
+ *
+ * Exported so the "Demande chinoise" detail page can show the SAME breakdown
+ * this function scores on — every component, its weight, and what (if
+ * anything) is missing — rather than just the single opaque index number the
+ * card displays. Two slots, not one, for the same reason `refreshChinaDemand`
+ * needs both: `scoreChinaLevel` reads a momentum term off the difference.
+ */
+export function buildChinaDemandIndex(readings: ChinaReadings, slot: 0 | 1): ChinaDemandIndex {
+  return chinaDemandIndex({
+    retailSalesYoY: readings.retailSales[slot] ?? null,
+    cpiYoY: readings.cpi[slot] ?? null,
+    unemployment: readings.unemployment[slot] ?? null,
+    policyRate: readings.policyRate[slot] ?? null,
+    // The prior rate for the current slot is the previous reading; for the
+    // previous slot there is no reading before it, so that component drops
+    // out rather than being invented.
+    policyRatePrev: slot === 0 ? (readings.policyRate[1] ?? null) : null,
+    gdpYoY: saneGdpGrowth(readings.gdpYoY[slot]),
+  });
+}
+
 function empty(error: string | null): ChinaRefreshReport {
   return {
     written: 0,
@@ -65,21 +92,8 @@ export async function refreshChinaDemand(userId: string): Promise<ChinaRefreshRe
 
   // The composite is built twice, from the newest reading of each series and
   // from the one before it, so the momentum term compares like with like.
-  const build = (slot: 0 | 1): ChinaDemandIndex =>
-    chinaDemandIndex({
-      retailSalesYoY: readings.retailSales[slot] ?? null,
-      cpiYoY: readings.cpi[slot] ?? null,
-      unemployment: readings.unemployment[slot] ?? null,
-      policyRate: readings.policyRate[slot] ?? null,
-      // The prior rate for the current slot is the previous reading; for the
-      // previous slot there is no reading before it, so that component drops
-      // out rather than being invented.
-      policyRatePrev: slot === 0 ? (readings.policyRate[1] ?? null) : null,
-      gdpYoY: saneGdpGrowth(readings.gdpYoY[slot]),
-    });
-
-  const current = build(0);
-  const previous = build(1);
+  const current = buildChinaDemandIndex(readings, 0);
+  const previous = buildChinaDemandIndex(readings, 1);
 
   if (current.value === null) {
     return {

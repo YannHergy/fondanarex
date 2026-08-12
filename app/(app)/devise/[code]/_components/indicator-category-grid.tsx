@@ -134,6 +134,10 @@ export function IndicatorCategoryGrid({
                   (currency.code === "JPY" && hasJapanHistory(field)) ||
                   (currency.code === "CHF" && hasSnbHistory(field)) ||
                   (currency.code === "NZD" && hasStatsNzHistory(field)) ||
+                  // No time series to chart — see china-demand-breakdown.tsx
+                  // for what the click leads to instead.
+                  ((currency.code === "AUD" || currency.code === "NZD") &&
+                    field === "chinaDemand") ||
                   hasFredCsvHistory(currency.code, field) ||
                   hasManualHistory(currency.code, field));
               const manualCheck = needsManualCheck(

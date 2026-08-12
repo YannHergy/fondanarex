@@ -43,7 +43,12 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   commodityPrice: { label: "Matières premières", unit: "%" },
   // No free source exists anywhere (S&P Global sells it) — backfilled by
   // hand from Trading Economics' published history, see lib/manual-history.ts.
-  pmiManufacturing: { label: "PMI Manufacturier (allemand)", unit: "" },
+  // Shared across every currency that has one backfilled (EUR, GBP so far),
+  // so the label stays generic — the currency-specific survey (German,
+  // British...) already shows on the overview card via the profile's own
+  // `nom`, see domain/data/currency-weights.ts.
+  pmiManufacturing: { label: "PMI Manufacturier", unit: "" },
+  pmiServices: { label: "PMI Services", unit: "" },
   // USD only, from FRED.
   nfp: { label: "NFP (emplois non agricoles)", unit: " k" },
   corePce: { label: "Core PCE", unit: "%" },

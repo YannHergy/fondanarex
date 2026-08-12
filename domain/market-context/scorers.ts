@@ -266,19 +266,12 @@ export function scoreTokyoCpi(ctx: MarketContext): number | null {
     return -8;
 }
 
-/**
- * JAPANESE CURRENT ACCOUNT (JPY) — bn JPY.
- * The structural Japanese surplus supports the yen through repatriations.
- */
-export function scoreJpCurrentAccount(ctx: MarketContext): number | null {
-    if (ctx.jpCurrentAccount === null) return null;
-
-    if (ctx.jpCurrentAccount > 2500)  return 10;
-    if (ctx.jpCurrentAccount > 1500)  return 6;
-    if (ctx.jpCurrentAccount > 0)     return 2;
-    if (ctx.jpCurrentAccount > -1000) return -4;
-    return -9;
-}
+// Le compte courant japonais (ctx.jpCurrentAccount) avait ici sa propre
+// échelle, graduée en milliards de yens (2500 / 1500 / -1000). Elle était
+// juste pour le Japon mais incomparable avec celle des sept autres devises :
+// le yen était noté sur une règle qui lui était propre. Il passe désormais
+// par la même conversion en % du PIB que tout le monde — voir
+// externalBalancePctGdp et scoreBalancePctGdp dans domain/scoring/engine.ts.
 
 /**
  * UK WAGE GROWTH (GBP) — % YoY.

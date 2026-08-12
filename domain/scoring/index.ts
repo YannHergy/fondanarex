@@ -31,6 +31,8 @@ export {
     scoreMonthlyWages,
     scoreWages,
     scoreTradeBalance,
+    externalBalancePctGdp,
+    scoreBalancePctGdp,
     scoreTokyoCpiLevel,
     scoreChinaLevel,
     riskOffFromVix,

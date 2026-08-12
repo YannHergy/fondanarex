@@ -91,6 +91,9 @@ const NUMERIC_FIELDS = [
   "usSpillover",
   "tokyoCpi",
   "eurChf",
+  // Échelle, pas indicateur noté : rapporte les balances à la taille de
+  // l'économie pour les rendre comparables entre devises.
+  "nominalGdp",
 ] as const;
 
 type NumericField = (typeof NUMERIC_FIELDS)[number];

@@ -288,6 +288,12 @@ enum IndicatorSource {
   /// compiled jointly with the Ministry of Finance — that carries both the
   /// trade balance and the current account the jp_balance indicator prefers.
   BOJ
+  /// La Banque mondiale, indicateur NY.GDP.MKTP.CN (« GDP, current LCU »).
+  /// Fournit le PIB nominal annuel EN MONNAIE LOCALE, la seule chose qui
+  /// rende les balances commerciales comparables entre devises — sans lui on
+  /// compare des milliards de yens à des milliards de dollars sur la même
+  /// échelle. La zone euro, absente de cet indicateur, vient d'Eurostat.
+  WORLDBANK
   MANUAL
   DERIVED
 }

@@ -31,7 +31,7 @@ import {
     scoreRiskSafeHaven, scoreRiskProCyclical, scoreUsSpillover,
     scoreEurChfFlows, scoreSnbIntervention, scoreNfp,
     scoreEmploymentChange, scoreEmploymentChangeValue, scoreNzEmployment,
-    scoreZew, scoreIvey, scoreKof, scoreTokyoCpi, scoreJpCurrentAccount,
+    scoreZew, scoreIvey, scoreKof, scoreTokyoCpi,
     scoreGbWages, scoreRetail,
 } from '../market-context/scorers';
 import { scoreOilLevel } from '../macro/oil';
@@ -398,21 +398,57 @@ export function scoreWages(curr: CurrencyData, target: number): number {
         : scoreMonthlyWages(curr.wagePPI, prev);
 }
 
-/** Trade balance: level + momentum */
-export function scoreTradeBalance(curr: CurrencyData): number {
-    let level: number;
-    if (curr.tradeBalance > 15)       level = 10;
-    else if (curr.tradeBalance > 5)   level = 6;
-    else if (curr.tradeBalance > 0)   level = 2;
-    else if (curr.tradeBalance > -5)  level = -2;
-    else if (curr.tradeBalance > -15) level = -6;
-    else                              level = -10;
+/**
+ * Une balance extérieure mensuelle ramenée en % du PIB, annualisée.
+ *
+ * C'est ce qui rend deux devises comparables. Les balances sont stockées en
+ * milliards de MONNAIE LOCALE : -363 pour le Japon (des yens) et -73 pour les
+ * États-Unis (des dollars) décrivent des réalités trente fois différentes, et
+ * une échelle absolue commune les mettait au même plancher. Rapportées au
+ * PIB, elles deviennent -0,7% et -2,9% : sans unité, donc comparables, et
+ * sans avoir besoin du moindre taux de change puisque la balance et le PIB
+ * sont dans la même monnaie — le rapport l'élimine.
+ *
+ * Null quand le PIB manque : mieux vaut retirer l'indicateur du dénominateur
+ * (voir weightedAverage) que le noter sur une échelle qui ne veut rien dire.
+ */
+export function externalBalancePctGdp(monthly: number, curr: CurrencyData): number | null {
+    const gdp = curr.nominalGdp;
+    if (typeof gdp !== 'number' || !Number.isFinite(gdp) || gdp <= 0) return null;
+    return ((monthly * 12) / gdp) * 100;
+}
 
-    const prev     = prevNum(curr, 'tradeBalance', curr.tradeBalance);
-    const delta    = curr.tradeBalance - prev;
-    const momentum = delta > 2 ? 2 : delta < -2 ? -2 : 0;
+/**
+ * Note une balance extérieure déjà exprimée en % du PIB.
+ *
+ * Seuils calibrés sur ce que ces pourcentages valent réellement : la Suisse
+ * tourne autour de +5,5%, les États-Unis autour de -2,9%, et la plupart des
+ * autres entre -1% et +1,5%. Le momentum se compte désormais en POINTS de
+ * pourcentage — un demi-point de PIB en un mois est déjà un mouvement franc,
+ * là où l'ancien seuil de ±2 était exprimé en milliards bruts.
+ */
+export function scoreBalancePctGdp(pct: number, prevPct: number): number {
+    let level: number;
+    if (pct > 5)       level = 10;
+    else if (pct > 2)  level = 6;
+    else if (pct > 0)  level = 2;
+    else if (pct > -2) level = -2;
+    else if (pct > -5) level = -6;
+    else               level = -10;
+
+    const delta    = pct - prevPct;
+    const momentum = delta > 0.5 ? 2 : delta < -0.5 ? -2 : 0;
 
     return clamp10(level + momentum);
+}
+
+/** Trade balance: niveau + momentum, en % du PIB */
+export function scoreTradeBalance(curr: CurrencyData): number | null {
+    const pct = externalBalancePctGdp(curr.tradeBalance, curr);
+    if (pct === null) return null;
+
+    const prevPct = externalBalancePctGdp(prevNum(curr, 'tradeBalance', curr.tradeBalance), curr);
+    return scoreBalancePctGdp(pct, prevPct ?? pct);
 }
 
 // ================================================================
@@ -535,8 +571,16 @@ export function scoreIndicator(id: string, inputs: ScoringInputs): number | null
 
         // ── External trade ───────────────────────────────────────
         case 'balance':
-            // Japan is driven by its current account more than its trade balance
-            if (curr.code === 'JPY') return scoreJpCurrentAccount(ctx) ?? scoreTradeBalance(curr);
+            // Le Japon est piloté par son compte courant plus que par sa
+            // balance commerciale — mais il passe par la MÊME échelle en % du
+            // PIB que les sept autres. Il avait sa propre échelle en
+            // milliards de yens (2500 / 1500 / -1000), correctement calibrée
+            // mais incomparable avec celle des autres devises : le yen s'en
+            // sortait par exception, pas par principe.
+            if (curr.code === 'JPY' && ctx.jpCurrentAccount !== null) {
+                const pct = externalBalancePctGdp(ctx.jpCurrentAccount, curr);
+                if (pct !== null) return scoreBalancePctGdp(pct, pct);
+            }
             return scoreTradeBalance(curr);
 
         case 'retail': {

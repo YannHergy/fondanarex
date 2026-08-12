@@ -11,7 +11,6 @@ import {
     scoreGbWages,
     scoreIronOre,
     scoreIvey,
-    scoreJpCurrentAccount,
     scoreKof,
     scoreNfp,
     scoreNzEmployment,
@@ -69,7 +68,6 @@ describe('null handling — an absent datum is never scored', () => {
         expect(scoreIvey(EMPTY_MARKET_CONTEXT)).toBeNull();
         expect(scoreKof(EMPTY_MARKET_CONTEXT)).toBeNull();
         expect(scoreTokyoCpi(EMPTY_MARKET_CONTEXT)).toBeNull();
-        expect(scoreJpCurrentAccount(EMPTY_MARKET_CONTEXT)).toBeNull();
         expect(scoreGbWages(EMPTY_MARKET_CONTEXT)).toBeNull();
         expect(scoreEmploymentChange(null)).toBeNull();
         expect(scoreRetail(null)).toBeNull();
@@ -254,13 +252,10 @@ describe('Japan', () => {
         expect(scoreTokyoCpi(ctx({ jpTokyoCpi: 0.5 }))).toBe(-8);
     });
 
-    it('the current account ladder rewards the structural surplus', () => {
-        expect(scoreJpCurrentAccount(ctx({ jpCurrentAccount: 3000 }))).toBe(10);
-        expect(scoreJpCurrentAccount(ctx({ jpCurrentAccount: 2000 }))).toBe(6);
-        expect(scoreJpCurrentAccount(ctx({ jpCurrentAccount: 500 }))).toBe(2);
-        expect(scoreJpCurrentAccount(ctx({ jpCurrentAccount: -500 }))).toBe(-4);
-        expect(scoreJpCurrentAccount(ctx({ jpCurrentAccount: -2000 }))).toBe(-9);
-    });
+    // L'échelle du compte courant japonais, graduée en milliards de yens,
+    // vivait ici. Elle est remplacée par la conversion en % du PIB commune
+    // aux huit devises — voir les tests de scoreBalancePctGdp dans
+    // domain/scoring/engine.test.ts.
 });
 
 describe('scoreGbWages', () => {

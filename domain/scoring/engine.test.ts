@@ -62,6 +62,10 @@ function makeCurrency(overrides: Partial<CurrencyData> = {}): CurrencyData {
         tradeBalance: 0,
         currentAccount: 0,
         consumerConfidence: 0,
+        // Échelle des balances, pas indicateur noté : présente pour les huit
+        // devises en production, donc présente ici aussi. 1200 rend la
+        // lecture directe — une balance de X milliards vaut X% du PIB.
+        nominalGdp: 1200,
         geopoliticalRisks: '',
         eventsToWatch: [],
         qualitativeAnalysis: '',
@@ -477,19 +481,39 @@ describe('wages', () => {
 });
 
 describe('scoreTradeBalance', () => {
-    it('walks the ladder and applies momentum', () => {
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 20 }))).toBe(10);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 10 }))).toBe(6);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 2 }))).toBe(2);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 0 }))).toBe(-2);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -10 }))).toBe(-6);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -20 }))).toBe(-10);
+    // Un PIB de 1200 rend la lecture directe : une balance mensuelle de X
+    // milliards vaut X% du PIB annualisé (X * 12 / 1200 * 100 = X).
+    const GDP = 1200;
 
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 10, previousData: { tradeBalance: 5 } }))).toBe(8);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 10, previousData: { tradeBalance: 15 } }))).toBe(4);
+    it('walks the ladder and applies momentum', () => {
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 6, nominalGdp: GDP }))).toBe(10);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 3, nominalGdp: GDP }))).toBe(6);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 1, nominalGdp: GDP }))).toBe(2);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 0, nominalGdp: GDP }))).toBe(-2);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -3, nominalGdp: GDP }))).toBe(-6);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -6, nominalGdp: GDP }))).toBe(-10);
+
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 3, nominalGdp: GDP, previousData: { tradeBalance: 1 } }))).toBe(8);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 3, nominalGdp: GDP, previousData: { tradeBalance: 5 } }))).toBe(4);
         // clamped at both ends
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 20, previousData: { tradeBalance: 0 } }))).toBe(10);
-        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -20, previousData: { tradeBalance: 0 } }))).toBe(-10);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: 6, nominalGdp: GDP, previousData: { tradeBalance: 0 } }))).toBe(10);
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -6, nominalGdp: GDP, previousData: { tradeBalance: 0 } }))).toBe(-10);
+    });
+
+    it('compares currencies on the same scale whatever their own money', () => {
+        // Le cas qui motive tout : -363 milliards de YENS est un déficit
+        // BEAUCOUP plus petit que -73 milliards de DOLLARS. L'ancienne échelle
+        // absolue mettait les deux au plancher de -10.
+        const japon = makeCurrency({ tradeBalance: -363.7, nominalGdp: 663757 });   // -0,66% du PIB
+        const usa   = makeCurrency({ tradeBalance: -73.3, nominalGdp: 30769.7 });   // -2,86% du PIB
+        expect(scoreTradeBalance(japon)).toBe(-2);
+        expect(scoreTradeBalance(usa)).toBe(-6);
+        expect(scoreTradeBalance(japon)!).toBeGreaterThan(scoreTradeBalance(usa)!);
+    });
+
+    it('is unavailable rather than wrong when the GDP is missing', () => {
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -20, nominalGdp: undefined }))).toBeNull();
+        expect(scoreTradeBalance(makeCurrency({ tradeBalance: -20, nominalGdp: 0 }))).toBeNull();
     });
 });
 
@@ -826,10 +850,18 @@ describe('scoreIndicator dispatch', () => {
     });
 
     it('drives the JPY balance from the current account when available', () => {
-        const jpy = makeCurrency({ code: 'JPY', tradeBalance: -20 });
-        expect(scoreIndicator('jp_balance', { ...base, curr: jpy })).toBe(-10);   // trade balance fallback
+        // Le Japon passe par la même échelle en % du PIB que les autres :
+        // -1200 Md¥/mois sur un PIB de 600 000 Md¥ = -2,4% -> -6, tandis que
+        // le compte courant de +3000 Md¥/mois = +6% -> +10.
+        const jpy = makeCurrency({ code: 'JPY', tradeBalance: -1200, nominalGdp: 600_000 });
+        expect(scoreIndicator('jp_balance', { ...base, curr: jpy })).toBe(-6);   // trade balance fallback
         const ctx = createMarketContext({ jpCurrentAccount: 3000 });
         expect(scoreIndicator('jp_balance', { ...base, ctx, curr: jpy })).toBe(10);
+    });
+
+    it('drops the balance from the weighting when the GDP is unknown', () => {
+        const jpy = makeCurrency({ code: 'JPY', tradeBalance: -1200, nominalGdp: undefined });
+        expect(scoreIndicator('jp_balance', { ...base, curr: jpy })).toBeNull();
     });
 
     it('lets the market context override the US and UK retail sales', () => {

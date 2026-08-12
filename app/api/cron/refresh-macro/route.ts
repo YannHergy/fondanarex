@@ -6,6 +6,7 @@ import { refreshChinaDemand } from "@/lib/china";
 import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshJpCurrentAccount } from "@/lib/jp-current-account";
 import { refreshChfRateDate } from "@/lib/chf-rate-date";
+import { refreshNominalGdp } from "@/lib/nominal-gdp-refresh";
 import { OECD_FIELDS } from "@/lib/integrations/oecd";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { refreshOilChange } from "@/lib/oil";
@@ -104,6 +105,10 @@ export async function GET(request: NextRequest) {
   let oil: Awaited<ReturnType<typeof refreshOilChange>> | null = null;
   let jpCurrentAccount: Awaited<ReturnType<typeof refreshJpCurrentAccount>> | null = null;
   let chfRateDate: Awaited<ReturnType<typeof refreshChfRateDate>> | null = null;
+  // Ne dépend d'aucun utilisateur : le PIB nominal est une échelle partagée,
+  // pas une donnée de compte. Court en général sans toucher au réseau — il ne
+  // rappelle la Banque mondiale que si la valeur stockée a plus de 30 jours.
+  const nominalGdp = await refreshNominalGdp().catch(() => null);
   const fastUserId = await currentUserId().catch(() => null);
   if (fastUserId) {
     // Independent sources, so they go out together — one failing must not
@@ -143,7 +148,7 @@ export async function GET(request: NextRequest) {
     revalidatePath("/", "layout");
 
     return NextResponse.json(
-      { ...report, alerts, china, dairy, oil, jpCurrentAccount, chfRateDate },
+      { ...report, alerts, china, dairy, oil, jpCurrentAccount, chfRateDate, nominalGdp },
       { status: report.written > 0 ? 200 : 502 },
     );
   } catch (error) {

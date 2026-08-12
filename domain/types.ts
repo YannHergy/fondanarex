@@ -56,6 +56,18 @@ export interface CurrencyData {
     currentAccount: number;
     consumerConfidence: number;
 
+    /**
+     * PIB nominal annuel, en MILLIARDS DE MONNAIE LOCALE — la même unité que
+     * `tradeBalance` et `currentAccount`.
+     *
+     * Sert d'échelle, pas d'indicateur noté : une balance ne devient
+     * comparable d'une devise à l'autre qu'une fois rapportée à la taille de
+     * l'économie. Optionnel, et son absence se voit — `scoreTradeBalance`
+     * renvoie alors null et l'indicateur sort du dénominateur plutôt que
+     * d'être noté sur une échelle qui ne veut rien dire pour cette devise.
+     */
+    nominalGdp?: number;
+
     // ── Indicators specific to certain currencies (optional) ──────
     /** NFP — Non-Farm Payrolls, in thousands (USD only) */
     nfp?: number;

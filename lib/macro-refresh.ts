@@ -465,6 +465,16 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         });
       });
 
+      // Newest first. Measured directly: a brand-new field's first backfill
+      // (interestRate, ~130 rows going back to 2015, none of them existing
+      // yet) can still exceed what's left of the budget by the time this
+      // loop runs — and writeRows had been going oldest-first, so a run that
+      // got cut off left 2018 sitting in the DB as the "latest" reading while
+      // the real current one (4.35%) was still unwritten. Reversing means a
+      // partial write always lands the CURRENT reading, the one the score
+      // actually uses, and only stints on history a chart draws.
+      rows.reverse();
+
       const written = await writeRows(rows);
       sources.push({ source: national.label, label: series.label, written, error: null });
 

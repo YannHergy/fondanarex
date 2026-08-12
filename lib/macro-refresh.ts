@@ -4,6 +4,7 @@ import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { ensureIndicatorCommentary } from "@/lib/commentary";
 import { fetchBocData } from "@/lib/integrations/boc";
 import { fetchBoeData } from "@/lib/integrations/boe";
+import { fetchBojRateData, fetchBojTradeBalanceData } from "@/lib/integrations/boj";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
@@ -211,6 +212,8 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     boeResults,
     bocResults,
     eurChfResults,
+    bojRateResults,
+    bojTradeResults,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
@@ -229,6 +232,8 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchBoeData(),
     fetchBocData(),
     fetchEurChfData(),
+    fetchBojRateData(),
+    fetchBojTradeBalanceData(),
   ]);
 
   // ── Ordering note ────────────────────────────────────────────────────────
@@ -551,15 +556,16 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     }
   }
 
-  // ── The RBA, Stats NZ, Statistics Canada and the BoC: the AUD/NZD/CAD data ──
+  // ── The RBA, Stats NZ, Statistics Canada, the BoC and the BoJ: the AUD/NZD/CAD/JPY data ──
   //
-  // All four fill the same gap for their currency: FRED carries a CPI for
-  // AUD/CAD/NZD and all come through OECD's Main Economic Indicators, a feed
-  // that stopped in 2025 while still answering HTTP 200; none of them carry
-  // a central bank's own policy rate at all. Same shape as the blocks above,
-  // so they share one loop — CAD appears twice, once for StatCan's fields
-  // and once for the BoC's rate, since a currency here is just whichever
-  // (code, source, results) entries name it.
+  // Same gap, five different sources: FRED carries a CPI for AUD/CAD/NZD and
+  // all come through OECD's Main Economic Indicators, a feed that stopped in
+  // 2025 while still answering HTTP 200; none of them carry a central bank's
+  // own policy rate, and JPY had no direct source at all for its rate or its
+  // trade balance/current account before the BoJ's own API. Same shape as
+  // the blocks above, so they share one loop — CAD and JPY each appear
+  // twice, since a currency here is just whichever (code, source, results)
+  // entries name it.
   //
   // AUD and NZD go first within it: measured directly, a run that reaches
   // this loop at all still sometimes runs out of budget partway through —
@@ -571,6 +577,8 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
     { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
     { code: "CAD", source: IndicatorSource.BOC, label: "BoC", results: bocResults },
+    { code: "JPY", source: IndicatorSource.BOJ, label: "BoJ", results: bojRateResults },
+    { code: "JPY", source: IndicatorSource.BOJ, label: "BoJ", results: bojTradeResults },
   ] as const) {
     if (!known.has(national.code)) continue;
 

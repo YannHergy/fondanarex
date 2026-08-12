@@ -14,6 +14,7 @@ import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/euros
 import { getFredCsvHistory, hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { fetchJapanCpi, hasJapanHistory } from "@/lib/integrations/estat";
 import { getBocHistory, hasBocHistory } from "@/lib/integrations/boc";
+import { getBojHistory, hasBojHistory } from "@/lib/integrations/boj";
 import { getBoeHistory, hasBoeHistory } from "@/lib/integrations/boe";
 import { getGdtHistory, hasGdtHistory } from "@/lib/dairy";
 import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
@@ -117,6 +118,7 @@ export default async function IndicatorHistoryPage({
   const useBoc = upperCode === "CAD" && !useStatCan && hasBocHistory(field);
   const useRba = upperCode === "AUD" && hasRbaHistory(field);
   const useEstat = upperCode === "JPY" && hasJapanHistory(field);
+  const useBoj = upperCode === "JPY" && !useEstat && hasBojHistory(field);
   const useSnb = upperCode === "CHF" && hasSnbHistory(field);
   const useEurChf = upperCode === "CHF" && !useSnb && hasEurChfHistory(field);
   const useStatsNz = upperCode === "NZD" && hasStatsNzHistory(field);
@@ -130,6 +132,7 @@ export default async function IndicatorHistoryPage({
     useBoc ||
     useRba ||
     useEstat ||
+    useBoj ||
     useSnb ||
     useEurChf ||
     useStatsNz ||
@@ -334,6 +337,33 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur Banque du Canada";
+    }
+  } else if (useBoj) {
+    sourceLabel = "Banque du Japon";
+    try {
+      const series = await getBojHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée Banque du Japon disponible.";
+      } else {
+        // Same collapse as the BCE/BoE/BoC: draw one point per actual move
+        // rather than one per month, since the rate sits flat between
+        // decisions — this applies to the rate series only, tradeBalance
+        // moves every month anyway so the filter is a no-op there.
+        const collapsed = series.history.filter(
+          (p, i) => i === 0 || p.value !== series.history[i - 1]!.value,
+        );
+        history = {
+          name: series.label,
+          points: collapsed
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur Banque du Japon";
     }
   } else if (useStatCan || useRba) {
     sourceLabel = useStatCan ? "StatCan" : "RBA";

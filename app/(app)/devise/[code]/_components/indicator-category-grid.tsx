@@ -9,6 +9,7 @@ import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
 import { hasBocHistory } from "@/lib/integrations/boc";
 import { hasBoeHistory } from "@/lib/integrations/boe";
+import { hasBojHistory } from "@/lib/integrations/boj";
 import { hasGdtHistory } from "@/lib/dairy";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurChfHistory } from "@/lib/integrations/eurchf";
@@ -133,7 +134,7 @@ export function IndicatorCategoryGrid({
                   (currency.code === "GBP" && (hasOnsHistory(field) || hasBoeHistory(field))) ||
                   (currency.code === "CAD" && (hasStatCanHistory(field) || hasBocHistory(field))) ||
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
-                  (currency.code === "JPY" && hasJapanHistory(field)) ||
+                  (currency.code === "JPY" && (hasJapanHistory(field) || hasBojHistory(field))) ||
                   (currency.code === "CHF" &&
                     (hasSnbHistory(field) || hasEurChfHistory(field))) ||
                   (currency.code === "NZD" &&

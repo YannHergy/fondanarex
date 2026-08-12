@@ -280,6 +280,12 @@ enum IndicatorSource {
   /// Publisher of the price-index move the NZD's "Produits laitiers"
   /// indicator scores; FXMacroData carries no dairy series for the NZD.
   GDT
+  /// The Bank of Japan's Time-Series Data Search API. Publisher of the JPY
+  /// policy rate (the uncollateralized overnight call rate, its actual
+  /// operational target since exiting YCC) and of the Balance of Payments —
+  /// compiled jointly with the Ministry of Finance — that carries both the
+  /// trade balance and the current account the jp_balance indicator prefers.
+  BOJ
   MANUAL
   DERIVED
 }

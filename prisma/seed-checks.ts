@@ -125,9 +125,14 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
     ],
   },
   JPY: {
-    checkedOn: "2026-08-04",
+    checkedOn: "2026-08-12",
     items: [
-      { key: "interestRate", status: "MATCH", reference: "1" },
+      // TE affiche la cible BoJ arrondie (1) ; nous servons désormais le taux
+      // au jour le jour non collatéralisé réellement constaté (BoJ, moyenne
+      // mensuelle) — 0.98 en juillet 2026, quelques points de base sous la
+      // cible, ce qui est le comportement normal de ce taux de marché. Même
+      // écart que le CPI/chômage suisses : mesure plus précise, pas erreur.
+      { key: "interestRate", status: "MISMATCH", reference: "1 (cible BoJ arrondie)" },
       { key: "cpi", status: "MATCH", reference: "1.7" },
       { key: "unemployment", status: "MATCH", reference: "2.5" },
       // Le Japon publie son PIB en trimestriel brut, directement comparable
@@ -136,8 +141,16 @@ const CHECKS: Record<string, { checkedOn: string; items: Verdict[] }> = {
       { key: "pmiManufacturing", status: "MISMATCH", reference: "54.5" },
       { key: "pmiServices", status: "MISMATCH", reference: "51.9" },
       { key: "retailSales", status: "MISMATCH", reference: "-4.1" },
-      { key: "tradeBalance", status: "MISMATCH", reference: "-407 Md¥" },
-      { key: "currentAccount", status: "MISMATCH", reference: "3968 Md¥" },
+      // TE sert la balance commerciale douanière du ministère des Finances
+      // (marchandises uniquement, base dédouanement) ; nous servons la
+      // balance biens & services de la Balance des paiements (base BPM6),
+      // co-publiée par la BoJ et le même ministère — un agrégat plus large,
+      // pas une erreur de source (aucune série douanière trouvée dans l'API
+      // BoJ Time-Series Data Search).
+      { key: "tradeBalance", status: "MISMATCH", reference: "-407 Md¥ (base douanière, MoF)" },
+      // Vérifié : notre compte courant BoJ de mai 2026 vaut 3968.25 Md¥,
+      // identique au chiffre TE ci-dessous.
+      { key: "currentAccount", status: "MATCH", reference: "3968 Md¥" },
       { key: "consumerConfidence", status: "MISMATCH", reference: "34.9" },
     ],
   },

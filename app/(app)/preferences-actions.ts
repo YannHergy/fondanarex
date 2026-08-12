@@ -31,6 +31,31 @@ export async function setTheme(theme: unknown): Promise<void> {
   revalidatePath("/", "layout");
 }
 
+/**
+ * Devises épinglées sur le tableau de bord.
+ *
+ * Les codes sont validés contre la table Currency plutôt que contre une liste
+ * en dur : une action serveur est un POST public, et rien n'empêche d'y
+ * envoyer n'importe quelle chaîne. On dédoublonne au passage, sinon une même
+ * devise épinglée deux fois s'afficherait deux fois.
+ */
+export async function setDashboardCurrencies(codes: unknown): Promise<void> {
+  const userId = await requireUserIdOrThrow();
+  const parsed = z.array(z.string().min(1).max(8)).max(32).parse(codes);
+
+  const known = await prisma.currency.findMany({ select: { code: true } });
+  const valid = new Set(known.map((c) => c.code));
+  const cleaned = [...new Set(parsed.map((c) => c.toUpperCase()))].filter((c) => valid.has(c));
+
+  await prisma.userSettings.upsert({
+    where: { userId },
+    create: { userId, dashboardCurrencies: cleaned },
+    update: { dashboardCurrencies: cleaned },
+  });
+
+  revalidatePath("/tableau-de-bord");
+}
+
 export async function setSidebarCollapsed(collapsed: unknown): Promise<void> {
   const userId = await requireUserIdOrThrow();
   const parsed = z.boolean().parse(collapsed);

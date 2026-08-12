@@ -6,6 +6,8 @@ import { PairInsight } from "@/app/(app)/comparateur/_components/pair-insight";
 import { CurrencyProfileCard } from "@/app/(app)/comparateur/_components/profile-card";
 import { ScoreRadar } from "@/app/(app)/comparateur/_components/radar";
 import { ScoreScale } from "@/app/(app)/comparateur/_components/score-scale";
+import { MultiScoreChart } from "@/components/multi-score-chart";
+import { getScoreSeries } from "@/lib/score-series";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
@@ -116,6 +118,9 @@ export default async function ComparatorPage({
   const currencyList = CURRENCY_CODES.map((code) => currencies[code]).filter(
     (currency): currency is NonNullable<typeof currency> => Boolean(currency),
   );
+
+  // Chargé après la résolution de la paire : les codes en dépendent.
+  const scoreSeries = await getScoreSeries([a.code, b.code]);
 
   /**
    * The macro rows as compared indicators.
@@ -270,6 +275,31 @@ export default async function ComparatorPage({
           />
         </div>
       </div>
+
+      {/* Les deux scores dans le temps, sur une même échelle : le radar dit
+          où en est la paire aujourd'hui, la courbe dit depuis quand — un
+          écart de 15 points installé depuis un an ne se lit pas comme le
+          même écart apparu le mois dernier. */}
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Link
+            href={`/comparateur/courbes?devises=${a.code},${b.code}`}
+            className="hover:text-brand-blue inline-flex items-center gap-1.5 transition-colors"
+          >
+            <CardTitle icon="stacked_line_chart" className="mb-0">
+              Scores dans le temps
+            </CardTitle>
+            <Icon name="open_in_full" size={13} className="text-brand-blue shrink-0" />
+          </Link>
+          <Link
+            href={`/comparateur/courbes?devises=${a.code},${b.code}`}
+            className="text-subtle hover:text-brand-blue font-mono text-[10px] tracking-wide uppercase transition-colors"
+          >
+            Superposer d&apos;autres devises
+          </Link>
+        </div>
+        <MultiScoreChart series={scoreSeries} height={200} />
+      </Card>
 
       <IndicatorViews indicators={comparedIndicators} base={a.code} quote={b.code} />
 

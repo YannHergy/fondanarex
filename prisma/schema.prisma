@@ -137,6 +137,14 @@ model UserSettings {
   sidebarCollapsed Boolean @default(false)
   locale           String  @default("fr")
 
+  /// Devises épinglées sur le tableau de bord, par code ("EUR", "JPY"...).
+  ///
+  /// Un tableau VIDE veut dire « toutes les devises », pas « aucune » : c'est
+  /// l'état par défaut, et un nouvel utilisateur doit voir les huit plutôt
+  /// qu'une page blanche. Épingler est donc un filtre que l'on ajoute, jamais
+  /// une liste blanche que l'on doit remplir avant que l'écran serve.
+  dashboardCurrencies String[] @default([])
+
   // Global alert settings (per-currency filtering lives in AlertPreference)
   alertSoundsEnabled Boolean @default(false)
   dndEnabled         Boolean @default(false)

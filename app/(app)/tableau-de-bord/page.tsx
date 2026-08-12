@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { RefreshButton } from "@/app/(app)/_components/refresh-button";
+import { CurrencyFilter } from "@/app/(app)/tableau-de-bord/_components/currency-filter";
 import { AccountsStatusBar } from "@/components/accounts-status-bar";
 import { Card, PageHeader } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
@@ -120,13 +121,25 @@ function formatLastSync(date: Date | null): string {
 export default async function DashboardPage() {
   const userId = await requireUserId();
 
-  const [currencies, marketContext, lastSync] = await Promise.all([
+  const [currencies, marketContext, lastSync, settings] = await Promise.all([
     getScoredCurrencyList(userId),
     getMarketContext(userId),
     prisma.indicatorValue.aggregate({ _max: { fetchedAt: true } }),
+    prisma.userSettings.findUnique({
+      where: { userId },
+      select: { dashboardCurrencies: true },
+    }),
   ]);
 
-  const sorted = [...currencies].sort((a, b) => b.scores.total - a.scores.total);
+  const ranked = [...currencies].sort((a, b) => b.scores.total - a.scores.total);
+
+  // Une sélection vide veut dire « toutes » (voir UserSettings). Le filtre est
+  // appliqué APRÈS le classement, pour que le rang affiché reste celui parmi
+  // les huit — voir une devise notée « #3 » a du sens, « #1 sur 2 » n'en a pas.
+  const pinned = new Set(settings?.dashboardCurrencies ?? []);
+  const shown = pinned.size === 0 ? ranked : ranked.filter((c) => pinned.has(c.code));
+  const allCodes = ranked.map((c) => c.code);
+  const rankOf = new Map(ranked.map((c, i) => [c.code, i + 1]));
 
   return (
     <div className="space-y-8 p-6 pb-16 md:p-10">
@@ -149,17 +162,20 @@ export default async function DashboardPage() {
        * be visible while analysing, not only on the accounts screen. */}
       <AccountsStatusBar userId={userId} />
 
-      {sorted.length === 0 ? (
+      {ranked.length === 0 ? (
         <Card>
           <p className="text-muted text-sm">
             Aucune devise chargée. Vérifiez que les données de référence ont été insérées (
             <code className="font-mono text-xs">pnpm db:seed</code>).
           </p>
         </Card>
-      ) : null}
+      ) : (
+        <CurrencyFilter allCodes={allCodes} selected={settings?.dashboardCurrencies ?? []} />
+      )}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {sorted.map((currency, rank) => {
+        {shown.map((currency) => {
+          const rank = (rankOf.get(currency.code) ?? 1) - 1;
           const total = currency.scores.total;
           const drivers = topDrivers(currency, marketContext);
 
@@ -255,7 +271,7 @@ export default async function DashboardPage() {
                 <div className="border-border-app flex items-center justify-between border-t pt-3 font-mono text-[10px]">
                   <span className="text-subtle">
                     #{rank + 1}
-                    <span className="opacity-60">/{sorted.length}</span>
+                    <span className="opacity-60">/{ranked.length}</span>
                   </span>
                   <span className={cn("tracking-widest uppercase", stanceColor(currency.stance))}>
                     {STANCE_FR[currency.stance] ?? currency.stance}

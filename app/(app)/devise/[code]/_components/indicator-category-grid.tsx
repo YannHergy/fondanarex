@@ -11,8 +11,10 @@ import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
+import { hasJapanHistory } from "@/lib/integrations/estat";
 import { hasOnsHistory } from "@/lib/integrations/ons";
 import { hasRbaHistory } from "@/lib/integrations/rba";
+import { hasSnbHistory } from "@/lib/integrations/snb";
 import { hasStatCanHistory } from "@/lib/integrations/statcan";
 import { hasManualHistory } from "@/lib/manual-history";
 import { cn } from "@/lib/utils";
@@ -126,6 +128,8 @@ export function IndicatorCategoryGrid({
                   (currency.code === "GBP" && hasOnsHistory(field)) ||
                   (currency.code === "CAD" && hasStatCanHistory(field)) ||
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
+                  (currency.code === "JPY" && hasJapanHistory(field)) ||
+                  (currency.code === "CHF" && hasSnbHistory(field)) ||
                   hasFredCsvHistory(currency.code, field) ||
                   hasManualHistory(currency.code, field));
               const manualCheck = needsManualCheck(

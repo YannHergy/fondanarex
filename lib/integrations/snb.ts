@@ -55,6 +55,11 @@ function isYearOnYear(header: Array<{ dimItem?: string }> | undefined): boolean 
   return (header ?? []).some((h) => /corresponding month of the previous year/i.test(h.dimItem ?? ""));
 }
 
+/** True when the SNB is the source wired for this CHF field. */
+export function hasSnbHistory(field: string): boolean {
+  return field === "cpi";
+}
+
 export async function fetchSnbCpi(): Promise<SnbCpiResult> {
   const base = {
     label: "Inflation (IPC)",

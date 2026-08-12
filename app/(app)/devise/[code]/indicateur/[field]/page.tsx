@@ -10,8 +10,10 @@ import * as fx from "@/lib/integrations/fxmacrodata";
 import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { getFredCsvHistory, hasFredCsvHistory } from "@/lib/integrations/fred-csv";
+import { fetchJapanCpi, hasJapanHistory } from "@/lib/integrations/estat";
 import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
 import { getRbaHistory, hasRbaHistory } from "@/lib/integrations/rba";
+import { fetchSnbCpi, hasSnbHistory } from "@/lib/integrations/snb";
 import { getStatCanHistory, hasStatCanHistory } from "@/lib/integrations/statcan";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { getManualHistory, hasManualHistory } from "@/lib/manual-history";
@@ -87,7 +89,9 @@ export default async function IndicatorHistoryPage({
   const useOns = upperCode === "GBP" && hasOnsHistory(field);
   const useStatCan = upperCode === "CAD" && hasStatCanHistory(field);
   const useRba = upperCode === "AUD" && hasRbaHistory(field);
-  const national = useEurostat || useEcb || useOns || useStatCan || useRba;
+  const useEstat = upperCode === "JPY" && hasJapanHistory(field);
+  const useSnb = upperCode === "CHF" && hasSnbHistory(field);
+  const national = useEurostat || useEcb || useOns || useStatCan || useRba || useEstat || useSnb;
   const useFred = !national && hasFredCsvHistory(upperCode, field);
   const useManual = !national && !useFred && hasManualHistory(upperCode, field);
   if (
@@ -172,6 +176,26 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur ONS";
+    }
+  } else if (useEstat || useSnb) {
+    sourceLabel = useEstat ? "Statistics Bureau of Japan" : "BNS";
+    try {
+      const series = useEstat ? await fetchJapanCpi() : await fetchSnbCpi();
+      if (series.error || series.history.length === 0) {
+        error = series.error ?? `Aucune donnée ${sourceLabel} disponible.`;
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : `Erreur ${sourceLabel}`;
     }
   } else if (useStatCan || useRba) {
     sourceLabel = useStatCan ? "StatCan" : "RBA";

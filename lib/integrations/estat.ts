@@ -64,6 +64,11 @@ export async function fetchTokyoCpi(): Promise<EstatReading> {
   return reading;
 }
 
+/** True when the Statistics Bureau is the source wired for this JPY field. */
+export function hasJapanHistory(field: string): boolean {
+  return field === "cpi";
+}
+
 /** Japan's national CPI history, oldest first. */
 export interface JapanCpiResult {
   label: string;

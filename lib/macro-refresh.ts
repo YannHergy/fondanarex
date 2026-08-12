@@ -2,6 +2,7 @@ import "server-only";
 
 import { periodEnd, periodLabel } from "@/domain/macro/period";
 import { ensureIndicatorCommentary } from "@/lib/commentary";
+import { fetchBoeData } from "@/lib/integrations/boe";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchOnsData } from "@/lib/integrations/ons";
@@ -115,6 +116,39 @@ async function writeRows(rows: PendingRow[]): Promise<number> {
 }
 
 /**
+ * Reorders rows so a run cut off partway through still lands the CURRENT
+ * period, without corrupting what a daily series collapses onto a period it
+ * shares with older days.
+ *
+ * A flat reverse() is not enough: `period` collapses several rows (RBA's and
+ * the BoE's daily rate onto one row per month, via periodLabel()) onto the
+ * SAME upsert key, and whichever row is written LAST for that key is what
+ * ends up stored. A flat reverse puts the OLDEST day of a month last within
+ * that month's cluster — so a month with an actual rate change would end up
+ * storing the pre-change rate, not the current one. This groups by `period`,
+ * orders the GROUPS newest-first (what a truncated run should prioritise),
+ * and keeps each group's own rows oldest-first (so its last day still wins
+ * the collapse, same as an unreversed write would produce).
+ */
+function orderForResilientWrite(rows: PendingRow[]): PendingRow[] {
+  const byPeriod = new Map<string, PendingRow[]>();
+  for (const row of rows) {
+    const group = byPeriod.get(row.period);
+    if (group) group.push(row);
+    else byPeriod.set(row.period, [row]);
+  }
+
+  const periods = [...byPeriod.keys()].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  const ordered: PendingRow[] = [];
+  for (const period of periods) {
+    const group = byPeriod.get(period)!;
+    group.sort((a, b) => a.periodEnd.getTime() - b.periodEnd.getTime());
+    ordered.push(...group);
+  }
+  return ordered;
+}
+
+/**
  * An ISO timestamp or bare date to a real instant, or null.
  *
  * Separate from periodEnd() on purpose: that one maps a period LABEL
@@ -172,6 +206,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     statCanResults,
     rbaResults,
     statsNzCpiResult,
+    boeResults,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
@@ -187,6 +222,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchStatCanData(),
     fetchRbaData(),
     fetchStatsNzCpi(),
+    fetchBoeData(),
   ]);
 
   // ── Ordering note ────────────────────────────────────────────────────────
@@ -412,6 +448,59 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     }
   }
 
+  // ── BoE: the GBP policy rate, from the central bank itself ─────────────
+  //
+  // The ONS does not publish this — same split as Eurostat/the ECB. Daily,
+  // flat between MPC decisions; periodLabel() collapses it to one row per
+  // month on write, same as the ECB's deposit rate.
+  if (known.has("GBP")) {
+    for (const series of boeResults) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`BoE ${series.label}: ${message}`);
+        sources.push({ source: "BOE", label: series.label, written: 0, error: message });
+        continue;
+      }
+
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values.GBP?.nextRelease ?? null,
+      );
+      const latestIndex = series.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      series.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: "GBP",
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.BOE,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+      // Newest MONTH first — see orderForResilientWrite(). A field's first
+      // backfill can outrun whatever budget is left; this way a partial run
+      // still lands the CURRENT rate rather than stalling on 2015.
+      const written = await writeRows(orderForResilientWrite(rows));
+      sources.push({ source: "BOE", label: series.label, written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "GBP",
+          indicatorKey: series.field,
+          source: IndicatorSource.BOE,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: "Bank of England",
+          context: series.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
   // ── The RBA, Stats NZ and Statistics Canada: the AUD/NZD/CAD price indices ──
   //
   // All three fill the same gap for their currency: FRED carries a CPI for
@@ -465,17 +554,19 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         });
       });
 
-      // Newest first. Measured directly: a brand-new field's first backfill
-      // (interestRate, ~130 rows going back to 2015, none of them existing
-      // yet) can still exceed what's left of the budget by the time this
-      // loop runs — and writeRows had been going oldest-first, so a run that
-      // got cut off left 2018 sitting in the DB as the "latest" reading while
-      // the real current one (4.35%) was still unwritten. Reversing means a
-      // partial write always lands the CURRENT reading, the one the score
-      // actually uses, and only stints on history a chart draws.
-      rows.reverse();
-
-      const written = await writeRows(rows);
+      // Newest MONTH first — see orderForResilientWrite(). Measured directly:
+      // a brand-new field's first backfill (interestRate, ~130 rows going
+      // back to 2015, none of them existing yet) can still exceed what's
+      // left of the budget by the time this loop runs, and writeRows had
+      // been going oldest-first, so a run that got cut off left 2018 sitting
+      // in the DB as the "latest" reading while the real current one (4.35%)
+      // was still unwritten. A flat reverse fixed that but broke something
+      // else: RBA's daily rate collapses onto one row per month, and putting
+      // the OLDEST day of a month last within its own cluster meant a month
+      // WITH an actual rate change stored the pre-change rate. This orders
+      // months newest-first but keeps each month's own days oldest-first, so
+      // its last day still wins the collapse.
+      const written = await writeRows(orderForResilientWrite(rows));
       sources.push({ source: national.label, label: series.label, written, error: null });
 
       if (written > 0) {

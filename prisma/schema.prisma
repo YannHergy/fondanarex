@@ -256,6 +256,10 @@ enum IndicatorSource {
   /// Same tier for the same reason: the publisher of the figures FXMacroData
   /// redistributes.
   ONS
+  /// The Bank of England's Interactive Statistical Database. Publisher of the
+  /// GBP policy rate, which the ONS does not carry — the same split as
+  /// Eurostat/the ECB and the ABS/the RBA.
+  BOE
   /// The Swiss National Bank's data portal. Publisher of the Swiss CPI, the
   /// only macro indicator the CHF profile carries.
   SNB

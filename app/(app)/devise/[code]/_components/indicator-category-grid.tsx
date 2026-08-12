@@ -7,6 +7,7 @@ import { Icon } from "@/components/ui/icon";
 import { getCurrencyProfile, indicatorKind } from "@/domain/data/currency-weights";
 import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
+import { hasBoeHistory } from "@/lib/integrations/boe";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasFredCsvHistory } from "@/lib/integrations/fred-csv";
@@ -126,7 +127,7 @@ export function IndicatorCategoryGrid({
                 !!field &&
                 (hasIndicatorHistory(field) ||
                   (currency.code === "EUR" && (hasEurostatHistory(field) || hasEcbHistory(field))) ||
-                  (currency.code === "GBP" && hasOnsHistory(field)) ||
+                  (currency.code === "GBP" && (hasOnsHistory(field) || hasBoeHistory(field))) ||
                   (currency.code === "CAD" && hasStatCanHistory(field)) ||
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
                   (currency.code === "JPY" && hasJapanHistory(field)) ||

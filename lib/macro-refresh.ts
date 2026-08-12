@@ -230,18 +230,25 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
 
   // ── Ordering note ────────────────────────────────────────────────────────
   //
-  // Cheapest and most currency-diverse sources go FIRST, the three sources
+  // Cheapest and most currency-diverse sources go FIRST. The three sources
   // that rewrite their FULL history on every run (Eurostat: ~1400 rows, ONS:
-  // ~870, FRED: ~1150 — one sequential upsert each, see writeRows) go LAST.
+  // ~870, FRED: ~1150 — one sequential upsert each, see writeRows) go LAST —
+  // except FRED, which jumps that queue: it is tier-1 for the USD's ten
+  // fields and feeds allRates/the CAD spillover for every other currency, so
+  // it sits right after the small/broad block, ahead of Eurostat and ONS.
   //
   // Measured against this endpoint directly: a run restricted to skip FRED
   // and OECD still failed to complete within Vercel's ~60s ceiling, dying
   // partway through Eurostat/ECB/ONS and never reaching FXMacroData, the
   // national sources (StatCan/RBA/Stats NZ), market quotes or Tokyo CPI — all
   // of which sat un-refreshed since the previous day despite the daily
-  // schedule. Writing the small, broad blocks first means a timeout or a
-  // dropped Neon connection now costs a day of staleness on Eurostat's own
-  // 2015 rows, not on AUD/CAD/NZD/GBP-via-FXMacroData's CURRENT quarter.
+  // schedule. A second measurement, after FRED had been moved to run first,
+  // found FRED ITSELF in exactly that state: correct data, but not written by
+  // any run since the reordering that was supposed to protect it — it had
+  // simply been reordered into a slow tail behind Eurostat/ONS instead of out
+  // of one. Writing the small, broad blocks (and now FRED) first means a
+  // timeout or a dropped Neon connection now costs a day of staleness on
+  // Eurostat's or ONS's own 2015 rows, not on the USD's current month.
 
   // ── OECD: every currency ────────────────────────────────────────────────
   for (const dataset of oecdResults) {
@@ -710,9 +717,87 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     sources.push({ source: "ESTAT", label: "CPI Tokyo", written, error: null });
   }
 
-  // ── Below this point: the three sources that rewrite their FULL history on
-  // every single run (Eurostat ~1400 rows, ONS ~870, FRED ~1150), one
-  // sequential upsert at a time. See the ordering note above the OECD block.
+  // ── FRED: the USD in full, plus gaps for four other currencies ──────────
+  //
+  // Through the key-free CSV export (see lib/integrations/fred-csv.ts), which
+  // replaced the keyed JSON path here. That path had never once run — its key
+  // has never been configured — and it derived year-on-year rates itself,
+  // arithmetic that produced 3.88% for a US inflation print published at 3.5%.
+  // The CSV export asks FRED for the rate instead of computing it.
+  //
+  // Placed ahead of Eurostat/ONS despite rewriting a comparably large history
+  // (~1150 rows): the USD is tier-1 for every one of its ten fields and feeds
+  // `allRates`/the CAD spillover for every other currency's score, so a
+  // truncated run should lose Eurostat's or ONS's day before it loses this
+  // one. It used to sit last and, measured directly, had not completed a
+  // single successful write since the reordering that protected everything
+  // ahead of it — the exact staleness this whole ordering scheme exists to
+  // prevent, just one section too late to catch itself.
+  for (const series of fredCsvResults) {
+    if (!known.has(series.currency)) continue;
+
+    if (series.error || series.history.length === 0) {
+      const message = series.error ?? "aucune donnée";
+      errors.push(`FRED ${series.currency} ${series.label}: ${message}`);
+      sources.push({
+        source: "FRED",
+        label: `${series.currency} ${series.label}`,
+        written: 0,
+        error: message,
+      });
+      continue;
+    }
+
+    const fxNextRelease = parseInstant(
+      fxMacroResults.find((d) => d.field === series.field)?.values[
+        series.currency as keyof (typeof fxMacroResults)[number]["values"]
+      ]?.nextRelease ?? null,
+    );
+    const latestIndex = series.history.length - 1;
+
+    const rows: PendingRow[] = [];
+    series.history.forEach((point, index) => {
+      const end = periodEnd(point.period);
+      if (!end) return;
+
+      rows.push({
+        currencyCode: series.currency,
+        indicatorKey: series.field,
+        value: point.value,
+        period: periodLabel(point.period),
+        periodEnd: end,
+        source: IndicatorSource.FRED,
+        ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+      });
+    });
+
+    // Newest month first — see orderForResilientWrite(). Only interestRate
+    // is daily-collapsed (the other nine USD/gap-filling series publish once
+    // per period already), but applying it uniformly costs nothing on those.
+    const written = await writeRows(orderForResilientWrite(rows));
+    sources.push({
+      source: "FRED",
+      label: `${series.currency} ${series.label}`,
+      written,
+      error: null,
+    });
+
+    if (written > 0) {
+      await ensureIndicatorCommentary({
+        currencyCode: series.currency,
+        indicatorKey: series.field,
+        source: IndicatorSource.FRED,
+        label: series.label,
+        unit: series.displayUnit,
+        sourceLabel: "FRED",
+        context: series.context,
+      }).catch(() => {});
+    }
+  }
+
+  // ── Below this point: the two sources that rewrite their FULL history on
+  // every single run (Eurostat ~1400 rows, ONS ~870), one sequential upsert
+  // at a time. See the ordering note above the OECD block.
 
   // ── Eurostat: the EUR, from its own publisher ───────────────────────────
   //
@@ -906,72 +991,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           context: series.context,
         }).catch(() => {});
       }
-    }
-  }
-
-  // ── FRED: the USD in full, plus gaps for four other currencies ──────────
-  //
-  // Through the key-free CSV export (see lib/integrations/fred-csv.ts), which
-  // replaced the keyed JSON path here. That path had never once run — its key
-  // has never been configured — and it derived year-on-year rates itself,
-  // arithmetic that produced 3.88% for a US inflation print published at 3.5%.
-  // The CSV export asks FRED for the rate instead of computing it.
-  for (const series of fredCsvResults) {
-    if (!known.has(series.currency)) continue;
-
-    if (series.error || series.history.length === 0) {
-      const message = series.error ?? "aucune donnée";
-      errors.push(`FRED ${series.currency} ${series.label}: ${message}`);
-      sources.push({
-        source: "FRED",
-        label: `${series.currency} ${series.label}`,
-        written: 0,
-        error: message,
-      });
-      continue;
-    }
-
-    const fxNextRelease = parseInstant(
-      fxMacroResults.find((d) => d.field === series.field)?.values[
-        series.currency as keyof (typeof fxMacroResults)[number]["values"]
-      ]?.nextRelease ?? null,
-    );
-    const latestIndex = series.history.length - 1;
-
-    const rows: PendingRow[] = [];
-    series.history.forEach((point, index) => {
-      const end = periodEnd(point.period);
-      if (!end) return;
-
-      rows.push({
-        currencyCode: series.currency,
-        indicatorKey: series.field,
-        value: point.value,
-        period: periodLabel(point.period),
-        periodEnd: end,
-        source: IndicatorSource.FRED,
-        ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
-      });
-    });
-
-    const written = await writeRows(rows);
-    sources.push({
-      source: "FRED",
-      label: `${series.currency} ${series.label}`,
-      written,
-      error: null,
-    });
-
-    if (written > 0) {
-      await ensureIndicatorCommentary({
-        currencyCode: series.currency,
-        indicatorKey: series.field,
-        source: IndicatorSource.FRED,
-        label: series.label,
-        unit: series.displayUnit,
-        sourceLabel: "FRED",
-        context: series.context,
-      }).catch(() => {});
     }
   }
 

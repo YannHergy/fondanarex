@@ -25,17 +25,24 @@ export interface FredPoint {
     value: number;
 }
 
-export type FredFrequency = 'monthly' | 'quarterly';
+export type FredFrequency = 'daily' | 'monthly' | 'quarterly';
 
 /**
- * FRED stamps every observation with the FIRST day of its period, so the
- * quarter has to be derived from the month rather than read: January is Q1,
- * April Q2, July Q3, October Q4.
+ * FRED stamps every MONTHLY/QUARTERLY observation with the FIRST day of its
+ * period, so the quarter has to be derived from the month rather than read:
+ * January is Q1, April Q2, July Q3, October Q4. A DAILY series (a policy
+ * rate, flat between decisions) is already dated exactly, so it passes
+ * through unchanged — periodLabel() collapses it to one row per month at
+ * write time, same as every other daily-to-monthly series in this app.
+ * Requesting FRED's own monthly aggregation instead was tried and rejected:
+ * the current, still-open month comes back blank until it closes, which
+ * would leave "today's" rate missing for as long as three weeks.
  */
 export function toPeriod(isoDate: string, frequency: FredFrequency): string | null {
     const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(isoDate.trim());
     if (!match) return null;
     const [, year, month] = match;
+    if (frequency === 'daily') return isoDate.trim();
     if (frequency === 'monthly') return `${year}-${month}`;
 
     const monthNumber = Number(month);

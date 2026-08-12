@@ -68,7 +68,25 @@ interface SeriesConfig {
 }
 
 const SERIES: readonly SeriesConfig[] = [
-  // ── USD — nine indicators, 62% of the dollar's profile ──────────────────
+  // ── USD — ten indicators, 62% of the dollar's profile ───────────────────
+  {
+    currency: "USD",
+    field: "interestRate",
+    label: "Taux directeur (Fed Funds, plafond)",
+    // The FOMC sets a RANGE, not a single rate, and has since 2008. The
+    // upper bound is the figure quoted as "the" Fed Funds Rate everywhere,
+    // Trading Economics included — verified live, both read 3.75%. Daily,
+    // flat between meetings; requesting FRED's own monthly aggregation was
+    // tried and rejected (see toPeriod()'s comment): the still-open current
+    // month comes back blank until it closes.
+    id: "DFEDTARU",
+    frequency: "daily",
+    transformation: "",
+    displayUnit: "%",
+    context:
+      "Le FOMC fixe une fourchette, pas un taux unique, depuis 2008 : le plafond de cette fourchette est la valeur citée partout comme « le » taux de la Fed.",
+    verifiedAgainst: "3,75% le 12 août 2026, identique à Trading Economics",
+  },
   {
     currency: "USD",
     field: "cpi",

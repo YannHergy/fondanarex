@@ -13,6 +13,11 @@ describe('toPeriod', () => {
         expect(toPeriod('2026-06-01', 'monthly')).toBe('2026-06');
     });
 
+    it('laisse une date quotidienne inchangee, y compris le mois en cours', () => {
+        expect(toPeriod('2026-08-12', 'daily')).toBe('2026-08-12');
+        expect(toPeriod('2026-01-01', 'daily')).toBe('2026-01-01');
+    });
+
     it('deduit le trimestre du mois de debut, que FRED est seul a donner', () => {
         expect(toPeriod('2026-01-01', 'quarterly')).toBe('2026-Q1');
         expect(toPeriod('2026-04-01', 'quarterly')).toBe('2026-Q2');
@@ -67,6 +72,18 @@ describe('parseFredCsv', () => {
         const negative = `observation_date,BOPGSTB
 2026-06-01,-73261`;
         expect(parseFredCsv(negative, 'monthly')).toEqual([{ period: '2026-06', value: -73261 }]);
+    });
+
+    it('lit une serie quotidienne sans la collapser, y compris le mois en cours', () => {
+        const daily = `observation_date,DFEDTARU
+2026-08-10,3.75
+2026-08-11,3.75
+2026-08-12,3.75`;
+        expect(parseFredCsv(daily, 'daily')).toEqual([
+            { period: '2026-08-10', value: 3.75 },
+            { period: '2026-08-11', value: 3.75 },
+            { period: '2026-08-12', value: 3.75 },
+        ]);
     });
 });
 

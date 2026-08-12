@@ -16,6 +16,7 @@ import { hasOnsHistory } from "@/lib/integrations/ons";
 import { hasRbaHistory } from "@/lib/integrations/rba";
 import { hasSnbHistory } from "@/lib/integrations/snb";
 import { hasStatCanHistory } from "@/lib/integrations/statcan";
+import { hasStatsNzHistory } from "@/lib/integrations/statsnz";
 import { hasManualHistory } from "@/lib/manual-history";
 import { cn } from "@/lib/utils";
 
@@ -130,6 +131,7 @@ export function IndicatorCategoryGrid({
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
                   (currency.code === "JPY" && hasJapanHistory(field)) ||
                   (currency.code === "CHF" && hasSnbHistory(field)) ||
+                  (currency.code === "NZD" && hasStatsNzHistory(field)) ||
                   hasFredCsvHistory(currency.code, field) ||
                   hasManualHistory(currency.code, field));
               const manualCheck = needsManualCheck(

@@ -41,6 +41,15 @@ interface SeriesConfig {
   field: string;
   label: string;
   vectorId: number;
+  /**
+   * StatCan publishes levels and indices, never rates, so each series says how
+   * to turn its own into the figure the app scores:
+   *   yoy — percent change on the same month a year earlier (price indices)
+   *   pch — percent change on the previous month (monthly GDP)
+   *   chg — change on the previous month, scaled (employment, in thousands)
+   */
+  transform: "yoy" | "pch" | "chg";
+  scale?: number;
   displayUnit: string;
   context: string | null;
   verifiedAgainst: string;
@@ -52,6 +61,7 @@ const SERIES: readonly SeriesConfig[] = [
     label: "Inflation (IPC)",
     // All-items CPI, Canada, 2002 = 100.
     vectorId: 41690973,
+    transform: "yoy",
     displayUnit: "%",
     context:
       "La Banque du Canada vise 2% d'inflation, dans une fourchette de contrôle de 1% à 3% : au-dessus de 3%, la pression pour maintenir des taux élevés s'accentue.",
@@ -64,10 +74,40 @@ const SERIES: readonly SeriesConfig[] = [
     // The other candidate vector (112593704) derived to 3.0% where the
     // published core rate was 2.1%, so it is a different measure.
     vectorId: 112593705,
+    transform: "yoy",
     displayUnit: "%",
     context:
       "La Banque du Canada suit des mesures d'inflation « rognée » qui écartent les variations extrêmes : c'est sur elles, plus que sur l'indice global, qu'elle fonde ses décisions de taux.",
     verifiedAgainst: "2,14% contre 2,1% publié",
+  },
+  {
+    field: "employmentChange",
+    label: "Emploi (variation mensuelle)",
+    // Labour Force Survey, employment level, seasonally adjusted, in
+    // thousands. Taken here rather than from FRED, whose Canadian employment
+    // reaches it through the OECD a release late: FRED was still reporting
+    // June at 18.2k — the published PREVIOUS value — when StatCan had already
+    // printed July at 75.1k.
+    vectorId: 2062811,
+    transform: "chg",
+    displayUnit: " k",
+    context:
+      "La variation mensuelle de l'emploi canadien pèse lourd dans les décisions de la Banque du Canada : au-dessus de 25 000 créations, le marché du travail est jugé solide.",
+    verifiedAgainst: "+75,1 k en juillet 2026, identique au chiffre publié",
+  },
+  {
+    field: "gdpQoQ",
+    label: "PIB mensuel",
+    // Real GDP at basic prices, monthly. The CAD profile scores a MONTHLY
+    // GDP — Canada is unusual in publishing one — where the FRED series
+    // previously wired here was quarterly, so it answered a different
+    // question from the one the profile asks.
+    vectorId: 65201210,
+    transform: "pch",
+    displayUnit: "%",
+    context:
+      "Le Canada publie un PIB mensuel, rare parmi les grandes économies : une croissance mensuelle positive et régulière soutient le dollar canadien.",
+    verifiedAgainst: "+0,34% en mai 2026",
   },
 ];
 
@@ -88,12 +128,21 @@ interface WdsResponse {
   };
 }
 
-/** Year-on-year change of an index series, twelve months back. */
-function toYearOnYear(points: StatCanPoint[]): StatCanPoint[] {
+/** Applies a series' own transform to the raw levels StatCan publishes. */
+function transformPoints(
+  points: StatCanPoint[],
+  transform: SeriesConfig["transform"],
+  scale: number,
+): StatCanPoint[] {
+  const lag = transform === "yoy" ? 12 : 1;
   const out: StatCanPoint[] = [];
-  for (let i = 12; i < points.length; i++) {
+  for (let i = lag; i < points.length; i++) {
     const now = points[i]!;
-    const before = points[i - 12]!;
+    const before = points[i - lag]!;
+    if (transform === "chg") {
+      out.push({ period: now.period, value: (now.value - before.value) / scale });
+      continue;
+    }
     if (before.value === 0) continue;
     out.push({ period: now.period, value: (now.value / before.value - 1) * 100 });
   }
@@ -142,10 +191,10 @@ export async function fetchStatCanData(): Promise<StatCanSeriesResult[]> {
         .filter((p) => /^\d{4}-\d{2}$/.test(p.period) && Number.isFinite(p.value))
         .sort((a, b) => (a.period < b.period ? -1 : 1));
 
-      const history = toYearOnYear(raw).filter(
-        // Canadian inflation has never left this band; outside it means the
-        // index was stored where the rate belongs.
-        (p) => p.value > -30 && p.value < 30,
+      const history = transformPoints(raw, config.transform, config.scale ?? 1).filter(
+        // Rates, and employment changes in thousands. Outside this band means
+        // a raw level was stored where a transformed value belongs.
+        (p) => p.value > -2000 && p.value < 2000,
       );
 
       if (history.length === 0) {

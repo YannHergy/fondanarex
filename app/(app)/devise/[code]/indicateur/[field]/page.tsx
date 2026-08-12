@@ -15,6 +15,7 @@ import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
 import { getRbaHistory, hasRbaHistory } from "@/lib/integrations/rba";
 import { fetchSnbCpi, hasSnbHistory } from "@/lib/integrations/snb";
 import { getStatCanHistory, hasStatCanHistory } from "@/lib/integrations/statcan";
+import { fetchStatsNzCpi, hasStatsNzHistory } from "@/lib/integrations/statsnz";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { getManualHistory, hasManualHistory } from "@/lib/manual-history";
 import { requireUserId } from "@/lib/session";
@@ -91,7 +92,9 @@ export default async function IndicatorHistoryPage({
   const useRba = upperCode === "AUD" && hasRbaHistory(field);
   const useEstat = upperCode === "JPY" && hasJapanHistory(field);
   const useSnb = upperCode === "CHF" && hasSnbHistory(field);
-  const national = useEurostat || useEcb || useOns || useStatCan || useRba || useEstat || useSnb;
+  const useStatsNz = upperCode === "NZD" && hasStatsNzHistory(field);
+  const national =
+    useEurostat || useEcb || useOns || useStatCan || useRba || useEstat || useSnb || useStatsNz;
   const useFred = !national && hasFredCsvHistory(upperCode, field);
   const useManual = !national && !useFred && hasManualHistory(upperCode, field);
   if (
@@ -177,10 +180,14 @@ export default async function IndicatorHistoryPage({
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur ONS";
     }
-  } else if (useEstat || useSnb) {
-    sourceLabel = useEstat ? "Statistics Bureau of Japan" : "BNS";
+  } else if (useEstat || useSnb || useStatsNz) {
+    sourceLabel = useEstat ? "Statistics Bureau of Japan" : useSnb ? "BNS" : "Stats NZ";
     try {
-      const series = useEstat ? await fetchJapanCpi() : await fetchSnbCpi();
+      const series = useEstat
+        ? await fetchJapanCpi()
+        : useSnb
+          ? await fetchSnbCpi()
+          : await fetchStatsNzCpi();
       if (series.error || series.history.length === 0) {
         error = series.error ?? `Aucune donnée ${sourceLabel} disponible.`;
       } else {

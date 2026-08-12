@@ -16,6 +16,7 @@ import { fetchJapanCpi, fetchTokyoCpi } from "@/lib/integrations/estat";
 import { fetchRbaData } from "@/lib/integrations/rba";
 import { fetchSnbCpi } from "@/lib/integrations/snb";
 import { fetchStatCanData } from "@/lib/integrations/statcan";
+import { fetchStatsNzCpi } from "@/lib/integrations/statsnz";
 import { fetchOil } from "@/lib/integrations/oil";
 import { fetchVix } from "@/lib/integrations/vix";
 import { prisma } from "@/lib/prisma";
@@ -170,6 +171,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     snbCpiResult,
     statCanResults,
     rbaResults,
+    statsNzCpiResult,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
@@ -184,6 +186,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchSnbCpi(),
     fetchStatCanData(),
     fetchRbaData(),
+    fetchStatsNzCpi(),
   ]);
 
   // ── Eurostat: the EUR, from its own publisher ───────────────────────────
@@ -594,6 +597,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   for (const national of [
     { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
     { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
+    { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
   ] as const) {
     if (!known.has(national.code)) continue;
 

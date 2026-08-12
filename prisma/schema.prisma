@@ -265,6 +265,9 @@ enum IndicatorSource {
   /// The Reserve Bank of Australia's statistical tables. Publisher of the
   /// Australian CPI and of the trimmed mean the AUD profile scores.
   RBA
+  /// Stats NZ. Publisher of the New Zealand CPI, reachable only through the
+  /// quarterly CSV its release pages carry.
+  STATSNZ
   MANUAL
   DERIVED
 }

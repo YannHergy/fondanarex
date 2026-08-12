@@ -188,66 +188,19 @@ const SERIES: readonly SeriesConfig[] = [
     verifiedAgainst: "−23 000 en juillet 2026",
   },
 
-  // ── Gap-fillers for four other currencies ───────────────────────────────
+  // ── NOTHING BELOW THIS LINE, AND THAT IS THE POINT ──────────────────────
   //
-  // These come from OECD's labour-force collection inside FRED, which is
-  // still maintained but publishes about a release behind the national
-  // office: Canada's May figure matched the published PREVIOUS value exactly
-  // while the national print had already moved on. The series are right; they
-  // arrive late. Worth having — each currency's alternative today is two
-  // points from an aggregator — but not worth mistaking for same-day data.
-  {
-    currency: "AUD",
-    field: "employmentChange",
-    label: "Emploi (variation)",
-    id: "LFEMTTTTAUM647S",
-    frequency: "monthly",
-    transformation: "chg",
-    scale: 1000,
-    displayUnit: " k",
-    context:
-      "La variation mensuelle de l'emploi australien est le principal indicateur du marché du travail suivi par la RBA.",
-    verifiedAgainst: "série conforme, décalée d'une publication",
-  },
-  {
-    currency: "CAD",
-    field: "employmentChange",
-    label: "Emploi (variation)",
-    id: "LFEMTTTTCAM647S",
-    frequency: "monthly",
-    transformation: "chg",
-    scale: 1000,
-    displayUnit: " k",
-    context:
-      "La variation mensuelle de l'emploi canadien pèse lourd dans les décisions de la Banque du Canada.",
-    verifiedAgainst: "18,2 k = valeur précédente publiée, série conforme",
-  },
-  {
-    currency: "CAD",
-    field: "gdpQoQ",
-    label: "PIB trimestriel",
-    id: "NGDPRSAXDCCAQ",
-    frequency: "quarterly",
-    transformation: "pch",
-    displayUnit: "%",
-    context:
-      "Une croissance trimestrielle canadienne entre 0,2% et 0,5% est considérée comme solide ; en dessous de 0%, l'économie se contracte.",
-    verifiedAgainst: "−0,04% vs 0,0% publié (arrondi)",
-  },
-  {
-    currency: "NZD",
-    field: "employmentChange",
-    label: "Emploi (variation trimestrielle)",
-    // The NZD profile scores this as a PERCENTAGE, unlike the AUD and CAD —
-    // see unitFor() on the indicator page.
-    id: "LFEMTTTTNZQ647S",
-    frequency: "quarterly",
-    transformation: "pch",
-    displayUnit: "%",
-    context:
-      "La Nouvelle-Zélande publie sa variation d'emploi en pourcentage trimestriel ; au-dessus de 0,5% le marché du travail est dynamique.",
-    verifiedAgainst: "série conforme, décalée d'une publication",
-  },
+  // Employment for the AUD, the CAD and the NZD, and Canadian GDP, were all
+  // wired here and have been removed. Those series reach FRED through OECD's
+  // labour-force collection, which lags the national office by a full
+  // release: FRED reported Canadian employment at 18.2k — the published
+  // PREVIOUS value — while StatCan had already printed 75.1k, and Australian
+  // employment at 40.3k for May while the RBA carried 76.4k for June.
+  //
+  // They now come from the RBA's table H5, Statistics Canada, and — for the
+  // New Zealand CPI — Stats NZ. FRED keeps only what it publishes FIRST-hand:
+  // United States data, sourced straight from the BLS, the BEA and the Census
+  // Bureau on release day.
 ];
 
 export interface FredCsvSeriesResult {

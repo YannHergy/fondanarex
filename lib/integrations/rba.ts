@@ -20,7 +20,8 @@ import "server-only";
  * request.
  */
 
-const URL_G1 = "https://www.rba.gov.au/statistics/tables/csv/g1-data.csv";
+const TABLE_URL = (table: string) =>
+  `https://www.rba.gov.au/statistics/tables/csv/${table}-data.csv`;
 
 /** Twelve hours — a quarterly release, not a quote. */
 const REVALIDATE = 12 * 60 * 60;
@@ -39,8 +40,18 @@ export interface RbaPoint {
 interface SeriesConfig {
   field: string;
   label: string;
+  /** Statistical table the series lives in, e.g. "g1" or "h5". */
+  table: string;
   /** RBA series identifier, matched against the "Series ID" row. */
   seriesId: string;
+  /** Monthly tables stamp a month; quarterly ones stamp a quarter. */
+  frequency: "monthly" | "quarterly";
+  /**
+   * "level" keeps the published figure — the rate tables already carry one.
+   * "chg" turns a level into its change on the previous period, which is what
+   * the employment series needs.
+   */
+  transform: "level" | "chg";
   displayUnit: string;
   context: string | null;
   verifiedAgainst: string;
@@ -50,7 +61,10 @@ const SERIES: readonly SeriesConfig[] = [
   {
     field: "cpi",
     label: "Inflation (IPC trimestriel)",
+    table: "g1",
     seriesId: "GCPIAGYP",
+    frequency: "quarterly",
+    transform: "level",
     displayUnit: "%",
     context:
       "La Reserve Bank of Australia vise une inflation entre 2% et 3% en moyenne sur le cycle : au-dessus de 3%, elle est en territoire inconfortable.",
@@ -59,13 +73,32 @@ const SERIES: readonly SeriesConfig[] = [
   {
     field: "coreCpi",
     label: "Inflation sous-jacente (moyenne tronquée)",
+    table: "g1",
     // The trimmed mean is the RBA's own preferred underlying measure, and the
     // one the AUD profile names.
     seriesId: "GCPIOCPMTMYP",
+    frequency: "quarterly",
+    transform: "level",
     displayUnit: "%",
     context:
       "La moyenne tronquée écarte les variations de prix extrêmes : c'est la mesure d'inflation sous-jacente que la RBA privilégie pour décider de ses taux.",
     verifiedAgainst: "3,6% au T2 2026, identique au chiffre publié",
+  },
+  {
+    field: "employmentChange",
+    label: "Emploi (variation mensuelle)",
+    // Table H5 carries the ABS labour-force series, monthly, in thousands of
+    // persons. Taken here rather than from FRED, whose Australian employment
+    // arrives through the OECD a full release late — it was still reporting
+    // May at 40.3k when the published June figure was 76.3k.
+    table: "h5",
+    seriesId: "GLFSEPTSA",
+    frequency: "monthly",
+    transform: "chg",
+    displayUnit: " k",
+    context:
+      "La variation mensuelle de l'emploi est le principal indicateur du marché du travail australien : au-dessus de 20 000 créations, le marché est jugé solide.",
+    verifiedAgainst: "+76,4 k en juin 2026 contre 76 343 publiés",
   },
 ];
 
@@ -94,13 +127,36 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
-/** "30/06/2026" -> "2026-Q2". The RBA stamps a quarter with its last day. */
-function toQuarter(australianDate: string): string | null {
+/**
+ * "30/06/2026" -> "2026-Q2" or "2026-06". The RBA stamps every period with its
+ * LAST day, so a quarter is identified by the month it ends in.
+ */
+function toPeriod(australianDate: string, frequency: "monthly" | "quarterly"): string | null {
   const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(australianDate.trim());
   if (!match) return null;
   const month = Number(match[2]);
   if (month < 1 || month > 12) return null;
-  return `${match[3]}-Q${Math.ceil(month / 3)}`;
+  return frequency === "quarterly"
+    ? `${match[3]}-Q${Math.ceil(month / 3)}`
+    : `${match[3]}-${match[2]}`;
+}
+
+/** One RBA statistical table, parsed into its rows once per refresh. */
+async function fetchTable(table: string): Promise<{ idRow: string[]; dataRows: string[][] } | null> {
+  const response = await fetch(TABLE_URL(table), {
+    headers: { "User-Agent": USER_AGENT },
+    next: { revalidate: REVALIDATE },
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!response.ok) return null;
+
+  const lines = (await response.text()).split(/\r?\n/);
+  return {
+    idRow: splitCsvLine(lines.find((l) => l.startsWith("Series ID")) ?? ""),
+    // Rows whose first cell is a date are the observations. The files also
+    // carry future periods with empty cells, which fall out when parsed.
+    dataRows: lines.filter((l) => /^\d{2}\/\d{2}\/\d{4},/.test(l)).map((l) => splitCsvLine(l)),
+  };
 }
 
 export async function fetchRbaData(): Promise<RbaSeriesResult[]> {
@@ -112,42 +168,49 @@ export async function fetchRbaData(): Promise<RbaSeriesResult[]> {
   }));
 
   try {
-    const response = await fetch(URL_G1, {
-      headers: { "User-Agent": USER_AGENT },
-      next: { revalidate: REVALIDATE },
-      signal: AbortSignal.timeout(25_000),
-    });
-
-    if (!response.ok) {
-      return bases.map((b) => ({ ...b, history: [], error: `RBA ${response.status}` }));
+    // Each table is fetched once even when several series come from it.
+    const tables = new Map<string, Awaited<ReturnType<typeof fetchTable>>>();
+    for (const name of new Set(SERIES.map((s) => s.table))) {
+      tables.set(name, await fetchTable(name));
     }
-
-    const lines = (await response.text()).split(/\r?\n/);
-    const idRow = splitCsvLine(lines.find((l) => l.startsWith("Series ID")) ?? "");
-    // Rows whose first cell is a date are the observations; the file also
-    // carries future quarters with empty cells, which fall out below.
-    const dataRows = lines
-      .filter((l) => /^\d{2}\/\d{2}\/\d{4},/.test(l))
-      .map((l) => splitCsvLine(l));
 
     return SERIES.map((config, index) => {
       const base = bases[index]!;
-      const column = idRow.indexOf(config.seriesId);
-      if (column < 0) {
-        return { ...base, history: [], error: `Série ${config.seriesId} absente du tableau G1` };
+      const table = tables.get(config.table);
+      if (!table) {
+        return { ...base, history: [], error: `Tableau ${config.table.toUpperCase()} indisponible` };
       }
 
-      const history = dataRows
+      const column = table.idRow.indexOf(config.seriesId);
+      if (column < 0) {
+        return {
+          ...base,
+          history: [],
+          error: `Série ${config.seriesId} absente du tableau ${config.table.toUpperCase()}`,
+        };
+      }
+
+      const levels = table.dataRows
         .map((cells) => {
-          const period = toQuarter(cells[0] ?? "");
+          const period = toPeriod(cells[0] ?? "", config.frequency);
           const raw = (cells[column] ?? "").trim();
           if (period === null || raw === "") return null;
           const value = Number(raw);
           return Number.isFinite(value) ? { period, value } : null;
         })
         .filter((p): p is RbaPoint => p !== null)
-        .filter((p) => p.period >= HISTORY_SINCE && p.value > -30 && p.value < 30)
         .sort((a, b) => (a.period < b.period ? -1 : 1));
+
+      const transformed =
+        config.transform === "chg"
+          ? levels
+              .slice(1)
+              .map((p, i) => ({ period: p.period, value: p.value - levels[i]!.value }))
+          : levels;
+
+      const history = transformed.filter(
+        (p) => p.period >= HISTORY_SINCE && p.value > -2000 && p.value < 2000,
+      );
 
       if (history.length === 0) {
         return { ...base, history: [], error: "Aucune valeur exploitable" };

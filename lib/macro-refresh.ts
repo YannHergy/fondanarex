@@ -189,6 +189,417 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchStatsNzCpi(),
   ]);
 
+  // ── Ordering note ────────────────────────────────────────────────────────
+  //
+  // Cheapest and most currency-diverse sources go FIRST, the three sources
+  // that rewrite their FULL history on every run (Eurostat: ~1400 rows, ONS:
+  // ~870, FRED: ~1150 — one sequential upsert each, see writeRows) go LAST.
+  //
+  // Measured against this endpoint directly: a run restricted to skip FRED
+  // and OECD still failed to complete within Vercel's ~60s ceiling, dying
+  // partway through Eurostat/ECB/ONS and never reaching FXMacroData, the
+  // national sources (StatCan/RBA/Stats NZ), market quotes or Tokyo CPI — all
+  // of which sat un-refreshed since the previous day despite the daily
+  // schedule. Writing the small, broad blocks first means a timeout or a
+  // dropped Neon connection now costs a day of staleness on Eurostat's own
+  // 2015 rows, not on AUD/CAD/NZD/GBP-via-FXMacroData's CURRENT quarter.
+
+  // ── OECD: every currency ────────────────────────────────────────────────
+  for (const dataset of oecdResults) {
+    if (dataset.error) {
+      errors.push(`OECD ${dataset.label}: ${dataset.error}`);
+      sources.push({
+        source: "OECD",
+        label: dataset.label,
+        written: 0,
+        error: dataset.error,
+      });
+      continue;
+    }
+
+    const rows: PendingRow[] = [];
+    for (const [currencyCode, point] of Object.entries(dataset.values)) {
+      if (!known.has(currencyCode)) continue;
+
+      const end = periodEnd(point.latestPeriod);
+      if (!end) continue;
+
+      rows.push({
+        currencyCode,
+        indicatorKey: dataset.field,
+        value: point.current,
+        period: periodLabel(point.latestPeriod),
+        periodEnd: end,
+        source: IndicatorSource.OECD,
+      });
+
+      // The prior reading is stored as its own dated row, not discarded. Every
+      // momentum scorer needs a previous value, and with only the latest row
+      // present they fall back to "no change" — a currency whose inflation is
+      // accelerating would score as flat.
+      if (point.previousPeriod) {
+        const priorEnd = periodEnd(point.previousPeriod);
+        if (priorEnd) {
+          rows.push({
+            currencyCode,
+            indicatorKey: dataset.field,
+            value: point.previous,
+            period: periodLabel(point.previousPeriod),
+            periodEnd: priorEnd,
+            source: IndicatorSource.OECD,
+          });
+        }
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "OECD", label: dataset.label, written, error: null });
+  }
+
+  // ── FXMacroData: core indicators, every currency ────────────────────────
+  //
+  // Placed early (see the ordering note above): it is the tier-3 fallback for
+  // every currency's policy rate, CPI, core CPI, GDP, unemployment and trade
+  // balance, and — for AUD/CAD/NZD specifically — the ONLY source of the
+  // `nextRelease` date the national-sources block below borrows, since none
+  // of RBA/StatCan/Stats NZ publish a forward calendar of their own.
+  if (!fxMacroDataConfigured()) {
+    errors.push("FXMacroData: clé API absente");
+  }
+
+  for (const dataset of fxMacroResults) {
+    if (Object.keys(dataset.values).length === 0) {
+      const message = dataset.error ?? "aucune donnée";
+      errors.push(`FXMacroData ${dataset.label}: ${message}`);
+      sources.push({ source: "FXMACRODATA", label: dataset.label, written: 0, error: message });
+      continue;
+    }
+
+    const rows: PendingRow[] = [];
+    for (const [currencyCode, point] of Object.entries(dataset.values)) {
+      if (!known.has(currencyCode)) continue;
+
+      const end = periodEnd(point.latestPeriod);
+      if (!end) continue;
+
+      rows.push({
+        currencyCode,
+        indicatorKey: dataset.field,
+        value: point.current,
+        period: periodLabel(point.latestPeriod),
+        periodEnd: end,
+        source: IndicatorSource.FXMACRODATA,
+        // Parsed as a full instant, not through periodEnd(): that helper
+        // resolves a period LABEL to the last day of the period, which would
+        // turn "2026-09-11T08:30:00-04:00" into a date at midnight and throw
+        // the release hour away.
+        nextRelease: parseInstant(point.nextRelease),
+        sourceStale: point.stale,
+      });
+
+      // Same reasoning as OECD/FRED: persist the prior reading so momentum
+      // has something to compare against.
+      if (point.previousPeriod) {
+        const priorEnd = periodEnd(point.previousPeriod);
+        if (priorEnd) {
+          rows.push({
+            currencyCode,
+            indicatorKey: dataset.field,
+            value: point.previous,
+            period: periodLabel(point.previousPeriod),
+            periodEnd: priorEnd,
+            source: IndicatorSource.FXMACRODATA,
+          });
+        }
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "FXMACRODATA", label: dataset.label, written, error: dataset.error });
+  }
+
+  // ── Statistics Bureau of Japan: the national CPI ────────────────────────
+  //
+  // Same endpoint, same indicator and the same request as the Tokyo print
+  // already fetched above — only the region differs. FRED's Japanese CPI was
+  // the obvious alternative and it is dead: its OECD feed stopped in 2021.
+  if (known.has("JPY")) {
+    if (japanCpiResult.error || japanCpiResult.history.length === 0) {
+      const message = japanCpiResult.error ?? "aucune donnée";
+      errors.push(`CPI Japon: ${message}`);
+      sources.push({ source: "ESTAT", label: "CPI Japon", written: 0, error: message });
+    } else {
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === "cpi")?.values.JPY?.nextRelease ?? null,
+      );
+      const latestIndex = japanCpiResult.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      japanCpiResult.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: "JPY",
+          indicatorKey: "cpi",
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.ESTAT,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "ESTAT", label: "CPI Japon", written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "JPY",
+          indicatorKey: "cpi",
+          source: IndicatorSource.ESTAT,
+          label: japanCpiResult.label,
+          unit: japanCpiResult.displayUnit,
+          sourceLabel: "Statistics Bureau of Japan",
+          context: japanCpiResult.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── SNB: Swiss inflation ────────────────────────────────────────────────
+  //
+  // The only macro indicator in the CHF profile, and 16% of its score.
+  if (known.has("CHF")) {
+    if (snbCpiResult.error || snbCpiResult.history.length === 0) {
+      const message = snbCpiResult.error ?? "aucune donnée";
+      errors.push(`CPI Suisse: ${message}`);
+      sources.push({ source: "SNB", label: "CPI Suisse", written: 0, error: message });
+    } else {
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === "cpi")?.values.CHF?.nextRelease ?? null,
+      );
+      const latestIndex = snbCpiResult.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      snbCpiResult.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: "CHF",
+          indicatorKey: "cpi",
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.SNB,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "SNB", label: "CPI Suisse", written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "CHF",
+          indicatorKey: "cpi",
+          source: IndicatorSource.SNB,
+          label: snbCpiResult.label,
+          unit: snbCpiResult.displayUnit,
+          sourceLabel: "BNS",
+          context: snbCpiResult.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── Statistics Canada and the RBA: the CAD and AUD price indices ────────
+  //
+  // Both fill the same gap for their currency: FRED carries a CPI for each
+  // and both come through OECD's Main Economic Indicators, a feed that
+  // stopped in 2025 while still answering HTTP 200. Same shape as the blocks
+  // above, so they share one loop.
+  for (const national of [
+    { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
+    { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
+    { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
+  ] as const) {
+    if (!known.has(national.code)) continue;
+
+    for (const series of national.results) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`${national.label} ${series.label}: ${message}`);
+        sources.push({
+          source: national.label,
+          label: series.label,
+          written: 0,
+          error: message,
+        });
+        continue;
+      }
+
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values[national.code]?.nextRelease ??
+          null,
+      );
+      const latestIndex = series.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      series.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: national.code,
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: national.source,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: national.label, label: series.label, written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: national.code,
+          indicatorKey: series.field,
+          source: national.source,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: national.label,
+          context: series.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── Market quotes: the VIX and the oil barrel ───────────────────────────
+  //
+  // One market-wide number each, stored PER CURRENCY because the scoring
+  // engine reads them off CurrencyData. The engine handles the direction
+  // itself: a high VIX is bullish for the safe havens (JPY, CHF) and bearish
+  // for the pro-cyclicals (AUD, NZD), so the same value goes to all four and
+  // riskOffFromVix plus the safe-haven sign flip do the rest.
+  const MARKET_SERIES: ReadonlyArray<{
+    label: string;
+    indicatorKey: string;
+    currencies: readonly string[];
+    result: MonthlyReading | Error;
+  }> = [
+    {
+      label: "Sentiment risque (VIX)",
+      indicatorKey: "riskSentiment",
+      currencies: ["AUD", "NZD", "JPY", "CHF"],
+      result: vixResult,
+    },
+    {
+      label: "Pétrole (WTI)",
+      indicatorKey: "oilPrice",
+      currencies: ["CAD"],
+      result: oilResult,
+    },
+  ];
+
+  for (const series of MARKET_SERIES) {
+    if (series.result instanceof Error) {
+      errors.push(`${series.label}: ${series.result.message}`);
+      sources.push({
+        source: "MARKET",
+        label: series.label,
+        written: 0,
+        error: series.result.message,
+      });
+      continue;
+    }
+
+    const reading = series.result;
+    const rows: PendingRow[] = [];
+    const end = periodEnd(reading.period);
+    const priorEnd = reading.previousPeriod ? periodEnd(reading.previousPeriod) : null;
+
+    for (const currencyCode of series.currencies) {
+      if (!known.has(currencyCode)) continue;
+      if (end) {
+        rows.push({
+          currencyCode,
+          indicatorKey: series.indicatorKey,
+          value: reading.current,
+          period: reading.period,
+          periodEnd: end,
+          source: IndicatorSource.MARKET,
+        });
+      }
+      if (priorEnd && reading.previousPeriod) {
+        rows.push({
+          currencyCode,
+          indicatorKey: series.indicatorKey,
+          value: reading.previous,
+          period: reading.previousPeriod,
+          periodEnd: priorEnd,
+          source: IndicatorSource.MARKET,
+        });
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "MARKET", label: series.label, written, error: null });
+  }
+
+  // ── Statistics Bureau of Japan: the Tokyo CPI ────────────────────────────
+  //
+  // 12% of the JPY profile, and the only source that carries it: FXMacroData
+  // has no slug for it and FRED's 230 Japanese CPI series are national only.
+  // Filed under OECD tier rather than MARKET — it is an official statistical
+  // release, not a quote — which also keeps it below FXMacroData should that
+  // ever start publishing one.
+  if (tokyoCpiResult instanceof Error) {
+    errors.push(`CPI Tokyo: ${tokyoCpiResult.message}`);
+    sources.push({
+      source: "ESTAT",
+      label: "CPI Tokyo",
+      written: 0,
+      error: tokyoCpiResult.message,
+    });
+  } else if (!known.has("JPY")) {
+    sources.push({ source: "ESTAT", label: "CPI Tokyo", written: 0, error: "JPY absent" });
+  } else {
+    const rows: PendingRow[] = [];
+    const end = periodEnd(tokyoCpiResult.period);
+    if (end) {
+      rows.push({
+        currencyCode: "JPY",
+        indicatorKey: "tokyoCpi",
+        value: tokyoCpiResult.current,
+        period: tokyoCpiResult.period,
+        periodEnd: end,
+        source: IndicatorSource.ESTAT,
+      });
+    }
+    if (tokyoCpiResult.previousPeriod) {
+      const priorEnd = periodEnd(tokyoCpiResult.previousPeriod);
+      if (priorEnd) {
+        rows.push({
+          currencyCode: "JPY",
+          indicatorKey: "tokyoCpi",
+          value: tokyoCpiResult.previous,
+          period: tokyoCpiResult.previousPeriod,
+          periodEnd: priorEnd,
+          source: IndicatorSource.ESTAT,
+        });
+      }
+    }
+
+    const written = await writeRows(rows);
+    sources.push({ source: "ESTAT", label: "CPI Tokyo", written, error: null });
+  }
+
+  // ── Below this point: the three sources that rewrite their FULL history on
+  // every single run (Eurostat ~1400 rows, ONS ~870, FRED ~1150), one
+  // sequential upsert at a time. See the ordering note above the OECD block.
+
   // ── Eurostat: the EUR, from its own publisher ───────────────────────────
   //
   // The FULL history is written, not just the latest reading. Every other
@@ -376,58 +787,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     }
   }
 
-  // ── OECD: every currency ────────────────────────────────────────────────
-  for (const dataset of oecdResults) {
-    if (dataset.error) {
-      errors.push(`OECD ${dataset.label}: ${dataset.error}`);
-      sources.push({
-        source: "OECD",
-        label: dataset.label,
-        written: 0,
-        error: dataset.error,
-      });
-      continue;
-    }
-
-    const rows: PendingRow[] = [];
-    for (const [currencyCode, point] of Object.entries(dataset.values)) {
-      if (!known.has(currencyCode)) continue;
-
-      const end = periodEnd(point.latestPeriod);
-      if (!end) continue;
-
-      rows.push({
-        currencyCode,
-        indicatorKey: dataset.field,
-        value: point.current,
-        period: periodLabel(point.latestPeriod),
-        periodEnd: end,
-        source: IndicatorSource.OECD,
-      });
-
-      // The prior reading is stored as its own dated row, not discarded. Every
-      // momentum scorer needs a previous value, and with only the latest row
-      // present they fall back to "no change" — a currency whose inflation is
-      // accelerating would score as flat.
-      if (point.previousPeriod) {
-        const priorEnd = periodEnd(point.previousPeriod);
-        if (priorEnd) {
-          rows.push({
-            currencyCode,
-            indicatorKey: dataset.field,
-            value: point.previous,
-            period: periodLabel(point.previousPeriod),
-            periodEnd: priorEnd,
-            source: IndicatorSource.OECD,
-          });
-        }
-      }
-    }
-
-    const written = await writeRows(rows);
-    sources.push({ source: "OECD", label: dataset.label, written, error: null });
-  }
-
   // ── FRED: the USD in full, plus gaps for four other currencies ──────────
   //
   // Through the key-free CSV export (see lib/integrations/fred-csv.ts), which
@@ -492,340 +851,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         context: series.context,
       }).catch(() => {});
     }
-  }
-
-  // ── Statistics Bureau of Japan: the national CPI ────────────────────────
-  //
-  // Same endpoint, same indicator and the same request as the Tokyo print
-  // already fetched above — only the region differs. FRED's Japanese CPI was
-  // the obvious alternative and it is dead: its OECD feed stopped in 2021.
-  if (known.has("JPY")) {
-    if (japanCpiResult.error || japanCpiResult.history.length === 0) {
-      const message = japanCpiResult.error ?? "aucune donnée";
-      errors.push(`CPI Japon: ${message}`);
-      sources.push({ source: "ESTAT", label: "CPI Japon", written: 0, error: message });
-    } else {
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === "cpi")?.values.JPY?.nextRelease ?? null,
-      );
-      const latestIndex = japanCpiResult.history.length - 1;
-
-      const rows: PendingRow[] = [];
-      japanCpiResult.history.forEach((point, index) => {
-        const end = periodEnd(point.period);
-        if (!end) return;
-        rows.push({
-          currencyCode: "JPY",
-          indicatorKey: "cpi",
-          value: point.value,
-          period: periodLabel(point.period),
-          periodEnd: end,
-          source: IndicatorSource.ESTAT,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
-        });
-      });
-
-      const written = await writeRows(rows);
-      sources.push({ source: "ESTAT", label: "CPI Japon", written, error: null });
-
-      if (written > 0) {
-        await ensureIndicatorCommentary({
-          currencyCode: "JPY",
-          indicatorKey: "cpi",
-          source: IndicatorSource.ESTAT,
-          label: japanCpiResult.label,
-          unit: japanCpiResult.displayUnit,
-          sourceLabel: "Statistics Bureau of Japan",
-          context: japanCpiResult.context,
-        }).catch(() => {});
-      }
-    }
-  }
-
-  // ── SNB: Swiss inflation ────────────────────────────────────────────────
-  //
-  // The only macro indicator in the CHF profile, and 16% of its score.
-  if (known.has("CHF")) {
-    if (snbCpiResult.error || snbCpiResult.history.length === 0) {
-      const message = snbCpiResult.error ?? "aucune donnée";
-      errors.push(`CPI Suisse: ${message}`);
-      sources.push({ source: "SNB", label: "CPI Suisse", written: 0, error: message });
-    } else {
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === "cpi")?.values.CHF?.nextRelease ?? null,
-      );
-      const latestIndex = snbCpiResult.history.length - 1;
-
-      const rows: PendingRow[] = [];
-      snbCpiResult.history.forEach((point, index) => {
-        const end = periodEnd(point.period);
-        if (!end) return;
-        rows.push({
-          currencyCode: "CHF",
-          indicatorKey: "cpi",
-          value: point.value,
-          period: periodLabel(point.period),
-          periodEnd: end,
-          source: IndicatorSource.SNB,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
-        });
-      });
-
-      const written = await writeRows(rows);
-      sources.push({ source: "SNB", label: "CPI Suisse", written, error: null });
-
-      if (written > 0) {
-        await ensureIndicatorCommentary({
-          currencyCode: "CHF",
-          indicatorKey: "cpi",
-          source: IndicatorSource.SNB,
-          label: snbCpiResult.label,
-          unit: snbCpiResult.displayUnit,
-          sourceLabel: "BNS",
-          context: snbCpiResult.context,
-        }).catch(() => {});
-      }
-    }
-  }
-
-  // ── Statistics Canada and the RBA: the CAD and AUD price indices ────────
-  //
-  // Both fill the same gap for their currency: FRED carries a CPI for each
-  // and both come through OECD's Main Economic Indicators, a feed that
-  // stopped in 2025 while still answering HTTP 200. Same shape as the blocks
-  // above, so they share one loop.
-  for (const national of [
-    { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
-    { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
-    { code: "NZD", source: IndicatorSource.STATSNZ, label: "Stats NZ", results: [statsNzCpiResult] },
-  ] as const) {
-    if (!known.has(national.code)) continue;
-
-    for (const series of national.results) {
-      if (series.error || series.history.length === 0) {
-        const message = series.error ?? "aucune donnée";
-        errors.push(`${national.label} ${series.label}: ${message}`);
-        sources.push({
-          source: national.label,
-          label: series.label,
-          written: 0,
-          error: message,
-        });
-        continue;
-      }
-
-      const fxNextRelease = parseInstant(
-        fxMacroResults.find((d) => d.field === series.field)?.values[national.code]?.nextRelease ??
-          null,
-      );
-      const latestIndex = series.history.length - 1;
-
-      const rows: PendingRow[] = [];
-      series.history.forEach((point, index) => {
-        const end = periodEnd(point.period);
-        if (!end) return;
-        rows.push({
-          currencyCode: national.code,
-          indicatorKey: series.field,
-          value: point.value,
-          period: periodLabel(point.period),
-          periodEnd: end,
-          source: national.source,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
-        });
-      });
-
-      const written = await writeRows(rows);
-      sources.push({ source: national.label, label: series.label, written, error: null });
-
-      if (written > 0) {
-        await ensureIndicatorCommentary({
-          currencyCode: national.code,
-          indicatorKey: series.field,
-          source: national.source,
-          label: series.label,
-          unit: series.displayUnit,
-          sourceLabel: national.label,
-          context: series.context,
-        }).catch(() => {});
-      }
-    }
-  }
-
-  // ── FXMacroData: core indicators, every currency ────────────────────────
-  if (!fxMacroDataConfigured()) {
-    errors.push("FXMacroData: clé API absente");
-  }
-
-  for (const dataset of fxMacroResults) {
-    if (Object.keys(dataset.values).length === 0) {
-      const message = dataset.error ?? "aucune donnée";
-      errors.push(`FXMacroData ${dataset.label}: ${message}`);
-      sources.push({ source: "FXMACRODATA", label: dataset.label, written: 0, error: message });
-      continue;
-    }
-
-    const rows: PendingRow[] = [];
-    for (const [currencyCode, point] of Object.entries(dataset.values)) {
-      if (!known.has(currencyCode)) continue;
-
-      const end = periodEnd(point.latestPeriod);
-      if (!end) continue;
-
-      rows.push({
-        currencyCode,
-        indicatorKey: dataset.field,
-        value: point.current,
-        period: periodLabel(point.latestPeriod),
-        periodEnd: end,
-        source: IndicatorSource.FXMACRODATA,
-        // Parsed as a full instant, not through periodEnd(): that helper
-        // resolves a period LABEL to the last day of the period, which would
-        // turn "2026-09-11T08:30:00-04:00" into a date at midnight and throw
-        // the release hour away.
-        nextRelease: parseInstant(point.nextRelease),
-        sourceStale: point.stale,
-      });
-
-      // Same reasoning as OECD/FRED: persist the prior reading so momentum
-      // has something to compare against.
-      if (point.previousPeriod) {
-        const priorEnd = periodEnd(point.previousPeriod);
-        if (priorEnd) {
-          rows.push({
-            currencyCode,
-            indicatorKey: dataset.field,
-            value: point.previous,
-            period: periodLabel(point.previousPeriod),
-            periodEnd: priorEnd,
-            source: IndicatorSource.FXMACRODATA,
-          });
-        }
-      }
-    }
-
-    const written = await writeRows(rows);
-    sources.push({ source: "FXMACRODATA", label: dataset.label, written, error: dataset.error });
-  }
-
-  // ── Market quotes: the VIX and the oil barrel ───────────────────────────
-  //
-  // One market-wide number each, stored PER CURRENCY because the scoring
-  // engine reads them off CurrencyData. The engine handles the direction
-  // itself: a high VIX is bullish for the safe havens (JPY, CHF) and bearish
-  // for the pro-cyclicals (AUD, NZD), so the same value goes to all four and
-  // riskOffFromVix plus the safe-haven sign flip do the rest.
-  const MARKET_SERIES: ReadonlyArray<{
-    label: string;
-    indicatorKey: string;
-    currencies: readonly string[];
-    result: MonthlyReading | Error;
-  }> = [
-    {
-      label: "Sentiment risque (VIX)",
-      indicatorKey: "riskSentiment",
-      currencies: ["AUD", "NZD", "JPY", "CHF"],
-      result: vixResult,
-    },
-    {
-      label: "Pétrole (WTI)",
-      indicatorKey: "oilPrice",
-      currencies: ["CAD"],
-      result: oilResult,
-    },
-  ];
-
-  for (const series of MARKET_SERIES) {
-    if (series.result instanceof Error) {
-      errors.push(`${series.label}: ${series.result.message}`);
-      sources.push({
-        source: "MARKET",
-        label: series.label,
-        written: 0,
-        error: series.result.message,
-      });
-      continue;
-    }
-
-    const reading = series.result;
-    const rows: PendingRow[] = [];
-    const end = periodEnd(reading.period);
-    const priorEnd = reading.previousPeriod ? periodEnd(reading.previousPeriod) : null;
-
-    for (const currencyCode of series.currencies) {
-      if (!known.has(currencyCode)) continue;
-      if (end) {
-        rows.push({
-          currencyCode,
-          indicatorKey: series.indicatorKey,
-          value: reading.current,
-          period: reading.period,
-          periodEnd: end,
-          source: IndicatorSource.MARKET,
-        });
-      }
-      if (priorEnd && reading.previousPeriod) {
-        rows.push({
-          currencyCode,
-          indicatorKey: series.indicatorKey,
-          value: reading.previous,
-          period: reading.previousPeriod,
-          periodEnd: priorEnd,
-          source: IndicatorSource.MARKET,
-        });
-      }
-    }
-
-    const written = await writeRows(rows);
-    sources.push({ source: "MARKET", label: series.label, written, error: null });
-  }
-
-  // ── Statistics Bureau of Japan: the Tokyo CPI ────────────────────────────
-  //
-  // 12% of the JPY profile, and the only source that carries it: FXMacroData
-  // has no slug for it and FRED's 230 Japanese CPI series are national only.
-  // Filed under OECD tier rather than MARKET — it is an official statistical
-  // release, not a quote — which also keeps it below FXMacroData should that
-  // ever start publishing one.
-  if (tokyoCpiResult instanceof Error) {
-    errors.push(`CPI Tokyo: ${tokyoCpiResult.message}`);
-    sources.push({
-      source: "ESTAT",
-      label: "CPI Tokyo",
-      written: 0,
-      error: tokyoCpiResult.message,
-    });
-  } else if (!known.has("JPY")) {
-    sources.push({ source: "ESTAT", label: "CPI Tokyo", written: 0, error: "JPY absent" });
-  } else {
-    const rows: PendingRow[] = [];
-    const end = periodEnd(tokyoCpiResult.period);
-    if (end) {
-      rows.push({
-        currencyCode: "JPY",
-        indicatorKey: "tokyoCpi",
-        value: tokyoCpiResult.current,
-        period: tokyoCpiResult.period,
-        periodEnd: end,
-        source: IndicatorSource.ESTAT,
-      });
-    }
-    if (tokyoCpiResult.previousPeriod) {
-      const priorEnd = periodEnd(tokyoCpiResult.previousPeriod);
-      if (priorEnd) {
-        rows.push({
-          currencyCode: "JPY",
-          indicatorKey: "tokyoCpi",
-          value: tokyoCpiResult.previous,
-          period: tokyoCpiResult.previousPeriod,
-          periodEnd: priorEnd,
-          source: IndicatorSource.ESTAT,
-        });
-      }
-    }
-
-    const written = await writeRows(rows);
-    sources.push({ source: "ESTAT", label: "CPI Tokyo", written, error: null });
   }
 
   const written = sources.reduce((sum, s) => sum + s.written, 0);

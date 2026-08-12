@@ -14,6 +14,9 @@ const LIVE_SOURCES = new Set([
   "EUROSTAT",
   "ECB",
   "ONS",
+  "SNB",
+  "STATCAN",
+  "RBA",
 ]);
 
 /**

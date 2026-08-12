@@ -9,7 +9,10 @@ import { periodEnd } from "@/domain/macro/period";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import { getEcbHistory, hasEcbHistory } from "@/lib/integrations/ecb";
 import { getEurostatHistory, hasEurostatHistory } from "@/lib/integrations/eurostat";
+import { getFredCsvHistory, hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
+import { getRbaHistory, hasRbaHistory } from "@/lib/integrations/rba";
+import { getStatCanHistory, hasStatCanHistory } from "@/lib/integrations/statcan";
 import { getScoredCurrencies } from "@/lib/currencies";
 import { getManualHistory, hasManualHistory } from "@/lib/manual-history";
 import { requireUserId } from "@/lib/session";
@@ -37,6 +40,9 @@ const FIELD_LABELS: Record<string, { label: string; unit: string }> = {
   // No free source exists anywhere (S&P Global sells it) — backfilled by
   // hand from Trading Economics' published history, see lib/manual-history.ts.
   pmiManufacturing: { label: "PMI Manufacturier (allemand)", unit: "" },
+  // USD only, from FRED.
+  nfp: { label: "NFP (emplois non agricoles)", unit: " k" },
+  corePce: { label: "Core PCE", unit: "%" },
   // Same treatment: no free automated source, backfilled by hand.
   zew: { label: "ZEW (Allemagne)", unit: "" },
   ifo: { label: "ifo Business Climate (Allemagne)", unit: "" },
@@ -79,11 +85,15 @@ export default async function IndicatorHistoryPage({
   const useEurostat = upperCode === "EUR" && hasEurostatHistory(field);
   const useEcb = upperCode === "EUR" && !useEurostat && hasEcbHistory(field);
   const useOns = upperCode === "GBP" && hasOnsHistory(field);
-  const useManual = !useEurostat && !useEcb && !useOns && hasManualHistory(upperCode, field);
+  const useStatCan = upperCode === "CAD" && hasStatCanHistory(field);
+  const useRba = upperCode === "AUD" && hasRbaHistory(field);
+  const national = useEurostat || useEcb || useOns || useStatCan || useRba;
+  const useFred = !national && hasFredCsvHistory(upperCode, field);
+  const useManual = !national && !useFred && hasManualHistory(upperCode, field);
   if (
     !meta ||
     !isCurrencyCode(upperCode) ||
-    (!useEurostat && !useEcb && !useOns && !useManual && !fx.hasIndicatorHistory(field))
+    (!national && !useFred && !useManual && !fx.hasIndicatorHistory(field))
   ) {
     notFound();
   }
@@ -162,6 +172,46 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur ONS";
+    }
+  } else if (useStatCan || useRba) {
+    sourceLabel = useStatCan ? "StatCan" : "RBA";
+    try {
+      const series = useStatCan ? await getStatCanHistory(field) : await getRbaHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? `Aucune donnée ${sourceLabel} disponible.`;
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : `Erreur ${sourceLabel}`;
+    }
+  } else if (useFred) {
+    sourceLabel = "FRED";
+    try {
+      const series = await getFredCsvHistory(upperCode, field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée FRED disponible.";
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur FRED";
     }
   } else if (useManual) {
     sourceLabel = "saisie manuelle";

@@ -192,6 +192,9 @@ async function latestIndicatorRows(): Promise<IndicatorRow[]> {
           WHEN 'EUROSTAT' THEN 2
           WHEN 'ECB' THEN 2
           WHEN 'ONS' THEN 2
+          WHEN 'SNB' THEN 2
+          WHEN 'STATCAN' THEN 2
+          WHEN 'RBA' THEN 2
           WHEN 'FXMACRODATA' THEN 3
           WHEN 'MARKET' THEN 4
           WHEN 'ESTAT' THEN 5

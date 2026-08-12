@@ -9,8 +9,11 @@ import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
+import { hasFredCsvHistory } from "@/lib/integrations/fred-csv";
 import { hasIndicatorHistory } from "@/lib/integrations/fxmacrodata";
 import { hasOnsHistory } from "@/lib/integrations/ons";
+import { hasRbaHistory } from "@/lib/integrations/rba";
+import { hasStatCanHistory } from "@/lib/integrations/statcan";
 import { hasManualHistory } from "@/lib/manual-history";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +124,9 @@ export function IndicatorCategoryGrid({
                 (hasIndicatorHistory(field) ||
                   (currency.code === "EUR" && (hasEurostatHistory(field) || hasEcbHistory(field))) ||
                   (currency.code === "GBP" && hasOnsHistory(field)) ||
+                  (currency.code === "CAD" && hasStatCanHistory(field)) ||
+                  (currency.code === "AUD" && hasRbaHistory(field)) ||
+                  hasFredCsvHistory(currency.code, field) ||
                   hasManualHistory(currency.code, field));
               const manualCheck = needsManualCheck(
                 field,

@@ -6,13 +6,16 @@ import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchOnsData } from "@/lib/integrations/ons";
 import { fetchAllOecdData } from "@/lib/integrations/oecd";
-import { fetchFredUsdData, isConfigured as fredConfigured } from "@/lib/integrations/fred";
+import { fetchFredCsvData } from "@/lib/integrations/fred-csv";
 import {
   fetchAllFxMacroCoreData,
   isConfigured as fxMacroDataConfigured,
 } from "@/lib/integrations/fxmacrodata";
 import type { MonthlyReading } from "@/domain/macro/market-series";
-import { fetchTokyoCpi } from "@/lib/integrations/estat";
+import { fetchJapanCpi, fetchTokyoCpi } from "@/lib/integrations/estat";
+import { fetchRbaData } from "@/lib/integrations/rba";
+import { fetchSnbCpi } from "@/lib/integrations/snb";
+import { fetchStatCanData } from "@/lib/integrations/statcan";
 import { fetchOil } from "@/lib/integrations/oil";
 import { fetchVix } from "@/lib/integrations/vix";
 import { prisma } from "@/lib/prisma";
@@ -155,7 +158,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
 
   const [
     oecdResults,
-    fredResults,
+    fredCsvResults,
     fxMacroResults,
     eurostatResults,
     ecbResults,
@@ -163,9 +166,13 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     vixResult,
     oilResult,
     tokyoCpiResult,
+    japanCpiResult,
+    snbCpiResult,
+    statCanResults,
+    rbaResults,
   ] = await Promise.all([
     fetchAllOecdData(options.oecdFields),
-    !options.skipFred && fredConfigured() ? fetchFredUsdData() : Promise.resolve([]),
+    options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
     fetchEurostatData(),
     fetchEcbData(),
@@ -173,6 +180,10 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     fetchVix().catch(asError),
     fetchOil().catch(asError),
     fetchTokyoCpi().catch(asError),
+    fetchJapanCpi(),
+    fetchSnbCpi(),
+    fetchStatCanData(),
+    fetchRbaData(),
   ]);
 
   // ── Eurostat: the EUR, from its own publisher ───────────────────────────
@@ -414,58 +425,227 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     sources.push({ source: "OECD", label: dataset.label, written, error: null });
   }
 
-  // ── FRED: the USD only, at higher precision ─────────────────────────────
-  if (!options.skipFred && !fredConfigured()) {
-    errors.push("FRED: clé API absente — données USD issues de l'OECD uniquement");
-  }
+  // ── FRED: the USD in full, plus gaps for four other currencies ──────────
+  //
+  // Through the key-free CSV export (see lib/integrations/fred-csv.ts), which
+  // replaced the keyed JSON path here. That path had never once run — its key
+  // has never been configured — and it derived year-on-year rates itself,
+  // arithmetic that produced 3.88% for a US inflation print published at 3.5%.
+  // The CSV export asks FRED for the rate instead of computing it.
+  for (const series of fredCsvResults) {
+    if (!known.has(series.currency)) continue;
 
-  for (const series of fredResults) {
-    if (series.error || !series.value) {
+    if (series.error || series.history.length === 0) {
       const message = series.error ?? "aucune donnée";
-      errors.push(`FRED ${series.field}: ${message}`);
-      sources.push({ source: "FRED", label: series.field, written: 0, error: message });
-      continue;
-    }
-
-    const end = periodEnd(series.value.observedOn);
-    if (!end) {
+      errors.push(`FRED ${series.currency} ${series.label}: ${message}`);
       sources.push({
         source: "FRED",
-        label: series.field,
+        label: `${series.currency} ${series.label}`,
         written: 0,
-        error: `Période illisible: ${series.value.observedOn}`,
+        error: message,
       });
       continue;
     }
 
-    const rows: PendingRow[] = [
-      {
-        currencyCode: "USD",
+    const fxNextRelease = parseInstant(
+      fxMacroResults.find((d) => d.field === series.field)?.values[
+        series.currency as keyof (typeof fxMacroResults)[number]["values"]
+      ]?.nextRelease ?? null,
+    );
+    const latestIndex = series.history.length - 1;
+
+    const rows: PendingRow[] = [];
+    series.history.forEach((point, index) => {
+      const end = periodEnd(point.period);
+      if (!end) return;
+
+      rows.push({
+        currencyCode: series.currency,
         indicatorKey: series.field,
-        value: series.value.current,
-        period: periodLabel(series.value.period),
+        value: point.value,
+        period: periodLabel(point.period),
         periodEnd: end,
         source: IndicatorSource.FRED,
-      },
-    ];
-
-    // Same reasoning as the OECD branch: persist the prior reading so momentum
-    // has something to compare against.
-    const priorEnd = periodEnd(series.value.previousObservedOn);
-    if (priorEnd && series.value.previousPeriod !== series.value.period) {
-      rows.push({
-        currencyCode: "USD",
-        indicatorKey: series.field,
-        value: series.value.previous,
-        period: periodLabel(series.value.previousPeriod),
-        periodEnd: priorEnd,
-        source: IndicatorSource.FRED,
+        ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
       });
-    }
+    });
 
     const written = await writeRows(rows);
+    sources.push({
+      source: "FRED",
+      label: `${series.currency} ${series.label}`,
+      written,
+      error: null,
+    });
 
-    sources.push({ source: "FRED", label: series.field, written, error: null });
+    if (written > 0) {
+      await ensureIndicatorCommentary({
+        currencyCode: series.currency,
+        indicatorKey: series.field,
+        source: IndicatorSource.FRED,
+        label: series.label,
+        unit: series.displayUnit,
+        sourceLabel: "FRED",
+        context: series.context,
+      }).catch(() => {});
+    }
+  }
+
+  // ── Statistics Bureau of Japan: the national CPI ────────────────────────
+  //
+  // Same endpoint, same indicator and the same request as the Tokyo print
+  // already fetched above — only the region differs. FRED's Japanese CPI was
+  // the obvious alternative and it is dead: its OECD feed stopped in 2021.
+  if (known.has("JPY")) {
+    if (japanCpiResult.error || japanCpiResult.history.length === 0) {
+      const message = japanCpiResult.error ?? "aucune donnée";
+      errors.push(`CPI Japon: ${message}`);
+      sources.push({ source: "ESTAT", label: "CPI Japon", written: 0, error: message });
+    } else {
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === "cpi")?.values.JPY?.nextRelease ?? null,
+      );
+      const latestIndex = japanCpiResult.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      japanCpiResult.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: "JPY",
+          indicatorKey: "cpi",
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.ESTAT,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "ESTAT", label: "CPI Japon", written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "JPY",
+          indicatorKey: "cpi",
+          source: IndicatorSource.ESTAT,
+          label: japanCpiResult.label,
+          unit: japanCpiResult.displayUnit,
+          sourceLabel: "Statistics Bureau of Japan",
+          context: japanCpiResult.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── SNB: Swiss inflation ────────────────────────────────────────────────
+  //
+  // The only macro indicator in the CHF profile, and 16% of its score.
+  if (known.has("CHF")) {
+    if (snbCpiResult.error || snbCpiResult.history.length === 0) {
+      const message = snbCpiResult.error ?? "aucune donnée";
+      errors.push(`CPI Suisse: ${message}`);
+      sources.push({ source: "SNB", label: "CPI Suisse", written: 0, error: message });
+    } else {
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === "cpi")?.values.CHF?.nextRelease ?? null,
+      );
+      const latestIndex = snbCpiResult.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      snbCpiResult.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: "CHF",
+          indicatorKey: "cpi",
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: IndicatorSource.SNB,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: "SNB", label: "CPI Suisse", written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: "CHF",
+          indicatorKey: "cpi",
+          source: IndicatorSource.SNB,
+          label: snbCpiResult.label,
+          unit: snbCpiResult.displayUnit,
+          sourceLabel: "BNS",
+          context: snbCpiResult.context,
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // ── Statistics Canada and the RBA: the CAD and AUD price indices ────────
+  //
+  // Both fill the same gap for their currency: FRED carries a CPI for each
+  // and both come through OECD's Main Economic Indicators, a feed that
+  // stopped in 2025 while still answering HTTP 200. Same shape as the blocks
+  // above, so they share one loop.
+  for (const national of [
+    { code: "CAD", source: IndicatorSource.STATCAN, label: "StatCan", results: statCanResults },
+    { code: "AUD", source: IndicatorSource.RBA, label: "RBA", results: rbaResults },
+  ] as const) {
+    if (!known.has(national.code)) continue;
+
+    for (const series of national.results) {
+      if (series.error || series.history.length === 0) {
+        const message = series.error ?? "aucune donnée";
+        errors.push(`${national.label} ${series.label}: ${message}`);
+        sources.push({
+          source: national.label,
+          label: series.label,
+          written: 0,
+          error: message,
+        });
+        continue;
+      }
+
+      const fxNextRelease = parseInstant(
+        fxMacroResults.find((d) => d.field === series.field)?.values[national.code]?.nextRelease ??
+          null,
+      );
+      const latestIndex = series.history.length - 1;
+
+      const rows: PendingRow[] = [];
+      series.history.forEach((point, index) => {
+        const end = periodEnd(point.period);
+        if (!end) return;
+        rows.push({
+          currencyCode: national.code,
+          indicatorKey: series.field,
+          value: point.value,
+          period: periodLabel(point.period),
+          periodEnd: end,
+          source: national.source,
+          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+        });
+      });
+
+      const written = await writeRows(rows);
+      sources.push({ source: national.label, label: series.label, written, error: null });
+
+      if (written > 0) {
+        await ensureIndicatorCommentary({
+          currencyCode: national.code,
+          indicatorKey: series.field,
+          source: national.source,
+          label: series.label,
+          unit: series.displayUnit,
+          sourceLabel: national.label,
+          context: series.context,
+        }).catch(() => {});
+      }
+    }
   }
 
   // ── FXMacroData: core indicators, every currency ────────────────────────

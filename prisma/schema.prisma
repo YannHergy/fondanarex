@@ -256,6 +256,15 @@ enum IndicatorSource {
   /// Same tier for the same reason: the publisher of the figures FXMacroData
   /// redistributes.
   ONS
+  /// The Swiss National Bank's data portal. Publisher of the Swiss CPI, the
+  /// only macro indicator the CHF profile carries.
+  SNB
+  /// Statistics Canada. Publisher of the Canadian CPI, which FRED could not
+  /// supply — its OECD feed for Canada stopped in March 2025.
+  STATCAN
+  /// The Reserve Bank of Australia's statistical tables. Publisher of the
+  /// Australian CPI and of the trimmed mean the AUD profile scores.
+  RBA
   MANUAL
   DERIVED
 }

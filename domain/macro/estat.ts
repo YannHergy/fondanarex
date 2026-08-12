@@ -33,6 +33,17 @@ export const TOKYO_CPI_INDICATOR = '0703010501010030010';
 /** Tokyo ku-area — the 23 wards, which is what "Tokyo CPI" means in FX. */
 export const TOKYO_REGION = '13100';
 
+/**
+ * All Japan — the NATIONAL print, on the same indicator and the same call.
+ *
+ * The endpoint returns every region at once and the region is picked out
+ * afterwards, so the national series costs no extra request. Verified against
+ * the published figures: 1.4% for May 2026 and 1.6% for June, which is the
+ * core rate (all items less fresh food) the Bank of Japan targets — the
+ * all-items rate printed 1.5% and 1.7% for the same two months.
+ */
+export const JAPAN_REGION = '00000';
+
 export interface EstatPoint {
     /** Month label, "2026-06" */
     period: string;

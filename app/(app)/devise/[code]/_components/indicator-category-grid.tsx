@@ -9,6 +9,7 @@ import { getIndicatorDisplay } from "@/domain/scoring";
 import type { CurrencyWithScore, MarketContext } from "@/domain/types";
 import { hasBocHistory } from "@/lib/integrations/boc";
 import { hasBoeHistory } from "@/lib/integrations/boe";
+import { hasGdtHistory } from "@/lib/dairy";
 import { hasEcbHistory } from "@/lib/integrations/ecb";
 import { hasEurostatHistory } from "@/lib/integrations/eurostat";
 import { hasFredCsvHistory } from "@/lib/integrations/fred-csv";
@@ -133,7 +134,8 @@ export function IndicatorCategoryGrid({
                   (currency.code === "AUD" && hasRbaHistory(field)) ||
                   (currency.code === "JPY" && hasJapanHistory(field)) ||
                   (currency.code === "CHF" && hasSnbHistory(field)) ||
-                  (currency.code === "NZD" && hasStatsNzHistory(field)) ||
+                  (currency.code === "NZD" &&
+                    (hasStatsNzHistory(field) || hasGdtHistory(field))) ||
                   // No time series to chart — see china-demand-breakdown.tsx
                   // for what the click leads to instead.
                   ((currency.code === "AUD" || currency.code === "NZD") &&

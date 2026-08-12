@@ -14,6 +14,7 @@ import { getFredCsvHistory, hasFredCsvHistory } from "@/lib/integrations/fred-cs
 import { fetchJapanCpi, hasJapanHistory } from "@/lib/integrations/estat";
 import { getBocHistory, hasBocHistory } from "@/lib/integrations/boc";
 import { getBoeHistory, hasBoeHistory } from "@/lib/integrations/boe";
+import { getGdtHistory, hasGdtHistory } from "@/lib/dairy";
 import { getOnsHistory, hasOnsHistory } from "@/lib/integrations/ons";
 import { getRbaHistory, hasRbaHistory } from "@/lib/integrations/rba";
 import { fetchSnbCpi, hasSnbHistory } from "@/lib/integrations/snb";
@@ -115,6 +116,7 @@ export default async function IndicatorHistoryPage({
   const useEstat = upperCode === "JPY" && hasJapanHistory(field);
   const useSnb = upperCode === "CHF" && hasSnbHistory(field);
   const useStatsNz = upperCode === "NZD" && hasStatsNzHistory(field);
+  const useGdt = upperCode === "NZD" && !useStatsNz && hasGdtHistory(field);
   const national =
     useEurostat ||
     useEcb ||
@@ -125,7 +127,8 @@ export default async function IndicatorHistoryPage({
     useRba ||
     useEstat ||
     useSnb ||
-    useStatsNz;
+    useStatsNz ||
+    useGdt;
   const useFred = !national && hasFredCsvHistory(upperCode, field);
   const useManual = !national && !useFred && hasManualHistory(upperCode, field);
   if (
@@ -236,6 +239,26 @@ export default async function IndicatorHistoryPage({
       }
     } catch (err) {
       error = err instanceof Error ? err.message : "Erreur Bank of England";
+    }
+  } else if (useGdt) {
+    sourceLabel = "GDT";
+    try {
+      const series = await getGdtHistory(field);
+      if (!series || series.history.length === 0) {
+        error = series?.error ?? "Aucune donnée GDT disponible.";
+      } else {
+        history = {
+          name: series.label,
+          points: series.history
+            .map((p) => {
+              const end = periodEnd(p.period);
+              return end ? { date: end.toISOString(), value: p.value } : null;
+            })
+            .filter((p): p is { date: string; value: number } => p !== null),
+        };
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Erreur GDT";
     }
   } else if (useEstat || useSnb || useStatsNz) {
     sourceLabel = useEstat ? "Statistics Bureau of Japan" : useSnb ? "BNS" : "Stats NZ";

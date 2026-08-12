@@ -20,6 +20,7 @@ const LIVE_SOURCES = new Set([
   "BOC",
   "RBA",
   "STATSNZ",
+  "GDT",
 ]);
 
 /**

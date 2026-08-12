@@ -276,6 +276,10 @@ enum IndicatorSource {
   /// Stats NZ. Publisher of the New Zealand CPI, reachable only through the
   /// quarterly CSV its release pages carry.
   STATSNZ
+  /// Global Dairy Trade's own auction results — a public S3 bucket, no key.
+  /// Publisher of the price-index move the NZD's "Produits laitiers"
+  /// indicator scores; FXMacroData carries no dairy series for the NZD.
+  GDT
   MANUAL
   DERIVED
 }

@@ -19,7 +19,9 @@ const accountSchema = z.object({
   maxDDPct: z.number().finite().min(0).max(100),
   targetPct: z.number().finite().min(0).max(1000).nullable(),
   style: z.enum(["SCALPING", "DAY_SWING"]),
-  allowedEntries: z.array(z.enum(ALL_ENTRY_TYPES as unknown as [string, ...string[]])),
+  allowedEntries: z.array(z.enum(ALL_ENTRY_TYPES as unknown as [string, ...string[]])).optional(),
+  allowedSetups: z.array(z.string().min(1).max(64)).max(64).optional(),
+  alertThresholdPct: z.number().finite().min(0).max(100).nullable().optional(),
   isActive: z.boolean(),
 });
 
@@ -41,7 +43,11 @@ export async function saveTradingAccount(input: unknown): Promise<void> {
       maxDDPct: parsed.maxDDPct,
       targetPct: parsed.targetPct,
       style: parsed.style as AccountStyle,
-      allowedEntries: parsed.allowedEntries as EntryType[],
+      ...(parsed.allowedEntries ? { allowedEntries: parsed.allowedEntries as EntryType[] } : {}),
+      ...(parsed.allowedSetups ? { allowedSetups: parsed.allowedSetups } : {}),
+      ...(parsed.alertThresholdPct !== undefined
+        ? { alertThresholdPct: parsed.alertThresholdPct }
+        : {}),
       isActive: parsed.isActive,
     },
   });

@@ -568,7 +568,26 @@ model TradingAccount {
   riskPct   Decimal  @db.Decimal(6, 3)
 
   style          AccountStyle
+  /// Ancienne taxonomie figée. Conservée pour ne pas perdre l'historique des
+  /// comptes créés avant `allowedSetups` ; plus lue par l'affichage.
   allowedEntries EntryType[]
+
+  /// Setups autorisés sur ce compte, aux noms du trader.
+  ///
+  /// Remplace allowedEntries, dont les huit valeurs étaient la méthode d'un
+  /// seul utilisateur, assortie de taux de réussite écrits en dur. Ici ce sont
+  /// des chaînes libres qui pointent vers les setups déclarés par le trader
+  /// (CustomStrategy) et vers ceux déjà présents dans son journal — ses
+  /// statistiques sont donc calculées sur ses propres trades.
+  allowedSetups String[] @default([])
+
+  /// Perte, en % du capital initial, à partir de laquelle le compte alerte.
+  ///
+  /// Distincte de maxDDPct, et c'est tout l'intérêt : maxDDPct est la règle du
+  /// prop firm — franchie, le compte est mort. Ce seuil-ci est la limite de
+  /// CONFORT du trader, placée avant, pour l'obliger à s'arrêter et revoir sa
+  /// façon de trader pendant qu'il en a encore les moyens. Null = pas d'alerte.
+  alertThresholdPct Decimal? @db.Decimal(6, 3)
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

@@ -15,16 +15,13 @@ import { Icon } from "@/components/ui/icon";
 import {
   accountHealth,
   drawdownRemaining,
-  drawdownUsedPct,
-  expectancyPct,
-  riskPerTrade,
-  setupsPerWeek,
-  targetProgressPct,
-  tradesUntilBreach,
-  weightedRR,
-  weightedWinRate,
-} from "@/domain/accounts/metrics";
-import { ALL_ENTRY_TYPES, entryLabel, type EntryType } from "@/domain/data/entry-types";
+  drawdownUsedPct,  riskPerTrade,  targetProgressPct,
+  tradesUntilBreach,} from "@/domain/accounts/metrics";
+import {
+  alertVerdict,
+  journalExpectancyPct,
+  type JournalMetrics,
+} from "@/domain/accounts/journal-metrics";
 import type { TradingAccountRow } from "@/lib/accounts";
 import { cn } from "@/lib/utils";
 
@@ -42,8 +39,14 @@ export function AccountCard({
   account,
   metaApiLink = null,
   metaApiEnabled = false,
+  userSetups,
+  metrics,
 }: {
   account: TradingAccountRow;
+  /** Setups déclarés par le trader — remplacent la taxonomie figée. */
+  userSetups: string[];
+  /** Chiffres mesurés sur SON journal, pour les setups de ce compte. */
+  metrics: JournalMetrics;
   /** Connexion MetaApi rattachée à ce compte, quand il y en a une. */
   metaApiLink?: MetaApiLink | null;
   metaApiEnabled?: boolean;
@@ -61,10 +64,10 @@ export function AccountCard({
   const remaining = drawdownRemaining(account);
   const untilBreach = tradesUntilBreach(account);
   const progress = targetProgressPct(account);
-  const winRate = weightedWinRate(account);
-  const rr = weightedRR(account);
-  const expectancy = expectancyPct(account);
-  const setups = setupsPerWeek(account);
+  const winRate = metrics.winRatePct;
+  const rr = metrics.rr;
+  const expectancy = journalExpectancyPct(metrics, account.tradingCapital);
+  const alert = alertVerdict(account);
 
   const pnl = account.currentCapital - account.initialCapital;
 
@@ -81,7 +84,8 @@ export function AccountCard({
         maxDDPct: draft.maxDDPct,
         targetPct: draft.targetPct,
         style: draft.style,
-        allowedEntries: draft.allowedEntries,
+        allowedSetups: draft.allowedSetups,
+        alertThresholdPct: draft.alertThresholdPct,
         isActive: draft.isActive,
       });
       setEditing(false);
@@ -169,6 +173,31 @@ export function AccountCard({
           </button>
         </div>
       </div>
+
+      {alert.state !== "ok" ? (
+        <div
+          role="status"
+          className={cn(
+            "mb-3 flex items-start gap-2 rounded-lg border p-2.5 text-xs leading-relaxed",
+            alert.state === "breached"
+              ? "border-brand-red bg-brand-red/10 text-brand-red"
+              : "border-brand-amber/40 bg-brand-amber/10 text-brand-amber",
+          )}
+        >
+          <Icon name={alert.state === "breached" ? "block" : "warning"} size={14} className="mt-0.5 shrink-0" />
+          <span>
+            {alert.state === "breached" ? (
+              <>Drawdown maximum atteint ({alert.lossPct} %). Le compte a franchi sa limite.</>
+            ) : (
+              <>
+                Vous êtes à <strong>{alert.lossPct} % de perte</strong>, votre seuil d alerte est à{" "}
+                {alert.thresholdPct} %. Arrêtez-vous : reprenez votre journal et refaites une
+                analyse de votre comportement avant le prochain trade.
+              </>
+            )}
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
@@ -269,14 +298,14 @@ export function AccountCard({
 
       <div className="border-border-app mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
         <span className="text-subtle mr-1 text-[10px]">
-          {setups.toFixed(1)} setups/sem ·
+          {metrics.closed} trade(s) mesuré(s) ·
         </span>
         {account.allowedEntries.map((entry) => (
           <span
             key={entry}
             className="border-border-app text-muted rounded border px-1.5 py-0.5 font-mono text-[10px]"
           >
-            {entryLabel(entry)}
+            {entry}
           </span>
         ))}
         {account.allowedEntries.length === 0 ? (
@@ -364,6 +393,33 @@ export function AccountCard({
               />
             </div>
             <div>
+              {/* Volontairement bornée par le drawdown : une alerte placée
+                  APRÈS la limite du prop firm ne se déclencherait jamais — le
+                  compte serait déjà mort. */}
+              <label className="text-muted mb-1 block text-xs">
+                Alerte à % de perte
+                <span className="text-subtle ml-1">(0 – {draft.maxDDPct})</span>
+              </label>
+              <input
+                type="number"
+                step="0.5"
+                min={0}
+                max={draft.maxDDPct}
+                value={draft.alertThresholdPct ?? ""}
+                placeholder="aucune"
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    alertThresholdPct:
+                      e.target.value === ""
+                        ? null
+                        : Math.min(Number(e.target.value), draft.maxDDPct),
+                  })
+                }
+                className={inputClass}
+              />
+            </div>
+            <div>
               <label className="text-muted mb-1 block text-xs">Objectif %</label>
               <input
                 type="number"
@@ -417,31 +473,27 @@ export function AccountCard({
             <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <p className="text-muted text-xs">Entrées autorisées</p>
               <span className="text-subtle font-mono text-[10px]">
-                {draft.allowedEntries.length}/{ALL_ENTRY_TYPES.length}
+                {draft.allowedSetups.length}/{userSetups.length}
               </span>
               <button
                 type="button"
                 onClick={() =>
                   setDraft({
                     ...draft,
-                    allowedEntries:
-                      draft.allowedEntries.length === ALL_ENTRY_TYPES.length
-                        ? []
-                        : [...ALL_ENTRY_TYPES],
+                    allowedSetups:
+                      draft.allowedSetups.length === userSetups.length ? [] : [...userSetups],
                   })
                 }
                 className="text-subtle hover:text-fg ml-auto text-[10px] uppercase transition-colors"
               >
-                {draft.allowedEntries.length === ALL_ENTRY_TYPES.length
-                  ? "Tout décocher"
-                  : "Tout cocher"}
+                {draft.allowedSetups.length === userSetups.length ? "Tout décocher" : "Tout cocher"}
               </button>
             </div>
 
             {/* Un compte sans entrée n'est pas cassé, mais ses statistiques
                 n'ont rien à mesurer. Mieux vaut le dire que d'afficher des
                 tirets sans explication. */}
-            {draft.allowedEntries.length === 0 ? (
+            {draft.allowedSetups.length === 0 ? (
               <p className="text-brand-amber mb-1.5 text-[11px]">
                 Choisissez les setups que vous jouez sur ce compte — sans eux, ni espérance ni
                 taux de réussite ne peuvent être calculés.
@@ -449,8 +501,8 @@ export function AccountCard({
             ) : null}
 
             <div className="flex flex-wrap gap-1.5">
-              {ALL_ENTRY_TYPES.map((entry) => {
-                const on = draft.allowedEntries.includes(entry);
+              {userSetups.map((entry) => {
+                const on = draft.allowedSetups.includes(entry);
                 return (
                   <button
                     key={entry}
@@ -459,9 +511,9 @@ export function AccountCard({
                     onClick={() =>
                       setDraft({
                         ...draft,
-                        allowedEntries: on
-                          ? draft.allowedEntries.filter((e) => e !== entry)
-                          : [...draft.allowedEntries, entry as EntryType],
+                        allowedSetups: on
+                          ? draft.allowedSetups.filter((e) => e !== entry)
+                          : [...draft.allowedSetups, entry],
                       })
                     }
                     className={cn(
@@ -471,7 +523,7 @@ export function AccountCard({
                         : "border-border-app text-muted hover:text-fg",
                     )}
                   >
-                    {entryLabel(entry)}
+                    {entry}
                   </button>
                 );
               })}

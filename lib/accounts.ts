@@ -25,6 +25,10 @@ export interface TradingAccountRow extends AccountConfig {
   isActive: boolean;
   /** Trades recorded against this account, so a delete can say what survives. */
   tradeCount: number;
+  /** Setups autorisés, aux noms du trader. Remplace allowedEntries. */
+  allowedSetups: string[];
+  /** Seuil d'alerte choisi, en % du capital initial. Null = aucune alerte. */
+  alertThresholdPct: number | null;
 }
 
 export const getTradingAccounts = cache(
@@ -51,6 +55,9 @@ export const getTradingAccounts = cache(
       maxDDPct: Number(account.maxDDPct),
       targetPct: account.targetPct === null ? null : Number(account.targetPct),
       allowedEntries: account.allowedEntries as EntryType[],
+      allowedSetups: account.allowedSetups,
+      alertThresholdPct:
+        account.alertThresholdPct === null ? null : Number(account.alertThresholdPct),
     }));
   },
 );

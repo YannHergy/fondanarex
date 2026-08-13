@@ -14,7 +14,10 @@ import {
   weightedRR,
   weightedWinRate,
 } from "@/domain/accounts/metrics";
+import { journalMetrics } from "@/domain/accounts/journal-metrics";
+import { setupStats, setupsUsedInJournal } from "@/domain/journal/setup-stats";
 import { getTradingAccounts } from "@/lib/accounts";
+import { listStrategies, listTrades } from "@/lib/journal";
 import { metaApiConfigured } from "@/lib/integrations/metaapi";
 import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
@@ -26,11 +29,21 @@ const money = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 
 
 export default async function AccountsPage() {
   const userId = await requireUserId();
-  const [accounts, metaApiLinks] = await Promise.all([
+  const [accounts, metaApiLinks, declared, trades] = await Promise.all([
     getTradingAccounts(userId),
     prisma.metaApiAccount.findMany({ where: { userId } }),
+    listStrategies(userId),
+    listTrades(userId),
   ]);
   const active = accounts.filter((a) => a.isActive);
+
+  // Les setups proposés viennent du trader : ceux qu'il a déclarés, plus ceux
+  // déjà présents dans son journal. Aucune taxonomie imposée, et ses chiffres
+  // sont calculés sur ses propres trades.
+  const stats = setupStats(trades);
+  const userSetups = [...new Set([...declared, ...setupsUsedInJournal(trades)])].sort((a, b) =>
+    a.localeCompare(b, "fr"),
+  );
 
   // Une connexion par compte de trading. Un lien orphelin — dont le compte a
   // été supprimé — n'apparaît nulle part plutôt que sur le mauvais compte.
@@ -135,6 +148,8 @@ export default async function AccountsPage() {
             account={account}
             metaApiLink={linkByAccount.get(account.id) ?? null}
             metaApiEnabled={metaApiEnabled}
+            userSetups={userSetups}
+            metrics={journalMetrics(account.allowedSetups, stats)}
           />
         ))}
       </div>

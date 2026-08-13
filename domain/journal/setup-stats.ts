@@ -31,6 +31,13 @@ export interface SetupStat {
     netPnl: number;
     /** Gain moyen par trade clôturé, ou null sans échantillon. */
     expectancy: number | null;
+    /** Somme des gains, et somme des pertes (positive). Permettent de POOLER
+     *  plusieurs setups exactement, là où moyenner des moyennes fausserait. */
+    grossWin: number;
+    grossLoss: number;
+    /** Gain moyen d un trade gagnant / perte moyenne d un perdant. */
+    avgWin: number | null;
+    avgLoss: number | null;
     /** Vrai quand l'échantillon atteint le minimum exigé. */
     reliable: boolean;
 }
@@ -59,6 +66,8 @@ function summarise(setup: string, trades: readonly SetupTrade[]): SetupStat {
     let breakeven = 0;
     let netPnl = 0;
     let closed = 0;
+    let grossWin = 0;
+    let grossLoss = 0;
 
     for (const trade of trades) {
         const result = outcome(trade);
@@ -66,9 +75,15 @@ function summarise(setup: string, trades: readonly SetupTrade[]): SetupStat {
 
         closed += 1;
         netPnl += trade.pnl ?? 0;
-        if (result === 'win') wins += 1;
-        else if (result === 'loss') losses += 1;
-        else breakeven += 1;
+        if (result === 'win') {
+            wins += 1;
+            grossWin += trade.pnl ?? 0;
+        } else if (result === 'loss') {
+            losses += 1;
+            grossLoss += Math.abs(trade.pnl ?? 0);
+        } else {
+            breakeven += 1;
+        }
     }
 
     const reliable = closed >= MIN_TRADES_FOR_RATE;
@@ -85,6 +100,10 @@ function summarise(setup: string, trades: readonly SetupTrade[]): SetupStat {
         winRatePct: reliable ? Math.round((wins / closed) * 1000) / 10 : null,
         netPnl: Math.round(netPnl * 100) / 100,
         expectancy: closed > 0 ? Math.round((netPnl / closed) * 100) / 100 : null,
+        grossWin: Math.round(grossWin * 100) / 100,
+        grossLoss: Math.round(grossLoss * 100) / 100,
+        avgWin: wins > 0 ? Math.round((grossWin / wins) * 100) / 100 : null,
+        avgLoss: losses > 0 ? Math.round((grossLoss / losses) * 100) / 100 : null,
         reliable,
     };
 }

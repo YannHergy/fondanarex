@@ -147,6 +147,8 @@ export function buildSetupAnalysisPrompt(
         '{',
         '  "biais_macro": "Haussier" | "Baissier" | "Neutre",',
         '  "analyse": "Le biais macro de la semaine en trois phrases : ce que disent les données à venir pour cette paire, et si elles vont dans le sens du trader ou non. Si aucune publication ne porte le scénario, dis-le.",',
+        '  "scenario_favorable": "Le scénario qui VALIDE le setup du trader : si les données sortent dans ce sens, voici ce qui se passe et pourquoi le mouvement va au bout. Trois ou quatre phrases, en citant les publications concernées.",',
+        '  "scenario_contraire": "Le scénario qui CASSE le setup : quelles sorties de chiffres le tuent, et ce que fait le prix à la place. Trois ou quatre phrases, en citant les publications concernées.",',
         '  "conditions": [',
         '    {',
         '      "release": "nom EXACT repris de la liste",',

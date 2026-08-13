@@ -268,6 +268,24 @@ export function SetupCard({
             placeholder="Lancez l'analyse, ou écrivez pourquoi ce biais tient sur le fond"
           />
 
+          {/* Les deux issues possibles, côte à côte. Le scénario qui valide et
+              celui qui casse se lisent ensemble : voir seulement le premier
+              donne un plan sans porte de sortie. */}
+          {setup.tailwinds || setup.headwinds ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Scenario
+                tone="favorable"
+                title="Scénario qui corrobore"
+                text={setup.tailwinds}
+              />
+              <Scenario
+                tone="contraire"
+                title="Scénario qui contredit"
+                text={setup.headwinds}
+              />
+            </div>
+          ) : null}
+
           {/* Ce que les données doivent faire, une bande par publication. */}
           <div>
             <p className="text-subtle mb-1.5 font-mono text-[10px] tracking-wide uppercase">
@@ -277,6 +295,48 @@ export function SetupCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Une des deux issues du setup.
+ *
+ * Encadré coloré plutôt que simple texte : le trader doit voir en un coup
+ * d'œil lequel des deux blocs il est en train de lire. La couleur ne dit rien
+ * seule — le titre et l'icône portent la même information.
+ */
+function Scenario({
+  tone,
+  title,
+  text,
+}: {
+  tone: "favorable" | "contraire";
+  title: string;
+  text: string | null;
+}) {
+  const favorable = tone === "favorable";
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border",
+        favorable
+          ? "border-brand-green/30 bg-brand-green/5"
+          : "border-brand-red/30 bg-brand-red/5",
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold uppercase",
+          favorable ? "text-brand-green" : "text-brand-red",
+        )}
+      >
+        <Icon name={favorable ? "check_circle" : "cancel"} size={12} />
+        {title}
+      </div>
+      <p className="text-muted max-h-48 overflow-y-auto px-2.5 pb-2.5 text-xs leading-relaxed">
+        {text?.trim() || "—"}
+      </p>
     </div>
   );
 }

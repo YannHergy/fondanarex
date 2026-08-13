@@ -45,6 +45,8 @@ const SCHEMA = {
   properties: {
     biais_macro: { type: "string", enum: ["Haussier", "Baissier", "Neutre"] },
     analyse: { type: "string" },
+    scenario_favorable: { type: "string" },
+    scenario_contraire: { type: "string" },
     conditions: {
       type: "array",
       items: {
@@ -62,13 +64,15 @@ const SCHEMA = {
     },
     verdict: { type: "string", enum: ["corrobore", "contredit", "aucun_lien"] },
   },
-  required: ["biais_macro", "analyse", "conditions", "verdict"],
+  required: ["biais_macro", "analyse", "scenario_favorable", "scenario_contraire", "conditions", "verdict"],
   additionalProperties: false,
 } as const;
 
 interface Parsed {
   biais_macro: string;
   analyse: string;
+  scenario_favorable: string;
+  scenario_contraire: string;
   conditions: SetupCondition[];
   verdict: string;
 }
@@ -109,6 +113,8 @@ function validate(value: unknown): Parsed | null {
   return {
     biais_macro: typeof v.biais_macro === "string" ? v.biais_macro : "Neutre",
     analyse: v.analyse,
+    scenario_favorable: typeof v.scenario_favorable === "string" ? v.scenario_favorable : "",
+    scenario_contraire: typeof v.scenario_contraire === "string" ? v.scenario_contraire : "",
     conditions,
     verdict: v.verdict,
   };
@@ -215,6 +221,8 @@ export async function analyseSetup(
       macroBias: data.biais_macro,
       macroConditions: conditions as unknown as object,
       fundamentalNotes: data.analyse,
+      tailwinds: data.scenario_favorable,
+      headwinds: data.scenario_contraire,
     },
   });
 

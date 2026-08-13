@@ -122,9 +122,31 @@ async function persist(
   });
 }
 
+/**
+ * Restreint un groupe aux devises demandées.
+ *
+ * Les groupes prédéfinis ne sont pas de simples paquets : chacun porte un
+ * THÈME (BCE contre BoE, corrélation pétrolière du CAD, carry trade sur le
+ * yen…) qui alimente le prompt. Une sélection les rétrécit donc au lieu de les
+ * recomposer — analyser l'EUR seul garde le contexte européen du groupe, là où
+ * un regroupement arbitraire des devises choisies l'aurait perdu.
+ *
+ * Une sélection vide veut dire « toutes », comme partout ailleurs dans
+ * l'application.
+ */
+function narrowGroup(group: CurrencyGroup, selected: readonly string[]): CurrencyGroup | null {
+  const codes = selected.length === 0 ? [...group.codes] : group.codes.filter((c) => selected.includes(c));
+  if (codes.length === 0) return null;
+  return { ...group, codes, label: codes.join(" / ") };
+}
+
 /** The groups the client must walk, in order. */
-export function briefingGroups(): Array<{ index: number; label: string }> {
-  return CURRENCY_GROUPS.map((group, index) => ({ index, label: group.label }));
+export function briefingGroups(
+  selected: readonly string[] = [],
+): Array<{ index: number; label: string }> {
+  return CURRENCY_GROUPS.map((group, index) => ({ group: narrowGroup(group, selected), index }))
+    .filter((entry): entry is { group: CurrencyGroup; index: number } => entry.group !== null)
+    .map(({ group, index }) => ({ index, label: group.label }));
 }
 
 /** Opens a session. The rounds are run separately, one call per group. */
@@ -147,9 +169,16 @@ export async function runBriefingGroup(
   userId: string,
   sessionId: string,
   groupIndex: number,
+  selected: readonly string[] = [],
 ): Promise<BriefingGroupResult> {
-  const group = CURRENCY_GROUPS[groupIndex];
-  if (!group) throw new Error(`Groupe ${groupIndex} inconnu`);
+  const base = CURRENCY_GROUPS[groupIndex];
+  if (!base) throw new Error(`Groupe ${groupIndex} inconnu`);
+
+  // La sélection est réappliquée ICI et pas seulement à l'ouverture : l'action
+  // est un POST public, et l'index de groupe seul ne dit pas quelles devises
+  // ont été demandées.
+  const group = narrowGroup(base, selected);
+  if (!group) throw new Error(`Groupe ${groupIndex} vide pour cette sélection`);
 
   const startedAt = Date.now();
   const currencies = await getScoredCurrencyList(userId);
@@ -272,11 +301,15 @@ export async function finaliseBriefing(
     });
   }
 
+  // Les devises RÉELLEMENT analysées, lues dans les messages plutôt que dans
+  // la liste complète. Sans cela, une session restreinte à deux devises
+  // affichait huit cartes de consensus dont six sans le moindre vote —
+  // présentées comme « Neutre », c'est-à-dire comme une opinion, alors que
+  // personne ne les avait regardées.
+  const analysed = [...new Set(messages.flatMap((m) => m.groupCodes))];
   const currencies = await getScoredCurrencyList(userId);
-  const consensus = calculateConsensus(
-    currencies.map((c) => c.code),
-    votes,
-  );
+  const codes = analysed.length > 0 ? analysed : currencies.map((c) => c.code);
+  const consensus = calculateConsensus(codes, votes);
 
   const inputTokens = messages.reduce((sum, m) => sum + (m.inputTokens ?? 0), 0);
   const outputTokens = messages.reduce((sum, m) => sum + (m.outputTokens ?? 0), 0);

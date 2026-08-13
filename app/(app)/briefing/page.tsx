@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { ModelSummaries } from "@/app/(app)/briefing/_components/model-summaries";
 import { RunBriefing } from "@/app/(app)/briefing/_components/run-briefing";
 import { VerdictTable } from "@/app/(app)/briefing/_components/verdict-table";
 import { Card, CardTitle, PageHeader } from "@/components/ui/card";
@@ -157,6 +158,8 @@ export default async function BriefingPage() {
               <p className="text-subtle text-sm">Aucun consensus produit par cette session.</p>
             )}
           </Card>
+
+          <ModelSummaries messages={session.messages} />
 
           <VerdictTable consensus={consensus} currencies={currencies} />
 

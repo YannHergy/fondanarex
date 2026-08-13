@@ -28,21 +28,40 @@ import { requireUserIdOrThrow } from "@/lib/session";
 
 const SESSION = z.string().min(1).max(64);
 
-export async function openBriefing(): Promise<{
+/**
+ * Devises demandées. Une liste vide veut dire « toutes », comme partout
+ * ailleurs dans l'application — un briefing sans sélection reste le briefing
+ * général complet.
+ */
+const CODES = z.array(z.string().min(2).max(4)).max(8).optional();
+
+export async function openBriefing(input?: unknown): Promise<{
   sessionId: string;
   groups: Array<{ index: number; label: string }>;
 }> {
   const userId = await requireUserIdOrThrow();
+  const parsed = z.object({ codes: CODES }).safeParse(input ?? {});
+  const codes = (parsed.success ? (parsed.data.codes ?? []) : []).map((c) => c.toUpperCase());
+
   const sessionId = await createBriefingSession(userId);
-  return { sessionId, groups: briefingGroups() };
+  return { sessionId, groups: briefingGroups(codes) };
 }
 
-const groupInput = z.object({ sessionId: SESSION, groupIndex: z.number().int().min(0).max(15) });
+const groupInput = z.object({
+  sessionId: SESSION,
+  groupIndex: z.number().int().min(0).max(15),
+  codes: CODES,
+});
 
 export async function runBriefingGroupAction(input: unknown): Promise<BriefingGroupResult> {
   const userId = await requireUserIdOrThrow();
-  const { sessionId, groupIndex } = groupInput.parse(input);
-  return runBriefingGroup(userId, sessionId, groupIndex);
+  const { sessionId, groupIndex, codes } = groupInput.parse(input);
+  return runBriefingGroup(
+    userId,
+    sessionId,
+    groupIndex,
+    (codes ?? []).map((c) => c.toUpperCase()),
+  );
 }
 
 export async function closeBriefing(input: unknown): Promise<BriefingProgress> {

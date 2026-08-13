@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   connectMetaApi,
   disconnectMetaApi,
+  linkExistingMetaApi,
   syncMetaApi,
 } from "@/app/(app)/comptes/metaapi-actions";
 import { Icon } from "@/components/ui/icon";
@@ -62,6 +63,14 @@ export function ConnectAccount({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  /**
+   * « credentials » crée le compte chez MetaApi ; « existing » rattache un
+   * compte déjà créé dans leur tableau de bord. Le second existe parce qu'un
+   * token en lecture seule ne peut pas créer de compte (403 sur createAccount)
+   * mais sait parfaitement en lire un.
+   */
+  const [mode, setMode] = useState<"credentials" | "existing">("credentials");
+
   const [form, setForm] = useState({
     login: "",
     password: "",
@@ -69,6 +78,15 @@ export function ConnectAccount({
     platform: "mt5",
     region: "new-york",
   });
+  const [existing, setExisting] = useState({ metaApiAccountId: "", region: "new-york" });
+
+  function linkExisting() {
+    setResult(null);
+    startTransition(async () => {
+      setResult(await linkExistingMetaApi({ tradingAccountId: accountId, ...existing }));
+      router.refresh();
+    });
+  }
 
   function set(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -201,6 +219,68 @@ export function ConnectAccount({
                 </div>
               ) : (
                 <div className="space-y-2">
+                  <div className="flex gap-1 text-[11px]">
+                    {[
+                      { id: "credentials" as const, label: "Avec mes identifiants" },
+                      { id: "existing" as const, label: "J'ai déjà un compte MetaApi" },
+                    ].map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => {
+                          setMode(entry.id);
+                          setResult(null);
+                        }}
+                        className={cn(
+                          "rounded-lg border px-2 py-1 transition-colors",
+                          mode === entry.id
+                            ? "border-brand-blue/50 bg-brand-blue/10 text-brand-blue"
+                            : "border-border-app text-subtle hover:text-muted",
+                        )}
+                      >
+                        {entry.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {mode === "existing" ? (
+                    <div className="space-y-2">
+                      <p className="text-muted text-[11px] leading-relaxed">
+                        Créez le compte dans le tableau de bord MetaApi, puis collez son
+                        identifiant ici. C&apos;est la voie à utiliser si la création directe
+                        renvoie une erreur de permission — un token en lecture seule sait lire un
+                        compte, pas en créer un.
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Field
+                          label="Identifiant du compte MetaApi"
+                          value={existing.metaApiAccountId}
+                          onChange={(v) => setExisting((c) => ({ ...c, metaApiAccountId: v }))}
+                          placeholder="865d3a4d-3803-486d-bdf3-…"
+                        />
+                        <Select
+                          label="Région"
+                          value={existing.region}
+                          onChange={(v) => setExisting((c) => ({ ...c, region: v }))}
+                          options={REGIONS}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={linkExisting}
+                        disabled={pending || existing.metaApiAccountId.length < 8}
+                        className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Icon
+                          name={pending ? "progress_activity" : "link"}
+                          size={13}
+                          className={pending ? "animate-spin" : undefined}
+                        />
+                        Rattacher
+                      </button>
+                    </div>
+                  ) : (
+                    <>
                   <p className="text-brand-amber border-brand-amber/30 bg-brand-amber/5 flex items-start gap-1.5 rounded-lg border p-2 text-[11px]">
                     <Icon name="shield" size={13} className="mt-0.5 shrink-0" />
                     <span>
@@ -262,6 +342,8 @@ export function ConnectAccount({
                     />
                     Connecter
                   </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -116,6 +116,87 @@ export async function connectMetaApi(input: unknown): Promise<ConnectResult> {
   }
 }
 
+const linkSchema = z.object({
+  tradingAccountId: z.string().min(1).max(32),
+  metaApiAccountId: z.string().min(8).max(64),
+  region: z.enum(METAAPI_REGIONS),
+});
+
+/**
+ * Rattache un compte DÉJÀ créé dans le tableau de bord MetaApi.
+ *
+ * Voie indispensable, pas un raccourci : créer un compte par l'API exige la
+ * permission `createAccount`, que les tokens en lecture seule n'ont pas — un
+ * token restreint répond alors 403 sur le provisioning tout en pouvant
+ * parfaitement LIRE le compte et son historique. Coller l'identifiant
+ * contourne entièrement cette permission.
+ *
+ * L'identifiant est vérifié auprès de MetaApi avant d'être enregistré : une
+ * faute de frappe doit échouer ici, pas six heures plus tard à la première
+ * synchronisation silencieuse.
+ */
+export async function linkExistingMetaApi(input: unknown): Promise<ConnectResult> {
+  const userId = await requireUserIdOrThrow();
+
+  if (!metaApiConfigured()) {
+    return { ok: false, message: "La connexion directe n'est pas activée sur ce serveur." };
+  }
+
+  const parsed = linkSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Saisie invalide." };
+  }
+  const data = parsed.data;
+
+  const account = await prisma.tradingAccount.findFirst({
+    where: { id: data.tradingAccountId, userId },
+    select: { id: true, name: true },
+  });
+  if (!account) return { ok: false, message: "Compte introuvable." };
+
+  try {
+    const state = await fetchMetaApiAccountState(data.metaApiAccountId);
+
+    await prisma.metaApiAccount.upsert({
+      where: { userId_metaApiAccountId: { userId, metaApiAccountId: data.metaApiAccountId } },
+      create: {
+        userId,
+        metaApiAccountId: data.metaApiAccountId,
+        tradingAccountId: account.id,
+        region: data.region,
+        label: account.name,
+        connectionStatus: state.connectionStatus,
+      },
+      update: {
+        tradingAccountId: account.id,
+        region: data.region,
+        connectionStatus: state.connectionStatus,
+      },
+    });
+
+    revalidatePath("/comptes");
+
+    if (state.connectionStatus === "CONNECTED") {
+      return {
+        ok: true,
+        connectionStatus: state.connectionStatus,
+        message: "Compte rattaché et connecté. Lancez une synchronisation.",
+      };
+    }
+    return {
+      ok: true,
+      connectionStatus: state.connectionStatus,
+      message:
+        `Compte rattaché, mais le lien avec le broker est « ${state.connectionStatus} » ` +
+        `(état MetaApi : ${state.state}). La synchronisation ne rapportera rien tant qu'il n'est pas CONNECTED.`,
+    };
+  } catch (error) {
+    const message =
+      error instanceof MetaApiError ? error.message : "Vérification auprès de MetaApi impossible.";
+    return { ok: false, message };
+  }
+}
+
 export async function syncMetaApi(input: unknown): Promise<ConnectResult & { summary?: SyncSummary }> {
   const userId = await requireUserIdOrThrow();
   const linkId = z.string().min(1).max(64).safeParse(input);

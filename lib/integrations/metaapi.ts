@@ -119,6 +119,17 @@ export async function provisionMetaApiAccount(input: ProvisionInput): Promise<st
   }
 
   if (!response.ok) {
+    // Le 403 sur createAccount ne veut PAS dire que les identifiants sont
+    // faux : il dit que le token du serveur est restreint à la lecture. Un tel
+    // token sait parfaitement lire un compte existant et son historique, donc
+    // le message oriente vers le rattachement d'un compte déjà créé plutôt que
+    // de laisser croire à une erreur de saisie.
+    if (response.status === 403) {
+      throw new MetaApiError(
+        "Le token MetaApi du serveur n'a pas le droit de CRÉER un compte (lecture seule). " +
+          "Créez le compte dans le tableau de bord MetaApi, puis rattachez-le ici avec son identifiant.",
+      );
+    }
     throw new MetaApiError(await readError(response));
   }
 

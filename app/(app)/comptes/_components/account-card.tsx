@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 
 import { adjustAccountCapital, saveTradingAccount } from "@/app/(app)/comptes/actions";
 import { DeleteAccountButton } from "@/app/(app)/comptes/_components/add-account";
+import {
+  ConnectAccount,
+  type MetaApiLink,
+} from "@/app/(app)/comptes/_components/connect-account";
 import { Card } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -34,7 +38,16 @@ const HEALTH_STYLE = {
   breached: { label: "Dépassé", className: "text-white border-brand-red bg-brand-red" },
 } as const;
 
-export function AccountCard({ account }: { account: TradingAccountRow }) {
+export function AccountCard({
+  account,
+  metaApiLink = null,
+  metaApiEnabled = false,
+}: {
+  account: TradingAccountRow;
+  /** Connexion MetaApi rattachée à ce compte, quand il y en a une. */
+  metaApiLink?: MetaApiLink | null;
+  metaApiEnabled?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -451,6 +464,8 @@ export function AccountCard({ account }: { account: TradingAccountRow }) {
           </div>
         </div>
       ) : null}
+
+      <ConnectAccount accountId={account.id} link={metaApiLink} metaApiEnabled={metaApiEnabled} />
     </Card>
   );
 }

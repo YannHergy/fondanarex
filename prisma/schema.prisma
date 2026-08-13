@@ -592,6 +592,19 @@ model MetaApiAccount {
   label            String?
   region           String? @db.VarChar(32)
 
+  /// Compte Fondanarex sur lequel la synchro dépose les trades.
+  ///
+  /// Nullable : un lien peut survivre à la suppression du compte de trading,
+  /// et les trades atterrissent alors sans rattachement plutôt que d'être
+  /// perdus. Aucune relation déclarée — la suppression d'un TradingAccount ne
+  /// doit pas emporter le lien MetaApi en cascade.
+  tradingAccountId String? @db.VarChar(32)
+
+  /// État du lien vu chez MetaApi à la dernière vérification :
+  /// CONNECTED, DISCONNECTED... Un compte peut être créé avec succès et rester
+  /// DISCONNECTED indéfiniment quand le broker refuse les terminaux tiers.
+  connectionStatus String? @db.VarChar(32)
+
   lastSyncAt         DateTime?
   lastSyncStatus     String?   @db.VarChar(32) // "ok" | "timeout" | "error"
   lastSyncError      String?   @db.Text

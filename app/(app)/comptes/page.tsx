@@ -15,6 +15,8 @@ import {
   weightedWinRate,
 } from "@/domain/accounts/metrics";
 import { getTradingAccounts } from "@/lib/accounts";
+import { metaApiConfigured } from "@/lib/integrations/metaapi";
+import { prisma } from "@/lib/prisma";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -24,8 +26,32 @@ const money = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 
 
 export default async function AccountsPage() {
   const userId = await requireUserId();
-  const accounts = await getTradingAccounts(userId);
+  const [accounts, metaApiLinks] = await Promise.all([
+    getTradingAccounts(userId),
+    prisma.metaApiAccount.findMany({ where: { userId } }),
+  ]);
   const active = accounts.filter((a) => a.isActive);
+
+  // Une connexion par compte de trading. Un lien orphelin — dont le compte a
+  // été supprimé — n'apparaît nulle part plutôt que sur le mauvais compte.
+  const linkByAccount = new Map(
+    metaApiLinks
+      .filter((link) => link.tradingAccountId)
+      .map((link) => [
+        link.tradingAccountId!,
+        {
+          id: link.id,
+          metaApiAccountId: link.metaApiAccountId,
+          region: link.region,
+          connectionStatus: link.connectionStatus,
+          lastSyncAt: link.lastSyncAt?.toISOString() ?? null,
+          lastSyncStatus: link.lastSyncStatus,
+          lastSyncError: link.lastSyncError,
+          lastSyncTradeCount: link.lastSyncTradeCount,
+        },
+      ]),
+  );
+  const metaApiEnabled = metaApiConfigured();
 
   const totalCapital = active.reduce((sum, a) => sum + a.currentCapital, 0);
   const totalInitial = active.reduce((sum, a) => sum + a.initialCapital, 0);
@@ -104,7 +130,12 @@ export default async function AccountsPage() {
 
       <div className="space-y-4">
         {accounts.map((account) => (
-          <AccountCard key={account.id} account={account} />
+          <AccountCard
+            key={account.id}
+            account={account}
+            metaApiLink={linkByAccount.get(account.id) ?? null}
+            metaApiEnabled={metaApiEnabled}
+          />
         ))}
       </div>
 

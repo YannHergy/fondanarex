@@ -89,12 +89,15 @@ export function GearGraph({
 
   // La cascade RÉELLE part du chiffre publié, pas de la seule structure : un
   // NFP à -23k après 150k ne propage pas la même chose qu un NFP conforme.
+  // Calculée dans les DEUX modes : le mode décide de ce que le graphe met en
+  // avant, pas de la qualité de l'analyse. Cliquer le NFP doit donner la même
+  // lecture réelle qu'on soit venu par « Mécanisme » ou par « Temps réel ».
   const cascade = useMemo(() => {
-    if (view !== "direct" || !selectedId) return null;
+    if (!selectedId) return null;
     const source = litById.get(selectedId);
     if (!source || source.surprise === null) return null;
     return propagateCascade(selectedId, source.surprise);
-  }, [view, selectedId, litById]);
+  }, [selectedId, litById]);
 
   const cascadeById = useMemo(
     () => new Map((cascade ?? []).map((c) => [c.targetId, c])),
@@ -383,7 +386,21 @@ export function GearGraph({
         </div>
       </Card>
 
-      {selected ? (
+      {/* Un nœud qui a REÇU un chiffre récemment passe toujours par le panneau
+          de cascade, quel que soit le mode. C'est ce qui manquait : le panneau
+          statique gagnait dès qu'un nœud était sélectionné, donc la lecture
+          réelle — sens calculé, dates, IA — était inatteignable, y compris en
+          mode temps réel. Et l'utilisateur retombait sur « NFP solide » sous un
+          NFP à -23k. */}
+      {selectedId && cascade && litById.has(selectedId) ? (
+        <CascadePanel
+          source={litById.get(selectedId)!}
+          currency={currency}
+          cascade={cascade}
+          upcoming={upcoming}
+          onClear={() => setSelectedId(null)}
+        />
+      ) : selected ? (
         <Card>
           <CardTitle icon="account_tree">{selected.indicator.fullName}</CardTitle>
 
@@ -455,14 +472,6 @@ export function GearGraph({
             </p>
           )}
         </Card>
-      ) : view === "direct" && selectedId && cascade ? (
-        <CascadePanel
-          source={litById.get(selectedId)!}
-          currency={currency}
-          cascade={cascade}
-          upcoming={upcoming}
-          onClear={() => setSelectedId(null)}
-        />
       ) : view === "direct" ? (
         <Card>
           {lit.length === 0 ? (

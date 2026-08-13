@@ -414,7 +414,40 @@ export function AccountCard({
           </div>
 
           <div>
-            <p className="text-muted mb-1.5 text-xs">Entrées autorisées</p>
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <p className="text-muted text-xs">Entrées autorisées</p>
+              <span className="text-subtle font-mono text-[10px]">
+                {draft.allowedEntries.length}/{ALL_ENTRY_TYPES.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    allowedEntries:
+                      draft.allowedEntries.length === ALL_ENTRY_TYPES.length
+                        ? []
+                        : [...ALL_ENTRY_TYPES],
+                  })
+                }
+                className="text-subtle hover:text-fg ml-auto text-[10px] uppercase transition-colors"
+              >
+                {draft.allowedEntries.length === ALL_ENTRY_TYPES.length
+                  ? "Tout décocher"
+                  : "Tout cocher"}
+              </button>
+            </div>
+
+            {/* Un compte sans entrée n'est pas cassé, mais ses statistiques
+                n'ont rien à mesurer. Mieux vaut le dire que d'afficher des
+                tirets sans explication. */}
+            {draft.allowedEntries.length === 0 ? (
+              <p className="text-brand-amber mb-1.5 text-[11px]">
+                Choisissez les setups que vous jouez sur ce compte — sans eux, ni espérance ni
+                taux de réussite ne peuvent être calculés.
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap gap-1.5">
               {ALL_ENTRY_TYPES.map((entry) => {
                 const on = draft.allowedEntries.includes(entry);

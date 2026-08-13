@@ -114,14 +114,16 @@ export async function createTradingAccount(): Promise<{ id: string }> {
       riskPct: 0.4,
       style: AccountStyle.SCALPING,
       color: palette[(slot - 1) % palette.length]!,
-      allowedEntries: [
-        EntryType.M2_ENTRY,
-        EntryType.A12_ENTRY,
-        EntryType.A2_ENTRY,
-        EntryType.A21_ENTRY,
-        EntryType.A22_ENTRY,
-        EntryType.GOLDEN_ENTRY,
-      ],
+      // AUCUNE entrée pré-cochée, volontairement.
+      //
+      // Un nouveau compte arrivait avec six entrées déjà sélectionnées — le
+      // jeu personnel du premier utilisateur. Chaque compte créé héritait donc
+      // d'une méthode qui n'était pas la sienne, et les statistiques affichées
+      // (espérance, taux de réussite pondéré) décrivaient ces entrées-là, pas
+      // les siennes. Le trader coche les setups qu'il joue réellement ; tant
+      // qu'il n'a rien coché, l'écran le lui dit plutôt que de calculer sur
+      // des entrées empruntées.
+      allowedEntries: [],
     },
     select: { id: true },
   });

@@ -67,10 +67,13 @@ const PAD_RIGHT = 40;
 export function GearGraph({
   defaultCurrency,
   litByCurrency,
+  upcoming,
 }: {
   defaultCurrency: string;
   /** Publications déjà sorties, par devise — allument les nœuds en mode temps réel. */
   litByCurrency: Record<string, LitNode[]>;
+  /** Prochaine publication par nœud — donne une DATE à chaque conséquence. */
+  upcoming: Record<string, { label: string; at: string }>;
 }) {
   const [currency, setCurrency] = useState(defaultCurrency);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -450,6 +453,13 @@ export function GearGraph({
             </p>
           )}
         </Card>
+      ) : view === "direct" && selectedId && cascade ? (
+        <CascadePanel
+          source={litById.get(selectedId)!}
+          cascade={cascade}
+          upcoming={upcoming}
+          onClear={() => setSelectedId(null)}
+        />
       ) : view === "direct" ? (
         <Card>
           {lit.length === 0 ? (
@@ -496,5 +506,126 @@ export function GearGraph({
         </Card>
       )}
     </div>
+  );
+}
+
+const dateFmt = new Intl.DateTimeFormat("fr-FR", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+
+/**
+ * Ce qu'une publication entraîne, et QUAND on le saura.
+ *
+ * Deux choses distinctes par ligne, volontairement séparées :
+ *
+ *  · LE MÉCANISME — la phrase des données, toujours écrite dans le sens
+ *    « la source monte ». Elle décrit le lien, pas cette publication-ci.
+ *  · LE SENS RÉEL — calculé à partir du chiffre publié. C'est lui qui compte,
+ *    et c'est lui qui manquait : un NFP à -23k affichait « NFP solide →
+ *    pression salariale ↑ », le texte d'un NFP positif, donc l'inverse de ce
+ *    qui s'est passé.
+ *
+ * Les deux ne sont pas fusionnés parce que la moitié des descriptions sont en
+ * prose (« Chine forte → flux vers AUD ») : les inverser mécaniquement
+ * produirait du charabia. Mieux vaut afficher la règle et la lecture côte à
+ * côte que réécrire une phrase et se tromper.
+ */
+function CascadePanel({
+  source,
+  cascade,
+  upcoming,
+  onClear,
+}: {
+  source: LitNode;
+  cascade: ReturnType<typeof propagateCascade>;
+  upcoming: Record<string, { label: string; at: string }>;
+  onClear: () => void;
+}) {
+  const fell = (source.surprise ?? 0) < 0;
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <CardTitle icon="bolt" className="mb-0">
+            {source.label}
+          </CardTitle>
+          <p className="text-subtle mt-0.5 font-mono text-[11px]">
+            {source.actual}
+            {source.previous !== null ? ` · précédent ${source.previous}` : ""}
+            <span className={cn("ml-1.5 font-semibold", fell ? "text-brand-red" : "text-brand-green")}>
+              {fell ? "en baisse" : "en hausse"}
+            </span>
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="border-border-app text-muted hover:text-fg rounded-lg border px-2.5 py-1 text-xs transition-colors"
+        >
+          Fermer
+        </button>
+      </div>
+
+      {cascade.length === 0 ? (
+        <p className="text-subtle text-sm">
+          Aucune conséquence mesurable : l&apos;écart avec le précédent est trop faible pour se
+          propager.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {cascade.slice(0, 12).map((impact) => {
+            const bullish = impact.impact >= 0;
+            const next = upcoming[impact.targetId];
+            return (
+              <div
+                key={impact.targetId}
+                className={cn(
+                  "rounded-lg border p-2.5",
+                  bullish
+                    ? "border-brand-green/25 bg-brand-green/5"
+                    : "border-brand-red/25 bg-brand-red/5",
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span
+                    className={cn(
+                      "flex items-center gap-1 text-[10px] font-bold uppercase",
+                      bullish ? "text-brand-green" : "text-brand-red",
+                    )}
+                  >
+                    <Icon name={bullish ? "trending_up" : "trending_down"} size={11} />
+                    {bullish ? "Haussier" : "Baissier"}
+                  </span>
+                  <span className="text-fg text-xs font-semibold">{impact.targetName}</span>
+                  <span className="text-subtle font-mono text-[10px]">
+                    force {Math.abs(impact.impact).toFixed(1)} · rang {impact.depth}
+                  </span>
+
+                  {/* La date est le cœur : sans elle, une conséquence à trois
+                      mois se lit comme une conséquence immédiate. */}
+                  <span className="ml-auto font-mono text-[10px]">
+                    {next ? (
+                      <span className="text-brand-blue">
+                        <Icon name="event" size={10} className="mr-0.5 inline align-text-bottom" />
+                        {dateFmt.format(new Date(next.at))}
+                      </span>
+                    ) : (
+                      <span className="text-subtle">pas de date connue</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-subtle pt-1 text-[11px]">
+            La date indique quand cet indicateur est publié — c&apos;est là que l&apos;effet sera
+            confirmé ou démenti.
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

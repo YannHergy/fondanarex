@@ -5,7 +5,11 @@ import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { FUNDAMENTAL_CONNECTIONS } from "@/domain/data/fundamental-connections";
 import { FUNDAMENTAL_INDICATORS } from "@/domain/data/fundamental-indicators";
-import { litNodesFor, type LitNode } from "@/domain/fundamental/release-bridge";
+import {
+  litNodesFor,
+  upcomingByNode,
+  type LitNode,
+} from "@/domain/fundamental/release-bridge";
 import { getReleases } from "@/lib/releases";
 import { requireUserId } from "@/lib/session";
 import { CURRENCY_CODES, isCurrencyCode } from "@/lib/utils";
@@ -28,6 +32,8 @@ export default async function GearPage({
   const litByCurrency: Record<string, LitNode[]> = Object.fromEntries(
     CURRENCY_CODES.map((code) => [code, litNodesFor(releases, code, since, now)]),
   );
+
+  const upcoming = Object.fromEntries(upcomingByNode(releases, now));
 
   const currency =
     devise && isCurrencyCode(devise.toUpperCase()) ? devise.toUpperCase() : "USD";
@@ -52,7 +58,7 @@ export default async function GearPage({
         </div>
       </Card>
 
-      <GearGraph defaultCurrency={currency} litByCurrency={litByCurrency} />
+      <GearGraph defaultCurrency={currency} litByCurrency={litByCurrency} upcoming={upcoming} />
     </div>
   );
 }

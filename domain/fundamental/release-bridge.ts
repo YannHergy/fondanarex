@@ -85,6 +85,44 @@ export function changeScore(actual: number | null, previous: number | null): num
     return Math.max(-5, Math.min(5, Math.round(relative * 10 * 10) / 10));
 }
 
+export interface UpcomingRelease {
+    label: string;
+    at: string;
+}
+
+/**
+ * La PROCHAINE publication de chaque nœud, toutes devises confondues.
+ *
+ * C'est ce qui rend une cascade actionnable. Dire « le NFP pousse l'inflation
+ * à la baisse » n'engage à rien ; dire « et l'inflation sort le 3 septembre »
+ * donne une date à laquelle l'effet sera confirmé ou démenti. Sans cela, une
+ * conséquence à trois mois se lit comme une conséquence immédiate.
+ *
+ * Les publications déjà sorties sont exclues : on cherche le prochain
+ * rendez-vous, pas le dernier.
+ */
+export function upcomingByNode(
+    releases: readonly ReleasedIndicator[],
+    now: Date,
+): Map<string, UpcomingRelease> {
+    const byNode = new Map<string, UpcomingRelease>();
+
+    for (const release of releases) {
+        if (release.at.getTime() <= now.getTime()) continue;
+
+        const nodeId = nodeIdFor(release.currencyCode, release.indicatorKey);
+        if (!nodeId) continue;
+
+        const held = byNode.get(nodeId);
+        // La plus PROCHE l'emporte : c'est le prochain rendez-vous qui compte.
+        if (held && new Date(held.at).getTime() <= release.at.getTime()) continue;
+
+        byNode.set(nodeId, { label: release.label, at: release.at.toISOString() });
+    }
+
+    return byNode;
+}
+
 /**
  * Les nœuds à allumer sur l'engrenage, pour une devise et une fenêtre.
  *

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { FUNDAMENTAL_INDICATORS } from '../data/fundamental-indicators';
-import { changeScore, litNodesFor, nodeIdFor, type ReleasedIndicator } from './release-bridge';
+import {
+    changeScore,
+    litNodesFor,
+    nodeIdFor,
+    upcomingByNode,
+    type ReleasedIndicator,
+} from './release-bridge';
 
 const NOW = new Date('2026-08-13T12:00:00.000Z');
 const SINCE = new Date('2026-08-06T12:00:00.000Z');
@@ -61,6 +67,35 @@ describe('changeScore', () => {
     it('has no opinion without both figures', () => {
         expect(changeScore(null, 150)).toBeNull();
         expect(changeScore(-23, null)).toBeNull();
+    });
+});
+
+describe('upcomingByNode', () => {
+    it('gives each node its next publication date', () => {
+        const map = upcomingByNode(
+            [release({ indicatorKey: 'cpi', label: 'CPI US', at: new Date('2026-09-03T12:30:00.000Z') })],
+            NOW,
+        );
+        expect(map.get('usd_cpi')?.label).toBe('CPI US');
+    });
+
+    it('keeps the NEAREST when a node has several ahead', () => {
+        const map = upcomingByNode(
+            [
+                release({ indicatorKey: 'cpi', label: 'loin', at: new Date('2026-10-03T12:30:00.000Z') }),
+                release({ indicatorKey: 'cpi', label: 'proche', at: new Date('2026-09-03T12:30:00.000Z') }),
+            ],
+            NOW,
+        );
+        expect(map.get('usd_cpi')?.label).toBe('proche');
+    });
+
+    it('ignores what has already come out — we want the next appointment', () => {
+        const map = upcomingByNode(
+            [release({ indicatorKey: 'cpi', at: new Date('2026-08-01T12:30:00.000Z') })],
+            NOW,
+        );
+        expect(map.has('usd_cpi')).toBe(false);
     });
 });
 

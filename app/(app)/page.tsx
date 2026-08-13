@@ -68,7 +68,7 @@ export default async function OverviewPage() {
         </Suspense>
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-stretch">
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <CardTitle>Classement de force des devises</CardTitle>

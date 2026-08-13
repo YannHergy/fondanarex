@@ -5,6 +5,8 @@ import { Icon } from "@/components/ui/icon";
 import { FxSessions } from "@/app/(app)/_components/fx-sessions";
 import { getSessionStatuses } from "@/domain/market/sessions";
 import { getUpcomingEvents } from "@/lib/weekly-events";
+import { translateTitles } from "@/lib/press-release-translate";
+import { geminiConfigured } from "@/lib/integrations/llm";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import { localRiskSentiment } from "@/domain/market-context/scorers";
 import type { MarketContext } from "@/domain/types";
@@ -346,13 +348,24 @@ export async function AnnouncementsPanel() {
 
 export async function PressReleasesPanel() {
   const releases = fx.isConfigured() ? await settle(fx.getAllPressReleases()) : null;
+  const shown = releases?.slice(0, 15) ?? [];
+
+  // Titres traduits en français ; le lien de sortie, lui, reste celui de la
+  // banque centrale telle quelle — c'est le site de destination qui gère sa
+  // propre traduction, pas nous.
+  const frTitles = geminiConfigured()
+    ? ((await settle(translateTitles(shown.map((p) => p.title)))) ?? new Map<string, string>())
+    : new Map<string, string>();
 
   return (
-    <Card className="lg:sticky lg:top-6">
+    <Card className="lg:sticky lg:top-6 lg:flex lg:h-full lg:flex-col">
       <CardTitle icon="account_balance">Communiqués des banques centrales</CardTitle>
-      {releases?.length ? (
-        <ul className="space-y-1.5 pr-1 lg:max-h-[70vh] lg:overflow-y-auto">
-          {releases.slice(0, 15).map((p, i) => (
+      {shown.length ? (
+        // flex-1 plutôt qu'une hauteur maximale fixe : la liste occupe tout
+        // l'espace que la carte reçoit de sa ligne de grille, jusqu'en bas,
+        // et ne défile que si elle en déborde réellement.
+        <ul className="space-y-1.5 pr-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          {shown.map((p, i) => (
             <li
               key={`${p.currency}-${p.date}-${i}`}
               className="border-border-app hover:bg-panel border-b px-1 py-2 transition-colors last:border-0"
@@ -371,7 +384,7 @@ export async function PressReleasesPanel() {
                   rel="noopener noreferrer"
                   className="text-muted hover:text-brand-blue group flex items-start gap-1 text-xs leading-snug transition-colors"
                 >
-                  <span className="flex-1">{p.title}</span>
+                  <span className="flex-1">{frTitles.get(p.title.trim()) ?? p.title}</span>
                   <Icon
                     name="open_in_new"
                     size={11}
@@ -379,7 +392,9 @@ export async function PressReleasesPanel() {
                   />
                 </a>
               ) : (
-                <p className="text-muted text-xs leading-snug">{p.title}</p>
+                <p className="text-muted text-xs leading-snug">
+                  {frTitles.get(p.title.trim()) ?? p.title}
+                </p>
               )}
             </li>
           ))}

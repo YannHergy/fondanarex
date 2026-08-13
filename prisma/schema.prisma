@@ -1387,6 +1387,22 @@ model NewsArticle {
   @@index([publishedAt(sort: Desc)])
 }
 
+/// French rendering of a central-bank press-release title, cached by hash.
+///
+/// FXMacroData is called fresh on every page view — the releases themselves
+/// are never stored, unlike NewsArticle. Without this cache, the same
+/// communiqué would be billed to Gemini again on every visit; the hash lets
+/// an unchanged title short-circuit straight to what was already paid for.
+model PressReleaseTranslation {
+  id String @id @default(cuid())
+
+  titleHash String @unique @db.VarChar(64)
+  title     String @db.Text
+  titleFr   String @db.Text
+
+  createdAt DateTime @default(now())
+}
+
 /// One currency a headline concerns, with the direction it leans FOR THAT
 /// currency. A single headline can be bullish one and bearish another.
 model NewsTag {

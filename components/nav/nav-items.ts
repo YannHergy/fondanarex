@@ -26,6 +26,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/briefing", label: "Briefing IA", icon: "smart_toy" },
   { href: "/comptes", label: "Comptes", icon: "account_balance_wallet" },
   { href: "/journal", label: "Journal", icon: "menu_book" },
+  { href: "/setups", label: "Mes setups", icon: "style" },
   { href: "/rapports", label: "Rapports", icon: "bar_chart" },
   { href: "/alertes", label: "Alertes", icon: "notifications" },
   { href: "/previsions", label: "Prévisions", icon: "explore" },

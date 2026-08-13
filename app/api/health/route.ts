@@ -92,6 +92,12 @@ export async function GET() {
     GROQ_API_KEY: present("GROQ_API_KEY"),
     PERPLEXITY_API_KEY: present("PERPLEXITY_API_KEY"),
     METAAPI_TOKEN: present("METAAPI_TOKEN"),
+    // Gemini porte tout ce qui doit rester bon marché — traduction des news,
+    // commentaires, lecture des publications sur l'engrenage. Son absence ne
+    // casse rien mais éteint ces fonctions, et il manquait ici : impossible de
+    // savoir depuis l'extérieur si elles étaient actives.
+    GEMINI_API_KEY: present("GEMINI_API_KEY"),
+    GEMINI_API_KEY_COMMENTARY: present("GEMINI_API_KEY_COMMENTARY"),
   };
 
   let database: { ok: boolean; detail: string; currencies?: number };

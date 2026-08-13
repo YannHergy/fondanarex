@@ -15,6 +15,8 @@ import {
   type FilterMode,
 } from "@/domain/fundamental/graph";
 import { propagateCascade } from "@/domain/fundamental/cascade";
+import { analyseReleaseAction } from "@/app/(app)/engrenage/actions";
+import type { ReleaseAnalysisResult } from "@/lib/release-analysis";
 import type { LitNode } from "@/domain/fundamental/release-bridge";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
 
@@ -456,6 +458,7 @@ export function GearGraph({
       ) : view === "direct" && selectedId && cascade ? (
         <CascadePanel
           source={litById.get(selectedId)!}
+          currency={currency}
           cascade={cascade}
           upcoming={upcoming}
           onClear={() => setSelectedId(null)}
@@ -534,16 +537,32 @@ const dateFmt = new Intl.DateTimeFormat("fr-FR", {
  */
 function CascadePanel({
   source,
+  currency,
   cascade,
   upcoming,
   onClear,
 }: {
   source: LitNode;
+  currency: string;
   cascade: ReturnType<typeof propagateCascade>;
   upcoming: Record<string, { label: string; at: string }>;
   onClear: () => void;
 }) {
+  const [reading, setReading] = useState<ReleaseAnalysisResult | null>(null);
+  const [loading, setLoading] = useState(false);
   const fell = (source.surprise ?? 0) < 0;
+
+  async function readIt() {
+    setLoading(true);
+    setReading(null);
+    try {
+      setReading(await analyseReleaseAction({ currency, nodeId: source.nodeId }));
+    } catch {
+      setReading({ ok: false, message: "La lecture a échoué." });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <Card>
@@ -560,14 +579,84 @@ function CascadePanel({
             </span>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClear}
-          className="border-border-app text-muted hover:text-fg rounded-lg border px-2.5 py-1 text-xs transition-colors"
-        >
-          Fermer
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void readIt()}
+            disabled={loading}
+            className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-white transition-colors disabled:opacity-40"
+          >
+            <Icon
+              name={loading ? "progress_activity" : "auto_awesome"}
+              size={12}
+              className={loading ? "animate-spin" : undefined}
+            />
+            {loading ? "Lecture…" : "Lecture IA"}
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="border-border-app text-muted hover:text-fg rounded-lg border px-2.5 py-1 text-xs transition-colors"
+          >
+            Fermer
+          </button>
+        </div>
       </div>
+
+      {/* La lecture IA vient AVANT la mécanique : quand elle existe, c'est
+          elle qui vaut, et la liste en dessous devient la règle brute qu'elle
+          commente. */}
+      {reading ? (
+        <div className="mb-3">
+          {!reading.ok ? (
+            <p className="text-brand-red text-xs">{reading.message}</p>
+          ) : (
+            <div className="border-brand-blue/25 bg-brand-blue/5 space-y-2 rounded-lg border p-3">
+              <p className="text-muted text-sm leading-relaxed">{reading.lecture}</p>
+
+              {reading.causes ? (
+                <p className="text-subtle text-xs leading-relaxed">
+                  <span className="text-fg font-semibold">Ce qui l&apos;a produit — </span>
+                  {reading.causes}
+                </p>
+              ) : null}
+
+              <div className="space-y-1.5 pt-1">
+                {(reading.consequences ?? []).map((c) => {
+                  const tone =
+                    c.verdict === "confirme"
+                      ? "text-brand-green"
+                      : c.verdict === "contredit"
+                        ? "text-brand-red"
+                        : "text-brand-amber";
+                  const label =
+                    c.verdict === "confirme"
+                      ? "La règle tient"
+                      : c.verdict === "contredit"
+                        ? "La règle ne tient pas"
+                        : "Sous condition";
+                  return (
+                    <div key={c.indicator} className="border-border-app rounded border p-2">
+                      <div className="mb-0.5 flex flex-wrap items-center gap-2">
+                        <span className={cn("text-[10px] font-bold uppercase", tone)}>
+                          {label}
+                        </span>
+                        <span className="text-fg text-[11px] font-semibold">{c.indicator}</span>
+                        {c.at ? (
+                          <span className="text-brand-blue ml-auto font-mono text-[10px]">
+                            {dateFmt.format(new Date(c.at))}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-muted text-xs leading-relaxed">{c.texte}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {cascade.length === 0 ? (
         <p className="text-subtle text-sm">

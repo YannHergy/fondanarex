@@ -12,6 +12,7 @@ import {
   nextJpNationalCpiRelease,
   nextJpTokyoCpiRelease,
 } from "@/lib/integrations/jp-calendar";
+import { nextBoeDecision } from "@/lib/integrations/uk-calendar";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
@@ -537,6 +538,12 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   // The ONS does not publish this — same split as Eurostat/the ECB. Daily,
   // flat between MPC decisions; periodLabel() collapses it to one row per
   // month on write, same as the ECB's deposit rate.
+  //
+  // The next-decision date comes from the Bank's own published MPC calendar
+  // (uk-calendar.ts), not FXMacroData: that forecast field was returning
+  // nothing for GBP's policy rate — every stored row had a null nextRelease —
+  // which is exactly the gap the SNB/BoJ calendars were built to close for
+  // CHF and JPY.
   if (known.has("GBP")) {
     for (const series of boeResults) {
       if (series.error || series.history.length === 0) {
@@ -546,9 +553,12 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
         continue;
       }
 
+      const officialNext =
+        series.field === "interestRate" ? nextBoeDecision(new Date(started)) : null;
       const fxNextRelease = parseInstant(
         fxMacroResults.find((d) => d.field === series.field)?.values.GBP?.nextRelease ?? null,
       );
+      const nextRelease = officialNext ?? fxNextRelease;
       const latestIndex = series.history.length - 1;
 
       const rows: PendingRow[] = [];
@@ -562,7 +572,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
           period: periodLabel(point.period),
           periodEnd: end,
           source: IndicatorSource.BOE,
-          ...(index === latestIndex ? { nextRelease: fxNextRelease } : {}),
+          ...(index === latestIndex ? { nextRelease } : {}),
         });
       });
       // Newest MONTH first — see orderForResilientWrite(). A field's first

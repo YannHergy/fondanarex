@@ -27,7 +27,13 @@ import { currentUserId } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 // The upstream fetches dominate; the default serverless budget is not enough.
-export const maxDuration = 60;
+// Raised from 60: measured live, the ONS block — last in the sequential write
+// order because it re-upserts ~870 rows every run — was being cut off by the
+// 60s ceiling on every single invocation, so GBP's GDP, trade balance and
+// four other ONS-sourced fields never advanced past whatever they held the
+// day this first started happening. 60s was the Hobby-plan hard cap; this
+// project is on a plan that allows more.
+export const maxDuration = 180;
 
 function authorised(request: NextRequest): boolean {
   const expected = process.env.CRON_SECRET ?? "";

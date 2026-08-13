@@ -4,7 +4,9 @@ import {
   SETUP_ANALYSIS_SYSTEM,
   buildSetupAnalysisPrompt,
   releasesInWindow,
+  type ConditionTone,
   type ReleaseForPrompt,
+  type SetupCondition,
 } from "@/domain/previsions/setup-analysis";
 import { callClaudeStructured } from "@/lib/integrations/llm";
 import { getReleases } from "@/lib/releases";
@@ -33,40 +35,106 @@ export interface SetupAnalysisResult {
   ok: boolean;
   message: string;
   analyse?: string;
-  ventsPorteurs?: string;
-  ventsContraires?: string;
+  conditions?: SetupCondition[];
+  macroBias?: string;
   verdict?: string;
 }
 
 const SCHEMA = {
   type: "object",
   properties: {
+    biais_macro: { type: "string", enum: ["Haussier", "Baissier", "Neutre"] },
     analyse: { type: "string" },
-    vents_porteurs: { type: "string" },
-    vents_contraires: { type: "string" },
+    conditions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          release: { type: "string" },
+          currency: { type: "string" },
+          at: { type: "string" },
+          requirement: { type: "string" },
+          tone: { type: "string", enum: ["favorable", "risque", "neutre"] },
+        },
+        required: ["release", "currency", "at", "requirement", "tone"],
+        additionalProperties: false,
+      },
+    },
     verdict: { type: "string", enum: ["corrobore", "contredit", "aucun_lien"] },
   },
-  required: ["analyse", "vents_porteurs", "vents_contraires", "verdict"],
+  required: ["biais_macro", "analyse", "conditions", "verdict"],
   additionalProperties: false,
 } as const;
 
 interface Parsed {
+  biais_macro: string;
   analyse: string;
-  vents_porteurs: string;
-  vents_contraires: string;
+  conditions: SetupCondition[];
   verdict: string;
 }
+
+const TONES = new Set<ConditionTone>(["favorable", "risque", "neutre"]);
 
 function validate(value: unknown): Parsed | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
   if (typeof v.analyse !== "string" || typeof v.verdict !== "string") return null;
+
+  const conditions: SetupCondition[] = Array.isArray(v.conditions)
+    ? v.conditions.flatMap((raw) => {
+        if (typeof raw !== "object" || raw === null) return [];
+        const c = raw as Record<string, unknown>;
+        const tone = c.tone as ConditionTone;
+        if (
+          typeof c.release !== "string" ||
+          typeof c.currency !== "string" ||
+          typeof c.at !== "string" ||
+          typeof c.requirement !== "string" ||
+          !TONES.has(tone)
+        ) {
+          return [];
+        }
+        return [
+          {
+            release: c.release,
+            currency: c.currency.toUpperCase(),
+            at: c.at,
+            requirement: c.requirement,
+            tone,
+          },
+        ];
+      })
+    : [];
+
   return {
+    biais_macro: typeof v.biais_macro === "string" ? v.biais_macro : "Neutre",
     analyse: v.analyse,
-    vents_porteurs: typeof v.vents_porteurs === "string" ? v.vents_porteurs : "",
-    vents_contraires: typeof v.vents_contraires === "string" ? v.vents_contraires : "",
+    conditions,
     verdict: v.verdict,
   };
+}
+
+/**
+ * Ne garde que les conditions qui correspondent à une publication RÉELLE.
+ *
+ * Le prompt interdit d'inventer une publication, mais une consigne n'est pas
+ * une garantie : un modèle qui hallucine un « NFP » inexistant produirait une
+ * bande verte parfaitement crédible pour une donnée qui ne sortira jamais.
+ * L'appariement se fait sur la devise et le jour — pas sur le libellé, que le
+ * modèle peut légitimement reformuler.
+ */
+function keepRealConditions(
+  conditions: readonly SetupCondition[],
+  releases: readonly ReleaseForPrompt[],
+): SetupCondition[] {
+  const real = new Set(
+    releases.map((r) => `${r.currencyCode}|${r.at.toISOString().slice(0, 10)}`),
+  );
+  return conditions.filter((c) => {
+    const day = new Date(c.at);
+    if (Number.isNaN(day.getTime())) return false;
+    return real.has(`${c.currency}|${day.toISOString().slice(0, 10)}`);
+  });
 }
 
 export async function analyseSetup(
@@ -137,27 +205,32 @@ export async function analyseSetup(
 
   if (!data) return { ok: false, message: error ?? "Analyse impossible." };
 
+  const conditions = keepRealConditions(data.conditions, inWindow);
+  const invented = data.conditions.length - conditions.length;
+
   await prisma.planSetup.update({
     where: { id: setup.id },
     data: {
       horizonDays,
+      macroBias: data.biais_macro,
+      macroConditions: conditions as unknown as object,
       fundamentalNotes: data.analyse,
-      tailwinds: data.vents_porteurs,
-      headwinds: data.vents_contraires,
     },
   });
 
   const counted =
     inWindow.length === 0
       ? "aucune publication sur la période"
-      : `${inWindow.length} publication(s) confrontée(s)`;
+      : `${conditions.length} condition(s) sur ${inWindow.length} publication(s)`;
 
   return {
     ok: true,
-    message: `Analyse écrite · ${counted} · verdict : ${data.verdict.replace("_", " ")}`,
+    message:
+      `Biais macro : ${data.biais_macro} · ${counted}` +
+      (invented > 0 ? ` · ${invented} condition(s) inventée(s) écartée(s)` : ""),
     analyse: data.analyse,
-    ventsPorteurs: data.vents_porteurs,
-    ventsContraires: data.vents_contraires,
+    conditions,
+    macroBias: data.biais_macro,
     verdict: data.verdict,
   };
 }

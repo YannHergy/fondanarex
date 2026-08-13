@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { WeekPlanView } from "@/app/(app)/previsions/_components/week-plan-view";
 import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { weekEventsFor, weekStartOf } from "@/domain/plan/week-plan";
+import { weekStartOf } from "@/domain/plan/week-plan";
 import { getScoredCurrencyList } from "@/lib/currencies";
 import { requireUserId } from "@/lib/session";
 import { storageConfigured } from "@/lib/storage";
@@ -16,37 +16,6 @@ import {
 
 export const metadata: Metadata = { title: "Prévisions" };
 export const dynamic = "force-dynamic";
-
-/** Latest published value per indicator, keyed to match the event keys. */
-function currentValuesFor(
-  currencies: Awaited<ReturnType<typeof getScoredCurrencyList>>,
-): Record<string, string> {
-  const values: Record<string, string> = {};
-
-  for (const currency of currencies) {
-    const readings: Record<string, string> = {
-      interestRate: `${currency.interestRate} %`,
-      cpi: `${currency.cpi} %`,
-      coreCpi: `${currency.coreCpi} %`,
-      gdpQoQ: `${currency.gdpQoQ} %`,
-      unemployment: `${currency.unemployment} %`,
-      pmiManufacturing: `${currency.pmiManufacturing}`,
-      pmiServices: `${currency.pmiServices}`,
-      wagePPI: `${currency.wagePPI} %`,
-      tradeBalance: `${currency.tradeBalance} Md`,
-      retailSales: `${currency.retailSales} %`,
-      consumerConfidence: `${currency.consumerConfidence}`,
-      stance: currency.stance,
-    };
-
-    for (const [key, value] of Object.entries(readings)) {
-      values[`${currency.code}-${key}`] = value;
-    }
-  }
-
-  return values;
-}
-
 export default async function PrevisionsPage({
   searchParams,
 }: {
@@ -97,11 +66,9 @@ export default async function PrevisionsPage({
       <WeekPlanView
         plan={plan}
         currencies={currencies}
-        events={weekEventsFor(currencies, requested)}
         instruments={instruments}
         planWeeks={planWeeks}
         tradeStats={tradeStats}
-        currentValues={currentValuesFor(currencies)}
         isCurrentWeek={requested === thisWeek}
       />
     </div>

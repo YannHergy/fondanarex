@@ -61,16 +61,34 @@ export function releasesInWindow(
         .sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
+/** La couleur que prendra la bande affichée pour une condition. */
+export type ConditionTone = 'favorable' | 'risque' | 'neutre';
+
+export interface SetupCondition {
+    /** Nom de la publication, repris de la liste fournie. */
+    release: string;
+    currency: string;
+    /** ISO, repris de la liste fournie. */
+    at: string;
+    /** Le chiffre qu'il faudrait voir, formulé simplement. */
+    requirement: string;
+    tone: ConditionTone;
+}
+
 export const SETUP_ANALYSIS_SYSTEM = `Tu es analyste macro pour un trader forex. Tu reçois un scénario technique et la liste EXACTE des publications économiques qui tombent pendant sa durée de vie.
 
-Ton travail : dire ce qui doit se passer FONDAMENTALEMENT pour que ce scénario se réalise.
+Ton rôle est de donner le BIAIS MACRO DE LA SEMAINE et de dire, publication par publication, ce qui doit sortir pour que le scénario du trader tienne. Tu ne donnes JAMAIS de niveau d'entrée, de TP ou de SL : la partie technique appartient au trader, tu ne fais que le fond.
 
 Règles absolues :
 - Ne lis JAMAIS de niveau de prix précis sur une capture. Tu peux décrire la structure, la tendance, le sens d'un tracé, mais les chiffres exacts viennent des champs saisis par le trader, pas de l'image.
-- N'invente aucune publication. Tu ne parles QUE des publications de la liste fournie. Si une donnée que tu voudrais citer n'y est pas, elle n'existe pas pour cette analyse.
-- Pour chaque publication qui compte, dis quel type de chiffre soutiendrait le scénario et lequel le tuerait, en te servant du précédent fourni comme point de repère.
-- Si AUCUNE publication de la liste ne peut valider ou invalider le scénario, dis-le franchement : « aucune publication de cette période ne porte ce scénario ». C'est une réponse utile, pas un échec.
-- Écris en français, au présent, sans jargon inutile. Pas de listes à puces dans les champs : des phrases.`;
+- N'invente aucune publication. Chaque condition doit reprendre le NOM, la DEVISE et la DATE exacts d'une entrée de la liste fournie. Si une donnée que tu voudrais citer n'y est pas, elle n'existe pas pour cette analyse.
+- Pour chaque publication qui compte, formule la condition en une phrase courte et concrète, en te servant du précédent fourni comme repère chiffré. Exemple : « doit sortir sous 150k pour confirmer la faiblesse du dollar ».
+- Le ton de chaque condition dit ce qu'elle fait AU SCÉNARIO DU TRADER :
+  · "favorable" — un chiffre attendu dans ce sens soutient le scénario
+  · "risque"    — cette publication peut le casser
+  · "neutre"    — à surveiller, sans effet direct
+- Si AUCUNE publication de la liste ne porte le scénario, renvoie une liste de conditions VIDE et dis-le franchement dans l'analyse. C'est une réponse utile, pas un échec.
+- Écris en français, au présent, sans jargon inutile.`;
 
 /** Construit la partie textuelle du message. Les captures sont jointes séparément. */
 export function buildSetupAnalysisPrompt(
@@ -127,9 +145,17 @@ export function buildSetupAnalysisPrompt(
         '',
         'Réponds avec cet objet JSON :',
         '{',
-        '  "analyse": "Ce qui doit se passer fondamentalement pour que le scénario tienne. Cite les publications par leur nom et leur jour, et dis quel type de chiffre il faudrait. Si aucune ne porte le scénario, dis-le.",',
-        '  "vents_porteurs": "Ce qui, dans le calendrier et le contexte, soutient le scénario. Vide si rien.",',
-        '  "vents_contraires": "Ce qui peut le faire échouer, publication par publication.",',
+        '  "biais_macro": "Haussier" | "Baissier" | "Neutre",',
+        '  "analyse": "Le biais macro de la semaine en trois phrases : ce que disent les données à venir pour cette paire, et si elles vont dans le sens du trader ou non. Si aucune publication ne porte le scénario, dis-le.",',
+        '  "conditions": [',
+        '    {',
+        '      "release": "nom EXACT repris de la liste",',
+        '      "currency": "devise EXACTE reprise de la liste",',
+        '      "at": "date ISO EXACTE reprise de la liste",',
+        '      "requirement": "ce que le chiffre doit faire, en une phrase courte",',
+        '      "tone": "favorable" | "risque" | "neutre"',
+        '    }',
+        '  ],',
         '  "verdict": "corrobore" | "contredit" | "aucun_lien"',
         '}',
     ].join('\n');

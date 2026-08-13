@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SavedField } from "@/app/(app)/previsions/_components/saved-field";
+import { MacroConditions } from "@/app/(app)/previsions/_components/macro-conditions";
 import { Screenshots } from "@/app/(app)/previsions/_components/screenshots";
 import { analyseSetupAction, removeSetup, saveSetup } from "@/app/(app)/previsions/actions";
 import { Icon } from "@/components/ui/icon";
@@ -238,32 +239,41 @@ export function SetupCard({
             </p>
           ) : null}
 
+          {setup.macroBias ? (
+            <div className="flex items-center gap-2">
+              <span className="text-subtle font-mono text-[10px] tracking-wide uppercase">
+                Biais macro de la semaine
+              </span>
+              <span
+                className={cn(
+                  "rounded-lg border px-2 py-0.5 text-[11px] font-bold",
+                  setup.macroBias === "Haussier"
+                    ? BIAS_STYLE.Bullish
+                    : setup.macroBias === "Baissier"
+                      ? BIAS_STYLE.Bearish
+                      : BIAS_STYLE.Neutral,
+                )}
+              >
+                {setup.macroBias}
+              </span>
+            </div>
+          ) : null}
+
           <SavedField
-            label="Fondamentale I — analyse"
+            label="Fondamentale — analyse"
             value={setup.fundamentalNotes ?? ""}
             onSave={(fundamentalNotes) => saveSetup({ setupId: setup.id, fundamentalNotes })}
             multiline
             rows={3}
-            placeholder="Pourquoi ce biais tient sur le fond"
+            placeholder="Lancez l'analyse, ou écrivez pourquoi ce biais tient sur le fond"
           />
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            <SavedField
-              label="Vents porteurs"
-              value={setup.tailwinds ?? ""}
-              onSave={(tailwinds) => saveSetup({ setupId: setup.id, tailwinds })}
-              multiline
-              rows={3}
-              placeholder="Ce qui soutient le setup"
-            />
-            <SavedField
-              label="Vents contraires"
-              value={setup.headwinds ?? ""}
-              onSave={(headwinds) => saveSetup({ setupId: setup.id, headwinds })}
-              multiline
-              rows={3}
-              placeholder="Ce qui l'invaliderait"
-            />
+          {/* Ce que les données doivent faire, une bande par publication. */}
+          <div>
+            <p className="text-subtle mb-1.5 font-mono text-[10px] tracking-wide uppercase">
+              Ce qui doit se passer
+            </p>
+            <MacroConditions conditions={setup.macroConditions ?? []} />
           </div>
         </div>
       </div>

@@ -823,6 +823,20 @@ model PlanSetup {
   /// s'arrêter.
   horizonDays Int?
 
+  /// Conditions macro produites par l'analyse, une par publication.
+  ///
+  /// SetupCondition[] — { release, currency, at, requirement, tone }. Stocké en
+  /// Json parce que c'est toujours lu en bloc pour être affiché : ce sont des
+  /// bandes à peindre, pas des lignes à interroger. Le `tone` porte la couleur
+  /// — favorable, risque, neutre — pour qu'un coup d'œil suffise à voir ce qui
+  /// soutient le scénario et ce qui le menace, là où un pavé de texte oblige à
+  /// tout lire.
+  macroConditions Json?
+
+  /// Le biais macro de la semaine tel que l'analyse le conclut. Volontairement
+  /// distinct de technicalBias : l'écart entre les deux est l'information.
+  macroBias String? @db.VarChar(16)
+
   position  Int      @default(0)
   createdAt DateTime @default(now())
 

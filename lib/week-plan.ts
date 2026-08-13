@@ -1,6 +1,7 @@
 import "server-only";
 
 import { listAttachments, type AttachmentRow } from "@/lib/attachments";
+import type { SetupCondition } from "@/domain/previsions/setup-analysis";
 import { prisma } from "@/lib/prisma";
 import { TechnicalBias as DbBias } from "@/lib/generated/prisma/enums";
 import type { TechnicalBias } from "@/domain/plan/week-plan";
@@ -43,6 +44,10 @@ export interface SetupRow {
   headwinds: string | null;
   /** Durée que le scénario couvre — borne la fenêtre des publications. */
   horizonDays: number | null;
+  /** Biais macro conclu par l analyse, distinct du biais technique. */
+  macroBias: string | null;
+  /** Une condition par publication, peintes en bandes. */
+  macroConditions: SetupCondition[] | null;
   position: number;
   screenshots: AttachmentRow[];
   review: {
@@ -116,6 +121,8 @@ export async function getOrCreateWeekPlan(
         tailwinds: setup.tailwinds,
         headwinds: setup.headwinds,
         horizonDays: setup.horizonDays,
+        macroBias: setup.macroBias,
+        macroConditions: (setup.macroConditions as SetupCondition[] | null) ?? null,
         position: setup.position,
         screenshots,
         review: setup.review

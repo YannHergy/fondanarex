@@ -3,7 +3,6 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { FundamentalTab } from "@/app/(app)/previsions/_components/fundamental-tab";
 import { SavedField } from "@/app/(app)/previsions/_components/saved-field";
 import { Screenshots } from "@/app/(app)/previsions/_components/screenshots";
 import { SetupCard } from "@/app/(app)/previsions/_components/setup-card";
@@ -12,43 +11,38 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
 import {
-  adjacentWeekStart,
-  isConflicted,
-  pairFundamentalBias,
-  weekLabel,
-  type WeekEvent,
-} from "@/domain/plan/week-plan";
+  adjacentWeekStart,  pairFundamentalBias,
+  weekLabel,} from "@/domain/plan/week-plan";
 import type { CurrencyWithScore } from "@/domain/types";
 import type { WeekPlanRow, WeekTradeStats } from "@/lib/week-plan";
 import { cn } from "@/lib/utils";
 
-type Tab = "technique" | "fondamental" | "synthese" | "review";
+type Tab = "technique" | "review";
 
+/**
+ * Deux temps, deux onglets — le rythme réel de la semaine.
+ *
+ * Le plan se pose en début de semaine (le setup, sa capture, et l'analyse
+ * macro qui dit ce qui doit sortir pour qu'il tienne), la revue se remplit à
+ * la fin. Les onglets « Fondamental » et « Synthèse » ont été retirés : ils
+ * redisaient sous une autre forme ce que l'analyse du setup produit désormais
+ * directement à côté du scénario qu'elle commente.
+ */
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "technique", label: "Technique", icon: "candlestick_chart" },
-  { id: "fondamental", label: "Fondamental", icon: "account_balance" },
-  { id: "synthese", label: "Synthèse", icon: "summarize" },
+  { id: "technique", label: "Plan de la semaine", icon: "candlestick_chart" },
   { id: "review", label: "Revue", icon: "rate_review" },
 ];
 
 export function WeekPlanView({
   plan,
-  currencies,
-  events,
-  instruments,
+  currencies,  instruments,
   planWeeks,
-  tradeStats,
-  currentValues,
-  isCurrentWeek,
+  tradeStats,  isCurrentWeek,
 }: {
   plan: WeekPlanRow;
-  currencies: CurrencyWithScore[];
-  events: WeekEvent[];
-  instruments: string[];
+  currencies: CurrencyWithScore[];  instruments: string[];
   planWeeks: string[];
-  tradeStats: WeekTradeStats;
-  currentValues: Record<string, string>;
-  isCurrentWeek: boolean;
+  tradeStats: WeekTradeStats;  isCurrentWeek: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("technique");
@@ -66,10 +60,6 @@ export function WeekPlanView({
         ]),
       ),
     [plan.setups, currencies],
-  );
-
-  const conflicts = plan.setups.filter((setup) =>
-    isConflicted(setup.technicalBias, biases.get(setup.id)!.bias),
   );
 
   function goToWeek(weekStart: string) {
@@ -202,95 +192,6 @@ export function WeekPlanView({
         </div>
       ) : null}
 
-      {tab === "fondamental" ? (
-        <FundamentalTab
-          weekStart={plan.weekStart}
-          weekLabel={label}
-          events={events}
-          setups={plan.setups}
-          newsImpacts={plan.newsImpacts}
-          fundamentalContext={plan.fundamentalContext}
-          currentValues={currentValues}
-        />
-      ) : null}
-
-      {tab === "synthese" ? (
-        <div className="space-y-4">
-          <Card>
-            <CardTitle icon="checklist">Setups de la semaine</CardTitle>
-            {plan.setups.length === 0 ? (
-              <p className="text-subtle text-sm">Aucun setup planifié.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {plan.setups.map((setup) => {
-                  const fundamental = biases.get(setup.id)!;
-                  const conflicted = isConflicted(setup.technicalBias, fundamental.bias);
-
-                  return (
-                    <li
-                      key={setup.id}
-                      className="border-border-app flex flex-wrap items-center gap-2 rounded-lg border p-2.5 text-xs"
-                    >
-                      <span className="text-fg font-mono font-bold">{setup.instrument}</span>
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          setup.technicalBias === "Bullish"
-                            ? "text-brand-green"
-                            : setup.technicalBias === "Bearish"
-                              ? "text-brand-red"
-                              : "text-brand-amber",
-                        )}
-                      >
-                        {setup.technicalBias}
-                      </span>
-                      <span className="text-subtle font-mono">
-                        {fundamental.base} {fundamental.baseScore} · {fundamental.quote}{" "}
-                        {fundamental.quoteScore}
-                      </span>
-                      {conflicted ? (
-                        <span className="text-brand-amber flex items-center gap-1">
-                          <Icon name="warning" size={12} />
-                          divergence
-                        </span>
-                      ) : null}
-                      <span className="text-subtle ml-auto font-mono">
-                        {setup.entryZone || "—"}
-                        <Icon
-                          name="arrow_right_alt"
-                          size={12}
-                          className="mx-0.5 inline align-text-bottom"
-                        />
-                        {setup.tp || "—"} / {setup.sl || "—"}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-
-            {conflicts.length > 0 ? (
-              <p className="text-brand-amber mt-3 flex items-start gap-1.5 text-xs">
-                <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
-                {conflicts.length} setup{conflicts.length > 1 ? "s" : ""} où votre lecture
-                technique contredit le score fondamental. Ce n&apos;est pas une erreur, mais
-                c&apos;est la position qu&apos;il faut pouvoir justifier.
-              </p>
-            ) : null}
-          </Card>
-
-          <Card>
-            <CardTitle icon="summarize">Conclusions générales</CardTitle>
-            <SavedField
-              value={plan.generalConclusions ?? ""}
-              onSave={(value) => savePlan({ weekStart: plan.weekStart, generalConclusions: value })}
-              multiline
-              rows={6}
-              placeholder="Le plan de la semaine en quelques lignes : ce que vous cherchez, ce que vous évitez"
-            />
-          </Card>
-        </div>
-      ) : null}
 
       {tab === "review" ? (
         <div className="space-y-4">

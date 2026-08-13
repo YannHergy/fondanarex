@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { createStrategy, deleteStrategy } from "@/app/(app)/journal/actions";
+import { reviewSetupsAction } from "@/app/(app)/setups/actions";
+import type { SetupReviewResult } from "@/lib/setup-review";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { MIN_TRADES_FOR_RATE, UNLABELLED, type SetupStat } from "@/domain/journal/setup-stats";
@@ -43,6 +45,20 @@ export function SetupsView({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
+  const [review, setReview] = useState<SetupReviewResult | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+
+  async function runReview() {
+    setReviewing(true);
+    setReview(null);
+    try {
+      setReview(await reviewSetupsAction());
+    } catch {
+      setReview({ ok: false, message: "L analyse a échoué." });
+    } finally {
+      setReviewing(false);
+    }
+  }
 
   function add() {
     const clean = name.trim();
@@ -235,6 +251,116 @@ export function SetupsView({
           </>
         )}
       </Card>
+
+      {/* La revue vient APRÈS le tableau : le trader voit d'abord ses propres
+          chiffres, l'avis du modèle commente ce qu'il a déjà sous les yeux
+          plutôt que de se substituer à sa lecture. */}
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <CardTitle icon="psychology" className="mb-0">
+            Quelle méthode garder ?
+          </CardTitle>
+          <button
+            type="button"
+            onClick={() => void runReview()}
+            disabled={reviewing || overall.closed === 0}
+            title={overall.closed === 0 ? "Aucun trade clôturé à analyser" : undefined}
+            className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Icon
+              name={reviewing ? "progress_activity" : "auto_awesome"}
+              size={13}
+              className={reviewing ? "animate-spin" : undefined}
+            />
+            {reviewing ? "Analyse…" : "Analyser mes setups"}
+          </button>
+        </div>
+
+        {review ? (
+          <SetupReview review={review} />
+        ) : (
+          <p className="text-muted text-sm leading-relaxed">
+            L&apos;analyse ne lit que vos chiffres réels : nombre de trades, gagnants,
+            perdants, gain et perte moyens. Elle raisonne sur l&apos;espérance, pas sur le seul
+            taux de réussite — un setup à 30 % qui gagne gros vaut mieux qu&apos;un setup à
+            70 % qui gagne peu et perd beaucoup.
+          </p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+const VERDICT_STYLE: Record<string, { label: string; icon: string; className: string }> = {
+  garder: {
+    label: "Garder",
+    icon: "check_circle",
+    className: "border-brand-green/30 bg-brand-green/5 text-brand-green",
+  },
+  réduire: {
+    label: "Réduire",
+    icon: "trending_down",
+    className: "border-brand-amber/30 bg-brand-amber/5 text-brand-amber",
+  },
+  abandonner: {
+    label: "Abandonner",
+    icon: "cancel",
+    className: "border-brand-red/30 bg-brand-red/5 text-brand-red",
+  },
+  poursuivre_mesure: {
+    label: "Continuer à mesurer",
+    icon: "hourglass_empty",
+    className: "border-brand-blue/30 bg-brand-blue/5 text-brand-blue",
+  },
+};
+
+/**
+ * La revue du modèle, un verdict par setup.
+ *
+ * Le verdict « continuer à mesurer » est traité comme les autres, pas comme
+ * une absence de réponse : sur un échantillon trop court, « je ne sais pas
+ * encore » EST la bonne conclusion, et l'afficher évite qu'un trader abandonne
+ * un setup sur trois trades.
+ */
+function SetupReview({ review }: { review: SetupReviewResult }) {
+  if (!review.ok) {
+    return <p className="text-brand-red text-xs">{review.message}</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {review.synthese ? (
+        <p className="text-muted text-sm leading-relaxed">{review.synthese}</p>
+      ) : null}
+
+      <div className="space-y-1.5">
+        {(review.verdicts ?? []).map((verdict) => {
+          const style = VERDICT_STYLE[verdict.verdict] ?? {
+            label: verdict.verdict,
+            icon: "help",
+            className: "border-border-app text-muted",
+          };
+          return (
+            <div
+              key={verdict.setup}
+              className={cn("rounded-lg border p-2.5", style.className)}
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase">
+                  <Icon name={style.icon} size={11} />
+                  {style.label}
+                </span>
+                <span className="text-fg font-mono text-[11px] font-semibold">
+                  {verdict.setup}
+                </span>
+              </div>
+              <p className="text-muted text-xs leading-relaxed">{verdict.reason}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-subtle text-[11px]">{review.message}</p>
     </div>
   );
 }

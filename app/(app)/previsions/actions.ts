@@ -16,6 +16,7 @@ import {
   setNewsImpact,
   updateSetup,
 } from "@/lib/week-plan";
+import { analyseSetup, type SetupAnalysisResult } from "@/lib/setup-analysis";
 
 /** "YYYY-MM-DD", and a Monday — the plan key is the week start, not any date in it. */
 const weekStart = z
@@ -215,4 +216,25 @@ export async function requestWeekAhead(input: unknown) {
     ...parsed,
     country: COUNTRY_NAMES[parsed.currency] ?? parsed.currency,
   });
+}
+
+/**
+ * Analyse fondamentale d'un setup à partir de sa capture et du calendrier.
+ *
+ * L'horizon vient du client parce que c'est une intention du trader — « je
+ * vise trois jours » — et non une donnée dérivable. Il est borné : au-delà
+ * d'un mois la liste des publications noierait le scénario, en deçà d'un jour
+ * elle serait vide.
+ */
+export async function analyseSetupAction(input: unknown): Promise<SetupAnalysisResult> {
+  const userId = await requireUserIdOrThrow();
+  const parsed = z
+    .object({ setupId: z.string().min(1).max(64), horizonDays: z.number().int().min(1).max(31) })
+    .safeParse(input);
+
+  if (!parsed.success) return { ok: false, message: "Paramètres invalides." };
+
+  const result = await analyseSetup(userId, parsed.data.setupId, parsed.data.horizonDays);
+  if (result.ok) revalidatePath("/previsions");
+  return result;
 }

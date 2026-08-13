@@ -814,6 +814,15 @@ model PlanSetup {
   tailwinds        String? @db.Text
   headwinds        String? @db.Text
 
+  /// Nombre de jours que le scénario est censé couvrir.
+  ///
+  /// C'est ce qui définit la FENÊTRE des publications à confronter au setup :
+  /// un scénario sur trois jours n'a rien à voir avec le même sur trois
+  /// semaines, et la liste des news qui peuvent le valider ou le tuer change
+  /// entièrement. Sans cette durée, l'analyse fondamentale ne saurait pas où
+  /// s'arrêter.
+  horizonDays Int?
+
   position  Int      @default(0)
   createdAt DateTime @default(now())
 

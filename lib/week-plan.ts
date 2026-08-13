@@ -41,6 +41,8 @@ export interface SetupRow {
   fundamentalNotes: string | null;
   tailwinds: string | null;
   headwinds: string | null;
+  /** Durée que le scénario couvre — borne la fenêtre des publications. */
+  horizonDays: number | null;
   position: number;
   screenshots: AttachmentRow[];
   review: {
@@ -113,6 +115,7 @@ export async function getOrCreateWeekPlan(
         fundamentalNotes: setup.fundamentalNotes,
         tailwinds: setup.tailwinds,
         headwinds: setup.headwinds,
+        horizonDays: setup.horizonDays,
         position: setup.position,
         screenshots,
         review: setup.review

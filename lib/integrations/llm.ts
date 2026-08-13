@@ -169,6 +169,15 @@ export async function callClaudeStructured<T>(options: {
   schema: object;
   validate: (value: unknown) => T | null;
   maxTokens?: number;
+  /**
+   * Captures jointes au message, encodées en base64.
+   *
+   * Claude sait lire une image ; Groq (llama-3.3-70b) et Perplexity (sonar-pro)
+   * ne le savent pas — c'est pourquoi l'analyse visuelle ne passe que par ce
+   * chemin. Les images précèdent le texte dans le message : le modèle les lit
+   * mieux quand la consigne vient APRÈS ce qu'elle commente.
+   */
+  images?: ReadonlyArray<{ mediaType: string; base64: string }>;
 }): Promise<{ data: T | null; error: string | null; inputTokens: number; outputTokens: number }> {
   const model = CLAUDE_PRICING.model;
 
@@ -185,7 +194,25 @@ export async function callClaudeStructured<T>(options: {
       system: options.system,
       thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: options.schema } },
-      messages: [{ role: "user", content: options.prompt }],
+      messages: [
+        {
+          role: "user",
+          content:
+            options.images && options.images.length > 0
+              ? [
+                  ...options.images.map((image) => ({
+                    type: "image" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: image.mediaType,
+                      data: image.base64,
+                    },
+                  })),
+                  { type: "text" as const, text: options.prompt },
+                ]
+              : options.prompt,
+        },
+      ],
     } as Parameters<typeof client.messages.stream>[0]);
 
     const message = await stream.finalMessage();

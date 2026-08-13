@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { SavedField } from "@/app/(app)/previsions/_components/saved-field";
 import { Screenshots } from "@/app/(app)/previsions/_components/screenshots";
-import { removeSetup, saveSetup } from "@/app/(app)/previsions/actions";
+import { analyseSetupAction, removeSetup, saveSetup } from "@/app/(app)/previsions/actions";
 import { Icon } from "@/components/ui/icon";
 import { isConflicted, type PairBias, type TechnicalBias } from "@/domain/plan/week-plan";
 import type { SetupRow } from "@/lib/week-plan";
@@ -35,6 +35,22 @@ export function SetupCard({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [confirming, setConfirming] = useState(false);
+  const [horizon, setHorizon] = useState(setup.horizonDays ?? 7);
+  const [analysing, setAnalysing] = useState(false);
+  const [analysis, setAnalysis] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function runAnalysis() {
+    setAnalysis(null);
+    setAnalysing(true);
+    try {
+      setAnalysis(await analyseSetupAction({ setupId: setup.id, horizonDays: horizon }));
+      router.refresh();
+    } catch {
+      setAnalysis({ ok: false, message: "L'analyse a échoué." });
+    } finally {
+      setAnalysing(false);
+    }
+  }
 
   function patch(fields: Parameters<typeof saveSetup>[0]) {
     startTransition(async () => {
@@ -177,6 +193,51 @@ export function SetupCard({
         </div>
 
         <div className="space-y-3">
+          {/* L'horizon est une INTENTION du trader, pas une donnée dérivable :
+              c'est lui qui décide sur combien de jours son scénario vit, et
+              c'est ce qui borne les publications à confronter. */}
+          <div className="border-border-app flex flex-wrap items-center gap-2 rounded-lg border p-2">
+            <span className="text-subtle font-mono text-[10px] tracking-wide uppercase">
+              Le scénario couvre
+            </span>
+            <select
+              value={horizon}
+              onChange={(event) => setHorizon(Number(event.target.value))}
+              className="bg-panel border-border-app text-fg focus:border-brand-blue rounded border px-2 py-1 text-xs focus:outline-none"
+            >
+              {[3, 7, 14, 21, 30].map((days) => (
+                <option key={days} value={days}>
+                  {days} jours
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={runAnalysis}
+              disabled={analysing}
+              className="bg-brand-blue hover:bg-brand-blue/90 ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon
+                name={analysing ? "progress_activity" : "auto_awesome"}
+                size={12}
+                className={analysing ? "animate-spin" : undefined}
+              />
+              {analysing ? "Analyse…" : "Analyser la capture"}
+            </button>
+          </div>
+
+          {analysis ? (
+            <p
+              role="status"
+              className={cn(
+                "text-[11px] leading-relaxed",
+                analysis.ok ? "text-brand-green" : "text-brand-red",
+              )}
+            >
+              {analysis.message}
+            </p>
+          ) : null}
+
           <SavedField
             label="Fondamentale I — analyse"
             value={setup.fundamentalNotes ?? ""}

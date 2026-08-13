@@ -5,8 +5,10 @@ import { Card, PageHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { FUNDAMENTAL_CONNECTIONS } from "@/domain/data/fundamental-connections";
 import { FUNDAMENTAL_INDICATORS } from "@/domain/data/fundamental-indicators";
+import { litNodesFor, type LitNode } from "@/domain/fundamental/release-bridge";
+import { getReleases } from "@/lib/releases";
 import { requireUserId } from "@/lib/session";
-import { isCurrencyCode } from "@/lib/utils";
+import { CURRENCY_CODES, isCurrencyCode } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Engrenage" };
 
@@ -15,8 +17,17 @@ export default async function GearPage({
 }: {
   searchParams: Promise<{ devise?: string }>;
 }) {
-  await requireUserId();
+  const userId = await requireUserId();
   const { devise } = await searchParams;
+
+  // Fenêtre de sept jours : au-delà, une publication appartient au contexte,
+  // plus à « ce qui vient de tomber ».
+  const now = new Date();
+  const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const releases = await getReleases(userId);
+  const litByCurrency: Record<string, LitNode[]> = Object.fromEntries(
+    CURRENCY_CODES.map((code) => [code, litNodesFor(releases, code, since, now)]),
+  );
 
   const currency =
     devise && isCurrencyCode(devise.toUpperCase()) ? devise.toUpperCase() : "USD";
@@ -41,7 +52,7 @@ export default async function GearPage({
         </div>
       </Card>
 
-      <GearGraph defaultCurrency={currency} />
+      <GearGraph defaultCurrency={currency} litByCurrency={litByCurrency} />
     </div>
   );
 }

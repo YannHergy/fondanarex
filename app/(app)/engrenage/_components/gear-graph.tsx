@@ -14,6 +14,8 @@ import {
   reachableFrom,
   type FilterMode,
 } from "@/domain/fundamental/graph";
+import { propagateCascade } from "@/domain/fundamental/cascade";
+import type { LitNode } from "@/domain/fundamental/release-bridge";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
 
 /**
@@ -62,11 +64,37 @@ const PAD_LEFT = 150;
 /** Marge droite, pour que le dernier nœud d'une rangée ne soit pas coupé. */
 const PAD_RIGHT = 40;
 
-export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
+export function GearGraph({
+  defaultCurrency,
+  litByCurrency,
+}: {
+  defaultCurrency: string;
+  /** Publications déjà sorties, par devise — allument les nœuds en mode temps réel. */
+  litByCurrency: Record<string, LitNode[]>;
+}) {
   const [currency, setCurrency] = useState(defaultCurrency);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<FilterMode>("both");
   const [depth, setDepth] = useState(1);
+  /** « structure » montre le mécanisme ; « direct » montre ce qui vient de tomber. */
+  const [view, setView] = useState<"structure" | "direct">("structure");
+
+  const lit = useMemo(() => litByCurrency[currency] ?? [], [litByCurrency, currency]);
+  const litById = useMemo(() => new Map(lit.map((l) => [l.nodeId, l])), [lit]);
+
+  // La cascade RÉELLE part du chiffre publié, pas de la seule structure : un
+  // NFP à -23k après 150k ne propage pas la même chose qu un NFP conforme.
+  const cascade = useMemo(() => {
+    if (view !== "direct" || !selectedId) return null;
+    const source = litById.get(selectedId);
+    if (!source || source.surprise === null) return null;
+    return propagateCascade(selectedId, source.surprise);
+  }, [view, selectedId, litById]);
+
+  const cascadeById = useMemo(
+    () => new Map((cascade ?? []).map((c) => [c.targetId, c])),
+    [cascade],
+  );
 
   const positions = useMemo(() => computeLayout(currency), [currency]);
   const nodeIds = useMemo(() => new Set(positions.map((p) => p.id)), [positions]);
@@ -138,6 +166,31 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            {(["structure", "direct"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setView(v);
+                  setSelectedId(null);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
+                  view === v
+                    ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                    : "border-border-app text-subtle hover:text-fg",
+                )}
+              >
+                <Icon name={v === "structure" ? "schema" : "bolt"} size={12} />
+                {v === "structure" ? "Mécanisme" : "Temps réel"}
+                {v === "direct" && lit.length > 0 ? (
+                  <span className="font-mono opacity-70">{lit.length}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select
               value={mode}
@@ -245,7 +298,17 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
               const style = LEVEL_STYLE[position.level];
               const isSelected = position.id === selectedId;
               const isHighlighted = highlighted?.has(position.id) ?? false;
-              const dimmed = selectedId !== null && !isHighlighted;
+              const litHere = litById.get(position.id);
+              const impact = cascadeById.get(position.id);
+              // En temps réel, ce qui compte est ce qui a bougé : on éteint
+              // tout le reste tant que rien n est sélectionné, sinon la
+              // publication du jour se perd parmi 194 nœuds.
+              const dimmed =
+                view === "direct"
+                  ? selectedId !== null
+                    ? !isHighlighted && !impact
+                    : !litHere
+                  : selectedId !== null && !isHighlighted;
               const radius = LEVEL_RADIUS[position.level];
               // How many other indicators this one feeds or is fed by — the
               // count shown on the badge, which is what makes a hub visible
@@ -385,6 +448,43 @@ export function GearGraph({ defaultCurrency }: { defaultCurrency: string }) {
             <p className="text-subtle text-sm">
               Aucune connexion dans ce sens. Changez le filtre pour voir l&apos;autre direction.
             </p>
+          )}
+        </Card>
+      ) : view === "direct" ? (
+        <Card>
+          {lit.length === 0 ? (
+            <p className="text-subtle text-sm">
+              Aucune publication sortie ces sept derniers jours pour {currency}. Le mode temps
+              réel allume les indicateurs dès qu&apos;un chiffre tombe.
+            </p>
+          ) : (
+            <>
+              <CardTitle icon="bolt">Publications récentes — {currency}</CardTitle>
+              <p className="text-subtle mb-2 text-[11px]">
+                Cliquez une publication pour voir ce qu&apos;elle entraîne logiquement.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {lit.map((node) => (
+                  <button
+                    key={node.nodeId}
+                    type="button"
+                    onClick={() => setSelectedId(node.nodeId === selectedId ? null : node.nodeId)}
+                    className={cn(
+                      "rounded-lg border px-2 py-1 text-left text-[11px] transition-colors",
+                      node.nodeId === selectedId
+                        ? "border-brand-amber bg-brand-amber/10 text-brand-amber"
+                        : "border-border-app text-muted hover:text-fg",
+                    )}
+                  >
+                    <span className="font-semibold">{node.label}</span>{" "}
+                    <span className="font-mono">
+                      {node.actual}
+                      {node.previous !== null ? ` (préc. ${node.previous})` : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </Card>
       ) : (

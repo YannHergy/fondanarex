@@ -95,6 +95,24 @@ describe('filterTrades', () => {
         expect(filterTrades(trades, {}, NOW)).toHaveLength(4);
     });
 
+    it('filters by trading account, and never keeps a trade attached to none', () => {
+        const withAccounts = [
+            trade({ instrument: 'EUR/USD', accountId: 'acc-5k' }),
+            trade({ instrument: 'GBP/USD', accountId: 'acc-25k' }),
+            trade({ instrument: 'USD/JPY', accountId: 'acc-5k' }),
+            // Saisi à la main sans compte : il n'appartient à aucun, donc un
+            // filtre par compte ne doit jamais le retenir.
+            trade({ instrument: 'AUD/USD', accountId: null }),
+        ];
+
+        expect(filterTrades(withAccounts, { account: 'acc-5k' }, NOW).map(t => t.instrument))
+            .toEqual(['EUR/USD', 'USD/JPY']);
+        expect(filterTrades(withAccounts, { account: 'acc-25k' }, NOW)).toHaveLength(1);
+        expect(filterTrades(withAccounts, { account: 'inconnu' }, NOW)).toHaveLength(0);
+        // Pas de filtre : le trade sans compte reste visible.
+        expect(filterTrades(withAccounts, {}, NOW)).toHaveLength(4);
+    });
+
     it('filters by instrument, strategy and session', () => {
         expect(filterTrades(trades, { instrument: 'EUR/USD' }, NOW)).toHaveLength(2);
         expect(filterTrades(trades, { strategy: 'A2 ENTRY' }, NOW)).toHaveLength(1);

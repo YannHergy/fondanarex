@@ -55,6 +55,7 @@ export function JournalView({
   strategies,
   accounts,
   analysisHistory,
+  initialAccountId,
   now,
 }: {
   trades: TradeRow[];
@@ -63,6 +64,8 @@ export function JournalView({
   strategies: string[];
   accounts: AccountOption[];
   analysisHistory: AnalysisRunRow[];
+  /** Compte préselectionné, passé par ?compte= depuis la page Comptes. */
+  initialAccountId?: string;
   /** Server clock, so filtering does not depend on the visitor's machine. */
   now: string;
 }) {
@@ -71,7 +74,9 @@ export function JournalView({
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TradeRow | null>(null);
   const [selected, setSelected] = useState<TradeRow | null>(null);
-  const [filters, setFilters] = useState<JournalFilters>({});
+  const [filters, setFilters] = useState<JournalFilters>(
+    initialAccountId ? { account: initialAccountId } : {},
+  );
   const [sortColumn, setSortColumn] = useState<SortColumn>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [month, setMonth] = useState(() => new Date(now));
@@ -95,13 +100,17 @@ export function JournalView({
     else if (filters.period === "month") parts.push("ce mois");
     else parts.push("toute la période");
 
+    // Le compte en fait partie : sans lui, l'analyse IA décrivait « le
+    // journal » alors qu'elle ne regardait qu'un seul compte.
+    const account = accounts.find((a) => a.id === filters.account);
+    if (account) parts.push(`compte ${account.name}`);
     if (filters.instrument) parts.push(`paire ${filters.instrument}`);
     if (filters.strategy) parts.push(`stratégie ${filters.strategy}`);
     if (filters.session) parts.push(`session ${filters.session}`);
     if (filters.result && filters.result !== "all") parts.push(`résultat : ${filters.result}`);
 
     return parts.join(", ");
-  }, [filters]);
+  }, [filters, accounts]);
 
   const calendar = useMemo(
     () => monthCalendar(month.getUTCFullYear(), month.getUTCMonth(), tradesByDay(trades)),
@@ -129,7 +138,7 @@ export function JournalView({
         title="Journal"
         subtitle="Chaque trade, ce qui l'a motivé et ce qu'il a réellement donné"
       >
-        <ImportMt5 accounts={accounts} />
+        <ImportMt5 accounts={accounts} defaultAccountId={filters.account} />
         <button
           type="button"
           onClick={() => openForm(null)}
@@ -184,6 +193,19 @@ export function JournalView({
         </div>
 
         <div className="border-border-app flex flex-wrap gap-2 border-t pt-3">
+          {/* En premier : c'est le filtre le plus structurant — les statistiques,
+              la courbe de capital et la projection décrivent toutes le compte
+              sélectionné. Masqué quand il n'y a qu'un compte, où le choix
+              n'apporte rien. */}
+          {accounts.length > 1 ? (
+            <FilterSelect
+              value={filters.account ?? ""}
+              onChange={(value) => setFilters((c) => ({ ...c, account: value || undefined }))}
+              options={accounts.map((a) => a.id)}
+              labels={Object.fromEntries(accounts.map((a) => [a.id, a.name]))}
+              placeholder="Tous les comptes"
+            />
+          ) : null}
           <FilterSelect
             value={filters.instrument ?? ""}
             onChange={(value) => setFilters((c) => ({ ...c, instrument: value || undefined }))}

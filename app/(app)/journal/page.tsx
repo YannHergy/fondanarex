@@ -11,8 +11,13 @@ import { requireUserId } from "@/lib/session";
 export const metadata: Metadata = { title: "Journal" };
 export const dynamic = "force-dynamic";
 
-export default async function JournalPage() {
+export default async function JournalPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ compte?: string }>;
+}) {
   const userId = await requireUserId();
+  const { compte } = await searchParams;
 
   const [trades, custom, accounts, instruments, analysisHistory] = await Promise.all([
     listTrades(userId),
@@ -49,6 +54,11 @@ export default async function JournalPage() {
       strategies={[...new Set([...DEFAULT_STRATEGIES, ...custom])]}
       accounts={accounts}
       analysisHistory={analysisHistory}
+      // Le compte arrive par l'URL depuis la page Comptes. Vérifié contre les
+      // comptes de CET utilisateur : un identifiant inconnu — ou appartenant à
+      // quelqu'un d'autre — est ignoré plutôt que d'ouvrir un journal
+      // vide et inexplicable.
+      initialAccountId={accounts.some((a) => a.id === compte) ? compte : undefined}
       now={new Date().toISOString()}
     />
   );

@@ -20,9 +20,21 @@ import { cn } from "@/lib/utils";
  * already present, skipped instruments, unreadable rows. A history import that
  * silently drops a trade is worse than one that refuses, so nothing is hidden.
  */
-export function ImportMt5({ accounts }: { accounts: AccountOption[] }) {
+export function ImportMt5({
+  accounts,
+  defaultAccountId,
+}: {
+  accounts: AccountOption[];
+  /**
+   * Compte visé, quand on arrive depuis la page Comptes. Importer sur le
+   * mauvais compte est difficile à défaire — les trades sont écrits — donc la
+   * destination est préremplie plutôt que laissée vide à côté d'un journal
+   * déjà filtré sur ce compte.
+   */
+  defaultAccountId?: string;
+}) {
   const [open, setOpen] = useState(false);
-  const [accountId, setAccountId] = useState("");
+  const [accountId, setAccountId] = useState(defaultAccountId ?? "");
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();

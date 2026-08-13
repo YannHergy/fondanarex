@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { adjustAccountCapital, saveTradingAccount } from "@/app/(app)/comptes/actions";
@@ -100,7 +101,23 @@ export function AccountCard({ account }: { account: TradingAccountRow }) {
             style={{ backgroundColor: account.color }}
           />
           <div>
-            <h2 className="text-fg text-sm font-semibold">{account.name}</h2>
+            {/* Le nom mène au journal de CE compte : c'est le geste attendu
+                quand on clique un compte, et c'est de là qu'on importe ses
+                trades. Un lien, pas un bouton — il s'ouvre dans un onglet et
+                se copie. */}
+            <Link
+              href={`/journal?compte=${account.id}`}
+              className="hover:text-brand-blue group inline-flex items-center gap-1.5 transition-colors"
+            >
+              <h2 className="text-fg group-hover:text-brand-blue text-sm font-semibold transition-colors">
+                {account.name}
+              </h2>
+              <Icon
+                name="chevron_right"
+                size={13}
+                className="text-subtle group-hover:text-brand-blue shrink-0 transition-colors"
+              />
+            </Link>
             <p className="text-subtle text-[10px] uppercase">
               {account.style === "SCALPING" ? "Scalping" : "Day / Swing"}
               {!account.useRealCapital

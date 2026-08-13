@@ -27,6 +27,16 @@ export interface JournalTrade {
     session: string | null;
     tags: string[];
     source: TradeOrigin;
+    /**
+     * Compte rattaché, quand la ligne en porte un.
+     *
+     * Optionnel ici, et obligatoire sur TradeRow : le filtre par compte doit
+     * pouvoir s'appliquer aux lignes riches que manipule le journal, sans
+     * forcer les appelants qui travaillent sur la forme minimale à inventer
+     * une valeur. Un trade sans compte n'est jamais retenu par un filtre de
+     * compte — il n'appartient à aucun.
+     */
+    accountId?: string | null;
 }
 
 /** True when the terminal produced the trade rather than the user typing it. */
@@ -99,6 +109,8 @@ export interface JournalFilters {
     session?: string;
     result?: ResultFilter;
     period?: PeriodFilter;
+    /** Identifiant du compte de trading. */
+    account?: string;
     /** Matches instrument, strategy, notes-free text and tags. */
     search?: string;
 }
@@ -126,6 +138,7 @@ export function filterTrades<T extends JournalTrade>(
         if (filters.instrument && trade.instrument !== filters.instrument) return false;
         if (filters.strategy && trade.strategy !== filters.strategy) return false;
         if (filters.session && trade.session !== filters.session) return false;
+        if (filters.account && trade.accountId !== filters.account) return false;
 
         if (filters.result && filters.result !== 'all') {
             if (tradeOutcome(trade.closedAt, trade.pnl) !== filters.result) return false;

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { TradeForm } from "@/app/(app)/journal/_components/trade-form";
 import {
+  assignStrategy,
   deleteTradeScreenshot,
   removeTrade,
   uploadTradeScreenshot,
@@ -80,6 +81,9 @@ export function JournalView({
   const [sortColumn, setSortColumn] = useState<SortColumn>("date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [month, setMonth] = useState(() => new Date(now));
+  const [bulkSetup, setBulkSetup] = useState("");
+  const [bulkDone, setBulkDone] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
   const nowDate = useMemo(() => new Date(now), [now]);
 
@@ -256,6 +260,64 @@ export function JournalView({
             </button>
           ) : null}
         </div>
+
+        {/* Étiquetage en masse.
+         *
+         * Un rapport MetaTrader ne porte AUCUN setup — le terminal ignore
+         * pourquoi la position a été prise. Sans ceci, étiqueter un historique
+         * importé demandait d'ouvrir chaque trade un par un, et la page « Mes
+         * setups » restait vide de tout ce qui la rend utile.
+         *
+         * L'action s'applique aux trades ACTUELLEMENT FILTRÉS plutôt qu'à une
+         * sélection à cocher : les filtres au-dessus font déjà ce travail, et
+         * « toutes mes ventes EUR/USD de mars » se décrit mieux avec eux
+         * qu'avec quarante cases. */}
+        {visible.length > 0 ? (
+          <div className="border-border-app mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+            <span className="text-subtle font-mono text-[10px] tracking-wide uppercase">
+              Étiqueter les {visible.length} trades affichés
+            </span>
+            <select
+              value={bulkSetup}
+              onChange={(event) => setBulkSetup(event.target.value)}
+              className="bg-panel border-border-app text-fg focus:border-brand-blue rounded-lg border px-2 py-1 text-xs focus:outline-none"
+            >
+              <option value="">Choisir un setup…</option>
+              {strategies.map((strategy) => (
+                <option key={strategy} value={strategy}>
+                  {strategy}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={pending || bulkSetup === ""}
+              onClick={() =>
+                startTransition(async () => {
+                  const { updated } = await assignStrategy({
+                    tradeIds: visible.map((trade) => trade.id),
+                    strategy: bulkSetup,
+                  });
+                  setBulkDone(`${updated} trade(s) étiquetés « ${bulkSetup} »`);
+                  setBulkSetup("");
+                  router.refresh();
+                })
+              }
+              className="bg-brand-blue hover:bg-brand-blue/90 rounded-lg px-2.5 py-1 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Appliquer
+            </button>
+            {bulkDone ? (
+              <span role="status" className="text-brand-green text-[11px]">
+                {bulkDone}
+              </span>
+            ) : (
+              <span className="text-subtle text-[11px]">
+                Filtrez d&apos;abord, puis étiquetez le lot.
+              </span>
+            )}
+          </div>
+        ) : null}
       </Card>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

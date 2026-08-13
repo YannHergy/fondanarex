@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { prisma } from "@/lib/prisma";
+
 import {
   ANALYSIS_SCHEMA,
   ANALYSIS_SYSTEM,
@@ -405,4 +407,39 @@ export async function deleteTradeScreenshot(attachmentId: string): Promise<void>
   const userId = await requireUserIdOrThrow();
   await removeAttachment(userId, z.string().min(1).parse(attachmentId));
   revalidatePath("/journal");
+}
+
+/**
+ * Attribue un setup à plusieurs trades d'un coup.
+ *
+ * Indispensable après un import : un rapport MetaTrader ne porte AUCUN setup
+ * — le terminal ne sait pas pourquoi vous avez pris la position. Sans cette
+ * action, étiqueter un historique de plusieurs dizaines de trades demandait
+ * de les ouvrir un par un, et la page « Mes setups » restait vide de tout ce
+ * qui la rend utile.
+ *
+ * Les identifiants sont filtrés par userId dans la requête elle-même, donc un
+ * identifiant appartenant à quelqu'un d'autre ne modifie rien plutôt que de
+ * lever une erreur qui révélerait son existence.
+ */
+export async function assignStrategy(input: unknown): Promise<{ updated: number }> {
+  const userId = await requireUserIdOrThrow();
+  const { tradeIds, strategy } = z
+    .object({
+      tradeIds: z.array(z.string().min(1).max(64)).min(1).max(500),
+      // Chaîne vide = retirer l'étiquette, ce qui doit rester possible.
+      strategy: z.string().max(64),
+    })
+    .parse(input);
+
+  const clean = strategy.trim();
+  const result = await prisma.trade.updateMany({
+    where: { id: { in: tradeIds }, userId },
+    data: { strategy: clean.length > 0 ? clean : null },
+  });
+
+  revalidatePath("/journal");
+  revalidatePath("/setups");
+  revalidatePath("/rapports");
+  return { updated: result.count };
 }

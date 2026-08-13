@@ -36,6 +36,9 @@ export interface ReleaseAnalysisResult {
   message: string;
   lecture?: string;
   causes?: string;
+  chaine?: string;
+  scenarioConfirmation?: string;
+  scenarioInvalidation?: string;
   consequences?: ConsequenceRead[];
 }
 
@@ -48,7 +51,9 @@ Ce qu'on attend de toi :
 - Dis ce qui a PROBABLEMENT produit ce chiffre. Une baisse de l'emploi due à un ralentissement de la demande n'a pas les mêmes suites qu'une baisse due à une grève ou à une révision statistique.
 - Pour chaque conséquence annoncée par le graphe, tranche : "confirme" si la mécanique tient ici, "nuance" si elle tient sous condition, "contredit" si les données réelles pointent l'inverse. Dis POURQUOI, en une ou deux phrases.
 - Exemple du raisonnement attendu : un emploi qui s'effondre ne fait baisser l'inflation que si la demande faiblit avec lui. Si l'inflation reste haute malgré tout, c'est qu'elle vient de l'offre ou de l'énergie, et le lien emploi->inflation ne joue pas ce cycle-ci.
-- N'invente aucun chiffre. Tu ne disposes que de ceux qui te sont donnés.
+- RACONTE l'enchaînement au lieu de l'étiqueter. Dire « baissier » n'apprend rien : il faut suivre le fil — ce chiffre pèse sur tel indicateur, qui sort telle date, ce qui pousse tel autre, et voilà où finit la devise. Chaque maillon nommé, chaque date citée.
+- Appuie-toi sur LES DATES fournies. Une conséquence sans échéance est une opinion ; avec l'échéance, c'est un rendez-vous vérifiable.
+- N'invente aucun chiffre ni aucune date. Tu ne disposes que de ceux qui te sont donnés.
 - Écris en français, dense et direct, sans jargon décoratif ni précaution oratoire.`;
 
 const SCHEMA = {
@@ -56,6 +61,9 @@ const SCHEMA = {
   properties: {
     lecture: { type: "string" },
     causes: { type: "string" },
+    chaine: { type: "string" },
+    scenario_confirmation: { type: "string" },
+    scenario_invalidation: { type: "string" },
     consequences: {
       type: "array",
       items: {
@@ -70,13 +78,18 @@ const SCHEMA = {
       },
     },
   },
-  required: ["lecture", "causes", "consequences"],
+  required: ["lecture", "causes", "chaine", "scenario_confirmation", "scenario_invalidation", "consequences"],
   additionalProperties: false,
 } as const;
+
+const VERDICTS = new Set(["confirme", "nuance", "contredit"]);
 
 interface Parsed {
   lecture: string;
   causes: string;
+  chaine: string;
+  scenario_confirmation: string;
+  scenario_invalidation: string;
   consequences: Array<{ indicator: string; verdict: string; texte: string }>;
 }
 
@@ -96,11 +109,23 @@ function validate(value: unknown): Parsed | null {
         ) {
           return [];
         }
-        return [{ indicator: c.indicator, verdict: c.verdict, texte: c.texte }];
+        // Le verdict est ramené de force dans les trois valeurs prévues.
+        // Observé en test : le modèle glisse parfois une phrase entière ici,
+        // et l interface l afficherait telle quelle comme étiquette.
+        const verdict = VERDICTS.has(c.verdict) ? c.verdict : "nuance";
+        return [{ indicator: c.indicator, verdict, texte: c.texte }];
       })
     : [];
 
-  return { lecture: v.lecture, causes: v.causes, consequences };
+  const text = (key: string) => (typeof v[key] === "string" ? (v[key] as string) : "");
+  return {
+    lecture: v.lecture,
+    causes: v.causes,
+    chaine: text("chaine"),
+    scenario_confirmation: text("scenario_confirmation"),
+    scenario_invalidation: text("scenario_invalidation"),
+    consequences,
+  };
 }
 
 /** L'état macro courant d'une devise, en quelques lignes lisibles par le modèle. */
@@ -181,6 +206,9 @@ export async function analyseRelease(
     "{",
     '  "lecture": "Ce que ce chiffre dit VRAIMENT au vu de l\'état macro ci-dessus. Trois à cinq phrases.",',
     '  "causes": "Ce qui a probablement produit ce chiffre, et pourquoi cela change la suite. Deux à quatre phrases.",',
+    '  "chaine": "L\'ENCHAÎNEMENT, raconté. Pars du chiffre, suis le fil d\'un indicateur à l\'autre en NOMMANT chaque étape et LA DATE à laquelle on la vérifiera, et dis à chaque maillon pourquoi il tient ou pourquoi il peut rompre. Cinq à huit phrases, en prose continue, pas en liste.",',
+    '  "scenario_confirmation": "Le scénario où l\'enchaînement se confirme : quels chiffres, à quelles dates, et où finit la devise. Trois ou quatre phrases.",',
+    '  "scenario_invalidation": "Le scénario où il casse : quels chiffres le démentiraient, à quelles dates, et ce que cela voudrait dire à la place. Trois ou quatre phrases.",',
     '  "consequences": [ { "indicator": "nom EXACT repris de la liste", "verdict": "confirme|nuance|contredit", "texte": "pourquoi, en une ou deux phrases" } ]',
     "}",
   ]
@@ -198,7 +226,7 @@ export async function analyseRelease(
     prompt,
     schema: SCHEMA,
     validate,
-    maxTokens: 2000,
+    maxTokens: 4000,
   });
 
   if (!data) return { ok: false, message: error ?? "Analyse impossible." };
@@ -220,6 +248,9 @@ export async function analyseRelease(
     message: `${consequences.length} conséquence(s) analysée(s)`,
     lecture: data.lecture,
     causes: data.causes,
+    chaine: data.chaine,
+    scenarioConfirmation: data.scenario_confirmation,
+    scenarioInvalidation: data.scenario_invalidation,
     consequences,
   };
 }

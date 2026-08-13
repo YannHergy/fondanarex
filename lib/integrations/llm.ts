@@ -562,6 +562,31 @@ export function geminiCommentaryConfigured(): boolean {
  * (news translation, the journal's analysis and chat) is unaffected. A caller
  * spending against a dedicated project's quota — commentary — passes its own.
  */
+/**
+ * Adapte un schéma JSON au sous-ensemble qu'accepte Gemini.
+ *
+ * Gemini refuse `additionalProperties` — et pas silencieusement : il répond
+ * « Invalid JSON payload. Unknown name "additionalProperties" » et l'appel
+ * échoue entièrement. Or c'est une clé que tout schéma strict porte, et que
+ * l'API d'Anthropic accepte sans broncher, si bien qu'un schéma écrit pour
+ * l'un casse chez l'autre.
+ *
+ * Le nettoyage se fait ICI plutôt que dans chaque appelant : sinon la
+ * prochaine fonction qui réutilise un schéma Claude sur Gemini retombera dans
+ * le même piège.
+ */
+function geminiSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(geminiSchema);
+  if (typeof schema !== "object" || schema === null) return schema;
+
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (key === "additionalProperties") continue;
+    cleaned[key] = geminiSchema(value);
+  }
+  return cleaned;
+}
+
 export async function callGeminiStructured<T>(options: {
   system: string;
   prompt: string;
@@ -595,7 +620,7 @@ export async function callGeminiStructured<T>(options: {
           temperature: 0.4,
           maxOutputTokens: options.maxTokens ?? 8000,
           responseMimeType: "application/json",
-          responseSchema: options.schema,
+          responseSchema: geminiSchema(options.schema),
         },
       }),
     });

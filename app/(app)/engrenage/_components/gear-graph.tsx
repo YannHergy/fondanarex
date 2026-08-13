@@ -630,6 +630,41 @@ function CascadePanel({
                 </p>
               ) : null}
 
+              {/* L'enchaînement raconté. C'est lui que le trader lit : les
+                  bandes disent « baissier », la chaîne dit POURQUOI et à
+                  quelle date chaque maillon se vérifie. */}
+              {reading.chaine ? (
+                <div className="border-border-app rounded-lg border p-2.5">
+                  <p className="text-subtle mb-1 font-mono text-[10px] tracking-wide uppercase">
+                    L&apos;enchaînement
+                  </p>
+                  <p className="text-muted text-xs leading-relaxed">{reading.chaine}</p>
+                </div>
+              ) : null}
+
+              {reading.scenarioConfirmation || reading.scenarioInvalidation ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="border-brand-green/25 bg-brand-green/5 rounded-lg border p-2.5">
+                    <p className="text-brand-green mb-1 flex items-center gap-1 text-[10px] font-bold uppercase">
+                      <Icon name="check_circle" size={11} />
+                      Si ça se confirme
+                    </p>
+                    <p className="text-muted text-xs leading-relaxed">
+                      {reading.scenarioConfirmation || "—"}
+                    </p>
+                  </div>
+                  <div className="border-brand-red/25 bg-brand-red/5 rounded-lg border p-2.5">
+                    <p className="text-brand-red mb-1 flex items-center gap-1 text-[10px] font-bold uppercase">
+                      <Icon name="cancel" size={11} />
+                      Si ça casse
+                    </p>
+                    <p className="text-muted text-xs leading-relaxed">
+                      {reading.scenarioInvalidation || "—"}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="space-y-1.5 pt-1">
                 {(reading.consequences ?? []).map((c) => {
                   const tone =

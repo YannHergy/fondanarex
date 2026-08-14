@@ -24,10 +24,25 @@ import { CURRENCY_COLOR_VAR, cn, isCurrencyCode } from "@/lib/utils";
  * retrouverait aligné avec un creux de 2025.
  */
 
-const WIDTH = 720;
 const PAD_LEFT = 34;
 const PAD_RIGHT = 62;
 const PAD_Y = 16;
+
+/**
+ * Pixel budget per data point, and how much blank canvas trails the last
+ * one. Both exist for the same reason: the chart used to size itself to
+ * `w-full` and let the browser stretch a fixed 720-unit viewBox to fill
+ * whatever container it sat in — on a wide panel that inflated `strokeWidth`
+ * right along with it (a "2" meant for a 720px canvas rendered thicker on a
+ * 900px one), and there was no slack past the newest point to pan into, so
+ * the line landed glued to the right edge. Sizing the SVG to its OWN
+ * intrinsic pixel width instead — wrapped in a horizontally scrolling div —
+ * keeps the stroke the width it was actually drawn at and gives the reader
+ * room to drag past "today" into empty space, the way Mataf's does.
+ */
+const PIXELS_PER_POINT = 16;
+const TRAILING_POINTS = 8;
+const MIN_WIDTH = 640;
 
 const ZONES = [
   { from: 60, to: 100, label: "Achat", colour: "var(--color-brand-green)" },
@@ -83,6 +98,17 @@ export function MultiScoreChart({
   const vLo = Math.min(...allValues);
   const vHi = Math.max(...allValues);
 
+  // Real elapsed time still drives where each point lands (see the file
+  // comment) — this only decides how many pixels that timeline gets stretched
+  // across, sized to the densest series so it never looks squeezed.
+  const maxPoints = Math.max(...withPoints.map((s) => s.points.length));
+  const plotWidth = Math.max(MIN_WIDTH - PAD_LEFT - PAD_RIGHT, maxPoints * PIXELS_PER_POINT);
+  const trailingWidth = TRAILING_POINTS * PIXELS_PER_POINT;
+  const WIDTH = PAD_LEFT + PAD_RIGHT + plotWidth + trailingWidth;
+  // The domain's own upper bound moves out too, so the trailing blank area is
+  // real scrollable canvas rather than a static pixel pad tacked onto the SVG.
+  const tMaxExtended = tMax + (tMax - tMin || 86_400_000) * (trailingWidth / plotWidth);
+
   // Marge de 8% puis arrondi au multiple de 5, avec un minimum de 25 points
   // d'amplitude : sans plancher, huit devises groupées entre 48 et 55 seraient
   // dilatées jusqu'à faire passer un écart de 2 points pour un gouffre.
@@ -95,9 +121,9 @@ export function MultiScoreChart({
   }
 
   const x = (ms: number) =>
-    tMax === tMin
+    tMaxExtended === tMin
       ? (PAD_LEFT + WIDTH - PAD_RIGHT) / 2
-      : PAD_LEFT + ((ms - tMin) / (tMax - tMin)) * (WIDTH - PAD_LEFT - PAD_RIGHT);
+      : PAD_LEFT + ((ms - tMin) / (tMaxExtended - tMin)) * (WIDTH - PAD_LEFT - PAD_RIGHT);
   const y = (v: number) => PAD_Y + (1 - (v - min) / (max - min)) * (height - PAD_Y * 2);
 
   const step = max - min > 50 ? 25 : max - min > 30 ? 10 : 5;
@@ -113,7 +139,11 @@ export function MultiScoreChart({
     setHoverX(Math.min(1, Math.max(0, ratio)));
   }
 
-  const hoverMs = hoverX === null ? null : tMin + hoverX * (tMax - tMin);
+  // Same domain x() uses, tMaxExtended — otherwise a hover inside the
+  // trailing blank area (a real, reachable position now that it exists)
+  // would compute a timestamp shorter than the mouse's actual position, and
+  // the crosshair would snap to the wrong pixel.
+  const hoverMs = hoverX === null ? null : tMin + hoverX * (tMaxExtended - tMin);
 
   /** Le relevé de la série le plus proche dans le temps du curseur. */
   function nearest(s: CurrencySeries): SeriesPoint | null {
@@ -136,20 +166,27 @@ export function MultiScoreChart({
 
   return (
     <>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${height}`}
-        className="h-auto w-full cursor-crosshair"
-        role="img"
-        aria-label={`Scores comparés : ${withPoints.map((s) => s.code).join(", ")}`}
-        onMouseMove={(e) => handleMove(e.clientX)}
-        onMouseLeave={() => setHoverX(null)}
-        onTouchMove={(e) => {
-          const touch = e.touches[0];
-          if (touch) handleMove(touch.clientX);
-        }}
-        onTouchEnd={() => setHoverX(null)}
-      >
+      {/* overflow-x-auto, not w-full on the SVG: the chart now draws at its
+          own intrinsic pixel width (wide enough for every point plus trailing
+          blank room) and scrolls, instead of being squashed or stretched to
+          fit the panel — which was also what inflated the line thickness. */}
+      <div className="overflow-x-auto">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${WIDTH} ${height}`}
+          width={WIDTH}
+          height={height}
+          className="cursor-crosshair"
+          role="img"
+          aria-label={`Scores comparés : ${withPoints.map((s) => s.code).join(", ")}`}
+          onMouseMove={(e) => handleMove(e.clientX)}
+          onMouseLeave={() => setHoverX(null)}
+          onTouchMove={(e) => {
+            const touch = e.touches[0];
+            if (touch) handleMove(touch.clientX);
+          }}
+          onTouchEnd={() => setHoverX(null)}
+        >
         {ZONES.map((zone) => {
           const top = Math.min(zone.to, max);
           const bottom = Math.max(zone.from, min);
@@ -212,7 +249,7 @@ export function MultiScoreChart({
               d={d}
               fill="none"
               stroke={colourOf(s.code)}
-              strokeWidth="2"
+              strokeWidth="1.5"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
@@ -242,7 +279,8 @@ export function MultiScoreChart({
             ))}
           </>
         ) : null}
-      </svg>
+        </svg>
+      </div>
 
       {/* Légende toujours présente : huit lignes ne se distinguent pas par la
           couleur seule, et un lecteur daltonien ne les distinguerait pas du

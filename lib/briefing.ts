@@ -170,6 +170,7 @@ export async function runBriefingGroup(
   sessionId: string,
   groupIndex: number,
   selected: readonly string[] = [],
+  focus?: string,
 ): Promise<BriefingGroupResult> {
   const base = CURRENCY_GROUPS[groupIndex];
   if (!base) throw new Error(`Groupe ${groupIndex} inconnu`);
@@ -188,7 +189,7 @@ export async function runBriefingGroup(
 
   // Stage 1 — live research. A failure is tolerated: the analyses fall back on
   // the macro table alone rather than the group being abandoned.
-  const research = await callPerplexity({ prompt: buildResearchPrompt(group) });
+  const research = await callPerplexity({ prompt: buildResearchPrompt(group, focus) });
   await persist(sessionId, research, ROUND.research, group);
   results.push(research);
 
@@ -200,12 +201,12 @@ export async function runBriefingGroup(
   const [claudeTake, groqTake] = await Promise.all([
     callClaude({
       system: CLAUDE_SYSTEM_PROMPT,
-      prompt: buildAnalysisPrompt(group, macroSummary, evidence),
+      prompt: buildAnalysisPrompt(group, macroSummary, evidence, focus),
       codes: group.codes,
     }),
     callGroq({
       system: GROQ_ANALYSIS_SYSTEM_PROMPT,
-      prompt: buildAnalysisPrompt(group, macroSummary, evidence),
+      prompt: buildAnalysisPrompt(group, macroSummary, evidence, focus),
       codes: group.codes,
     }),
   ]);
@@ -223,12 +224,12 @@ export async function runBriefingGroup(
     const [claudeFinal, groqFinal] = await Promise.all([
       callClaude({
         system: CLAUDE_SYSTEM_PROMPT,
-        prompt: buildPeerReviewPrompt(group, macroSummary, claudeTake.content, groqTake.content),
+        prompt: buildPeerReviewPrompt(group, macroSummary, claudeTake.content, groqTake.content, focus),
         codes: group.codes,
       }),
       callGroq({
         system: GROQ_VERDICT_SYSTEM_PROMPT,
-        prompt: buildPeerReviewPrompt(group, macroSummary, groqTake.content, claudeTake.content),
+        prompt: buildPeerReviewPrompt(group, macroSummary, groqTake.content, claudeTake.content, focus),
         codes: group.codes,
       }),
     ]);

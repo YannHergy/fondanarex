@@ -96,6 +96,7 @@ export function buildPeerReviewPrompt(
     macroSummary: string,
     ownTake: string,
     peerTake: string,
+    focus?: string,
 ): string {
     return [
         `${group.label} — ${group.theme}`,
@@ -112,6 +113,9 @@ export function buildPeerReviewPrompt(
         'Les deux analyses ont été produites séparément sur les mêmes faits.',
         "Là où vous divergez, dis lequel des deux raisonnements tient et pourquoi.",
         "Là où vous convergez, vérifie que ce n'est pas la même erreur commise deux fois.",
+        ...(focus?.trim()
+            ? ['', "=== QUESTION DE L'UTILISATEUR, toujours à traiter ===", focus.trim()]
+            : []),
         '',
         'Donne ta position FINALE. Si tu changes d\'avis, mets "changed": true et dis ce qui t\'a fait bouger.',
         '',
@@ -164,8 +168,8 @@ function jsonInstruction(codes: readonly string[], withConviction = false): stri
  * the numbers: what officials actually said, what happened politically, what
  * the market is positioned for, and whether a print surprised expectations.
  */
-export function buildResearchPrompt(group: CurrencyGroup): string {
-    return [
+export function buildResearchPrompt(group: CurrencyGroup, focus?: string): string {
+    const lines = [
         `Recherche d'actualité sur ${group.label} — ${group.theme}.`,
         '',
         'Nous disposons DÉJÀ des chiffres macro (taux directeurs, inflation, PIB,',
@@ -189,13 +193,28 @@ export function buildResearchPrompt(group: CurrencyGroup): string {
         '',
         'Chaque fait doit porter sa DATE et sa source. Aucune opinion directionnelle,',
         'aucune prévision personnelle — tu documentes, tu ne juges pas.',
-    ].join('\n');
+    ];
+
+    // Ajouté à la fin plutôt qu'en tête : les quatre axes restent la base de
+    // toute recherche, la question de l'utilisateur ne les remplace pas, elle
+    // leur donne juste une priorité quand le temps de recherche est limité.
+    if (focus?.trim()) {
+        lines.push(
+            '',
+            "=== QUESTION PRIORITAIRE DE L'UTILISATEUR ===",
+            focus.trim(),
+            "Traite-la en priorité, en plus des quatre axes ci-dessus — pas à leur place.",
+        );
+    }
+
+    return lines.join('\n');
 }
 
 export function buildAnalysisPrompt(
     group: CurrencyGroup,
     macroSummary: string,
     research: string,
+    focus?: string,
 ): string {
     return [
         `Analyse fondamentale de ${group.label}.`,
@@ -209,6 +228,13 @@ export function buildAnalysisPrompt(
         '',
         "Pour chaque devise du groupe, donne un biais directionnel motivé par les données ci-dessus.",
         'Sois précis sur le mécanisme : quel indicateur pousse dans quel sens et pourquoi.',
+        ...(focus?.trim()
+            ? [
+                  '',
+                  "=== QUESTION DE L'UTILISATEUR — à traiter explicitement dans \"explanation\" ===",
+                  focus.trim(),
+              ]
+            : []),
         '',
         jsonInstruction(group.codes),
     ].join('\n');

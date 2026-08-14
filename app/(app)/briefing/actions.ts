@@ -35,6 +35,9 @@ const SESSION = z.string().min(1).max(64);
  */
 const CODES = z.array(z.string().min(2).max(4)).max(8).optional();
 
+/** Question libre qui guide la recherche et l'analyse — optionnelle. */
+const FOCUS = z.string().max(280).optional();
+
 export async function openBriefing(input?: unknown): Promise<{
   sessionId: string;
   groups: Array<{ index: number; label: string }>;
@@ -51,16 +54,18 @@ const groupInput = z.object({
   sessionId: SESSION,
   groupIndex: z.number().int().min(0).max(15),
   codes: CODES,
+  focus: FOCUS,
 });
 
 export async function runBriefingGroupAction(input: unknown): Promise<BriefingGroupResult> {
   const userId = await requireUserIdOrThrow();
-  const { sessionId, groupIndex, codes } = groupInput.parse(input);
+  const { sessionId, groupIndex, codes, focus } = groupInput.parse(input);
   return runBriefingGroup(
     userId,
     sessionId,
     groupIndex,
     (codes ?? []).map((c) => c.toUpperCase()),
+    focus,
   );
 }
 

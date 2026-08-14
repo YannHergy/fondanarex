@@ -36,6 +36,8 @@ export function RunBriefing({ enabled }: { enabled: boolean }) {
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   /** Vide = analyse générale sur les huit devises. */
   const [picked, setPicked] = useState<string[]>([]);
+  /** Question libre, optionnelle — guide la recherche ET l'analyse, dans les deux modes. */
+  const [focus, setFocus] = useState("");
 
   const targeted = picked.length > 0;
 
@@ -52,6 +54,7 @@ export function RunBriefing({ enabled }: { enabled: boolean }) {
 
     let sessionId: string | null = null;
     const codes = [...picked];
+    const trimmedFocus = focus.trim();
 
     try {
       const opened = await openBriefing({ codes });
@@ -66,6 +69,7 @@ export function RunBriefing({ enabled }: { enabled: boolean }) {
             sessionId: opened.sessionId,
             groupIndex: group.index,
             codes,
+            focus: trimmedFocus || undefined,
           });
           setDone((current) => [...current, group.label]);
           return result;
@@ -108,6 +112,30 @@ export function RunBriefing({ enabled }: { enabled: boolean }) {
 
   return (
     <div className="space-y-3">
+      {/* Optionnelle, et orthogonale à la portée : elle marche aussi bien sur
+          l'analyse générale que sur une sélection de devises — elle ne change
+          pas QUI est analysé, seulement ce que la recherche et l'analyse
+          priorisent. Vide, le débat reste l'analyse générique d'aujourd'hui. */}
+      <div className="space-y-1">
+        <label
+          htmlFor="briefing-focus"
+          className="text-subtle flex items-center gap-1.5 font-mono text-[10px] tracking-widest uppercase"
+        >
+          <Icon name="psychology" size={12} />
+          Question à guider (optionnel)
+        </label>
+        <input
+          id="briefing-focus"
+          type="text"
+          value={focus}
+          onChange={(e) => setFocus(e.target.value)}
+          disabled={running}
+          maxLength={280}
+          placeholder="Ex. : Pourquoi la BCE reste-t-elle prudente malgré une inflation qui recule ?"
+          className="bg-panel border-border-app text-fg focus:border-brand-blue w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-40"
+        />
+      </div>
+
       {/* Deux modes, un seul bouton : ne rien cocher lance l'analyse générale,
           cocher des devises restreint le débat à celles-là. Restreindre coûte
           aussi moins cher — un groupe non concerné n'est pas appelé du tout. */}

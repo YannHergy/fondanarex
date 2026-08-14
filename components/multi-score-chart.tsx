@@ -40,8 +40,13 @@ const PAD_Y = 16;
  * keeps the stroke the width it was actually drawn at and gives the reader
  * room to drag past "today" into empty space, the way Mataf's does.
  */
-const PIXELS_PER_POINT = 16;
-const TRAILING_POINTS = 8;
+const PIXELS_PER_POINT = 12;
+// A share of the plotted data's own width, not a fixed pixel count: 8 fixed
+// points read as barely more than a rounding error next to 60+ points of
+// real history, which is why the blank area was too thin to notice. A
+// quarter of the data's width is a real, visible block — the size Mataf's
+// own chart reserves after its last point.
+const TRAILING_FRACTION = 0.25;
 const MIN_WIDTH = 640;
 
 const ZONES = [
@@ -103,7 +108,7 @@ export function MultiScoreChart({
   // across, sized to the densest series so it never looks squeezed.
   const maxPoints = Math.max(...withPoints.map((s) => s.points.length));
   const plotWidth = Math.max(MIN_WIDTH - PAD_LEFT - PAD_RIGHT, maxPoints * PIXELS_PER_POINT);
-  const trailingWidth = TRAILING_POINTS * PIXELS_PER_POINT;
+  const trailingWidth = plotWidth * TRAILING_FRACTION;
   const WIDTH = PAD_LEFT + PAD_RIGHT + plotWidth + trailingWidth;
   // The domain's own upper bound moves out too, so the trailing blank area is
   // real scrollable canvas rather than a static pixel pad tacked onto the SVG.

@@ -421,7 +421,12 @@ model IndicatorOverride {
   /// When the next figure is expected. Unlike periodEnd this is normally in
   /// the FUTURE, which is why it is validated against different bounds.
   /// Null keeps whatever the source's own calendar says.
-  nextRelease DateTime? @db.Date
+  ///
+  /// A full timestamp, not @db.Date: a central-bank calendar (see
+  /// ch-calendar.ts) can carry a verified publication HOUR, and @db.Date was
+  /// silently truncating it to midnight on write — the admin UI's own date
+  /// input never sends a time, so existing rows are unaffected.
+  nextRelease DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

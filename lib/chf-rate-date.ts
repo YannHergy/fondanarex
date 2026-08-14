@@ -29,11 +29,14 @@ export async function refreshChfRateDate(userId: string): Promise<{ nextRelease:
     where: { userId_currencyCode_indicatorKey: { userId, currencyCode: "CHF", indicatorKey: FIELD } },
   });
 
-  // Idempotent: skip the write once the stored date already matches, so this
-  // doesn't touch updatedAt/previousValue on every refresh for no reason.
-  const already = existing?.nextRelease?.toISOString().slice(0, 10);
-  const target = nextRelease?.toISOString().slice(0, 10) ?? null;
-  if (already === target) return { nextRelease: target };
+  // Idempotent: skip the write once the stored INSTANT already matches, so
+  // this doesn't touch updatedAt/previousValue on every refresh for no
+  // reason. Comparing only the date (truncated) would silently swallow a
+  // same-day change to the hour, e.g. the calendar gaining a verified 09:30
+  // publication time on a date it already held at midnight.
+  const already = existing?.nextRelease?.toISOString() ?? null;
+  const target = nextRelease?.toISOString() ?? null;
+  if (already === target) return { nextRelease: target?.slice(0, 10) ?? null };
 
   await prisma.indicatorOverride.upsert({
     where: { userId_currencyCode_indicatorKey: { userId, currencyCode: "CHF", indicatorKey: FIELD } },

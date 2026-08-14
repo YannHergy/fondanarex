@@ -13,6 +13,7 @@ import type {
 } from "@/domain/types";
 import { EMPTY_MARKET_CONTEXT } from "@/domain/market-context";
 import { prisma } from "@/lib/prisma";
+import { brazzavilleTime } from "@/lib/utils";
 import { CurrencyCategory as DbCategory, Stance as DbStance } from "@/lib/generated/prisma/enums";
 
 /**
@@ -267,14 +268,15 @@ function toIsoDate(date: Date): string {
 }
 
 /**
- * "HH:MM" (UTC) when the instant carries a genuine publication hour, null for
- * a bare date. Midnight UTC is what every date-only source lands on — a
- * calendar's own verified time (a central-bank decision, never midnight in
- * practice) is the only thing this is meant to catch.
+ * "HH:MM" in Brazzaville local time when the instant carries a genuine
+ * publication hour, null for a bare date. Midnight UTC is what every
+ * date-only source lands on — a calendar's own verified time (a central-bank
+ * decision, never midnight UTC in practice) is the only thing this is meant
+ * to catch.
  */
 function hourMinuteIfReal(date: Date): string | null {
   if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0) return null;
-  return date.toISOString().slice(11, 16);
+  return brazzavilleTime(date);
 }
 
 /**

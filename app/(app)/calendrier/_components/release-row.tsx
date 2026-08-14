@@ -12,7 +12,14 @@ const IMPACT_CLASS = {
   low: "border-border-app text-subtle",
 } as const;
 
-const timeFmt = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+// Brazzaville local time (WAT, UTC+1 year-round), explicit — without a
+// `timeZone`, Intl falls back to the server's own clock (UTC on Vercel),
+// which is not the zone this app is read in.
+const timeFmt = new Intl.DateTimeFormat("fr-FR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Africa/Brazzaville",
+});
 
 /** Two decimals only when the value actually has them — 4 rather than 4.00. */
 function fmt(value: number | null): string {

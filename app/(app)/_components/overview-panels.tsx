@@ -11,7 +11,7 @@ import * as fx from "@/lib/integrations/fxmacrodata";
 import { localRiskSentiment } from "@/domain/market-context/scorers";
 import type { MarketContext } from "@/domain/types";
 import type { CurrencyWithScore } from "@/domain/types";
-import { CURRENCY_CODES, cn } from "@/lib/utils";
+import { CURRENCY_CODES, brazzavilleMonthDay, brazzavilleTime, cn } from "@/lib/utils";
 
 /**
  * FXMacroData panels for the overview screen.
@@ -269,8 +269,7 @@ export async function CalendarPanel({ userId }: { userId: string }) {
               className="border-border-app flex items-center gap-2 border-b py-1.5 text-xs last:border-0"
             >
               <span className="text-subtle w-24 shrink-0 font-mono">
-                {event.scheduledAt.toISOString().slice(5, 10).replace("-", "/")}{" "}
-                {event.scheduledAt.toISOString().slice(11, 16)}
+                {brazzavilleMonthDay(event.scheduledAt)} {brazzavilleTime(event.scheduledAt)}
               </span>
               <span className="text-fg min-w-0 flex-1 truncate font-bold">
                 {event.currencyCode} — {event.name}

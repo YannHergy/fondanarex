@@ -57,3 +57,32 @@ export function needsManualCheck(
 
 export const MANUAL_CHECK_TITLE =
   "Donnée non connectée à une source automatique, ou signalée périmée par sa source — à récupérer manuellement.";
+
+/**
+ * A stricter set than LIVE_SOURCES: the official statistical office or
+ * central bank itself, free, no subscription. FXMACRODATA is deliberately
+ * EXCLUDED here even though it is "live" (it does answer on every refresh) —
+ * it is a paid redistributor, the thing the admin screen's dot exists to
+ * distinguish from an institution's own free feed.
+ */
+const FREE_OFFICIAL_SOURCES = new Set([
+  "FRED",
+  "MARKET",
+  "ESTAT",
+  "EUROSTAT",
+  "ECB",
+  "ONS",
+  "BOE",
+  "SNB",
+  "STATCAN",
+  "BOC",
+  "RBA",
+  "STATSNZ",
+  "GDT",
+  "BOJ",
+]);
+
+/** Whether this reading comes straight from a free official institution. */
+export function isFreeOfficialSource(source: string | null | undefined): boolean {
+  return !!source && FREE_OFFICIAL_SOURCES.has(source);
+}

@@ -11,6 +11,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { CurrencyBadge } from "@/components/ui/currency-badge";
 import { Icon } from "@/components/ui/icon";
+import { isFreeOfficialSource } from "@/app/(app)/devise/[code]/_lib/data-source-flag";
 import type { CentralBankStance } from "@/domain/types";
 import { scoreTextClass } from "@/lib/score-display";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,8 @@ export interface EditableField {
   nextRelease: string | null;
   /** True when that date is the administrator's rather than the provider's. */
   nextReleaseOverridden: boolean;
+  /** Raw source tag behind the current value ("ONS", "FXMACRODATA", "MANUAL"...). */
+  source: string | null;
 }
 
 export interface CurrencyEditorData {
@@ -231,6 +234,19 @@ export function CurrencyEditor({
                       htmlFor={`${data.code}-${field.key}`}
                       className="text-muted mb-1 flex items-center gap-1.5 text-xs"
                     >
+                      <span
+                        title={
+                          isFreeOfficialSource(field.source)
+                            ? `Source officielle gratuite : ${field.source}`
+                            : field.source
+                              ? `Source payante ou non officielle : ${field.source}`
+                              : "Aucune source connectée — saisie manuelle requise"
+                        }
+                        className={cn(
+                          "inline-block size-1.5 shrink-0 rounded-full",
+                          isFreeOfficialSource(field.source) ? "bg-brand-blue" : "bg-brand-red",
+                        )}
+                      />
                       {field.label}
                       {field.unit ? (
                         <span className="text-subtle">({field.unit})</span>

@@ -96,6 +96,7 @@ export default async function AdminPage() {
         // timestamp because the release HOUR matters on the calendar screen.
         nextRelease: currency.nextReleases?.[spec.key]?.slice(0, 10) ?? null,
         nextReleaseOverridden: releaseOverrides.has(`${currency.code}:${spec.key}`),
+        source: currency.dataSources?.[spec.key] ?? null,
       };
     });
 

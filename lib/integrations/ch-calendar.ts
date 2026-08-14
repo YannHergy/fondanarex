@@ -15,32 +15,49 @@ import "server-only";
  * Extend each list once the next year's calendar is published; a date past
  * the end of the list correctly falls through to `null` (shown as "—")
  * rather than guessing.
+ *
+ * TIME on the SNB assessments: the press release goes out at 09:30 local
+ * time — confirmed against snb.ch's own description of the process ("At
+ * 9.30 am on the Thursday... a press release on the monetary policy decision
+ * is published"). Stored as the correct UTC instant per date rather than a
+ * bare date + a fixed offset, since Switzerland moves between CET and CEST
+ * (last Sunday of March to last Sunday of October) and 09:30 local is not
+ * the same UTC hour year-round.
+ *
+ * The BFS CPI dates carry NO verified time — unlike the SNB, no fixed
+ * publication hour was confirmed for these, so they stay at midnight UTC
+ * (shown as a date, not a moment) rather than guessing one.
  */
 
-/** SNB monetary policy assessments — always a Thursday, quarterly. */
-const SNB_ASSESSMENTS = ["2026-03-19", "2026-06-18", "2026-09-24", "2026-12-10"];
-
-/** BFS Landesindex der Konsumentenpreise (LIK) release dates, 2026. */
-const BFS_CPI_RELEASES = [
-  "2026-01-13",
-  "2026-02-04",
-  "2026-03-02",
-  "2026-04-05",
-  "2026-05-05",
-  "2026-06-04",
-  "2026-07-02",
-  "2026-08-03",
-  "2026-09-03",
-  "2026-10-01",
-  "2026-11-03",
-  "2026-12-02",
-  "2027-01-05",
+/** SNB monetary policy assessment instants (UTC) — always a Thursday, quarterly, 09:30 local. */
+const SNB_ASSESSMENTS = [
+  "2026-03-19T08:30:00Z", // CET
+  "2026-06-18T07:30:00Z", // CEST
+  "2026-09-24T07:30:00Z", // CEST (ends 2026-10-25)
+  "2026-12-10T08:30:00Z", // CET
 ];
 
-function nextAfter(dates: readonly string[], after: Date): Date | null {
+/** BFS Landesindex der Konsumentenpreise (LIK) release dates, 2026 — no verified time. */
+const BFS_CPI_RELEASES = [
+  "2026-01-13T00:00:00Z",
+  "2026-02-04T00:00:00Z",
+  "2026-03-02T00:00:00Z",
+  "2026-04-05T00:00:00Z",
+  "2026-05-05T00:00:00Z",
+  "2026-06-04T00:00:00Z",
+  "2026-07-02T00:00:00Z",
+  "2026-08-03T00:00:00Z",
+  "2026-09-03T00:00:00Z",
+  "2026-10-01T00:00:00Z",
+  "2026-11-03T00:00:00Z",
+  "2026-12-02T00:00:00Z",
+  "2027-01-05T00:00:00Z",
+];
+
+function nextAfter(instants: readonly string[], after: Date): Date | null {
   const cutoff = after.getTime();
-  for (const iso of dates) {
-    const d = new Date(`${iso}T00:00:00Z`);
+  for (const iso of instants) {
+    const d = new Date(iso);
     if (d.getTime() > cutoff) return d;
   }
   return null;

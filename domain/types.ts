@@ -141,6 +141,16 @@ export interface CurrencyData {
      */
     comments?: Record<string, string>;
     nextReleases: Record<string, string>;
+    /**
+     * "HH:MM" (UTC) for a field whose nextRelease carries a genuinely verified
+     * publication hour (a central-bank calendar entry, not a fabricated
+     * midnight) — see uk-calendar.ts / ch-calendar.ts. Kept SEPARATE from
+     * nextReleases rather than folding the hour into that string: week-plan.ts
+     * and pine.ts compare nextReleases values as bare "AAAA-MM-JJ" strings
+     * (Set membership and range comparison), and a full timestamp there would
+     * silently break both.
+     */
+    nextReleaseTimes?: Record<string, string>;
     previousData: Record<string, number | string>;
     /**
      * CurrencyData field -> the IndicatorSource that produced its current

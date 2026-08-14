@@ -267,6 +267,17 @@ function toIsoDate(date: Date): string {
 }
 
 /**
+ * "HH:MM" (UTC) when the instant carries a genuine publication hour, null for
+ * a bare date. Midnight UTC is what every date-only source lands on — a
+ * calendar's own verified time (a central-bank decision, never midnight in
+ * practice) is the only thing this is meant to catch.
+ */
+function hourMinuteIfReal(date: Date): string | null {
+  if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0) return null;
+  return date.toISOString().slice(11, 16);
+}
+
+/**
  * Every currency with its macro data, for one user.
  *
  * Deduped per request with `cache` — the dashboard, the sidebar badge and any
@@ -339,6 +350,8 @@ export const getCurrencies = cache(
       };
 
       const nextReleases: Record<string, string> = {};
+      /** "HH:MM" (UTC) for a nextRelease that carries a genuinely verified hour. */
+      const nextReleaseTimes: Record<string, string> = {};
       const previousData: Record<string, number | string> = {};
       const dataSources: Record<string, string> = {};
       const staleFields: Record<string, boolean> = {};
@@ -355,7 +368,12 @@ export const getCurrencies = cache(
       for (const [key, row] of current) {
         if (!isNumericField(key)) continue;
         data[key] = Number(row.value);
-        if (row.nextRelease) nextReleases[key] = toIsoDate(row.nextRelease);
+        if (row.nextRelease) {
+          nextReleases[key] = toIsoDate(row.nextRelease);
+          const time = hourMinuteIfReal(row.nextRelease);
+          if (time) nextReleaseTimes[key] = time;
+          else delete nextReleaseTimes[key];
+        }
         dataSources[key] = row.source;
         if (row.sourceStale) staleFields[key] = true;
         periods[key] = toIsoDate(row.periodEnd);
@@ -390,7 +408,12 @@ export const getCurrencies = cache(
         // The next release too: a provider that has no calendar for an
         // indicator, or has the wrong date for it, is exactly when someone
         // enters one by hand — and the API's silence must not win over it.
-        if (override.nextRelease) nextReleases[key] = toIsoDate(override.nextRelease);
+        if (override.nextRelease) {
+          nextReleases[key] = toIsoDate(override.nextRelease);
+          const time = hourMinuteIfReal(override.nextRelease);
+          if (time) nextReleaseTimes[key] = time;
+          else delete nextReleaseTimes[key];
+        }
       }
 
       // Computed AFTER the overrides, so a hand-entered release the API has
@@ -404,6 +427,7 @@ export const getCurrencies = cache(
       data.comments = comments;
       data.lastUpdate = lastUpdate;
       data.nextReleases = nextReleases;
+      data.nextReleaseTimes = nextReleaseTimes;
       data.previousData = previousData;
       data.dataSources = dataSources;
       data.staleFields = staleFields;

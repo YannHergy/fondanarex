@@ -120,6 +120,7 @@ export function IndicatorCategoryGrid({
               const field = FIELD_FOR_KIND[kind];
               const previous = field ? currency.previousData[field] : undefined;
               const nextDate = field ? currency.nextReleases[field] : undefined;
+              const nextTime = field ? currency.nextReleaseTimes?.[field] : undefined;
               const stale = isStale(nextDate, now);
               // Eurostat and the ECB are EUR-only, but every field they cover
               // (inflation, GDP, unemployment, wages, trade balance, the
@@ -188,6 +189,7 @@ export function IndicatorCategoryGrid({
                   >
                     <Icon name="event" size={9} />
                     Prochaine : {nextDate ?? "—"}
+                    {nextTime ? ` ${nextTime}` : ""}
                     {stale ? " ⚠ À MAJ" : ""}
                   </span>
                 </>

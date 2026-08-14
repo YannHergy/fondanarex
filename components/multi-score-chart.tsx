@@ -109,10 +109,14 @@ export function MultiScoreChart({
   // real scrollable canvas rather than a static pixel pad tacked onto the SVG.
   const tMaxExtended = tMax + (tMax - tMin || 86_400_000) * (trailingWidth / plotWidth);
 
-  // Marge de 8% puis arrondi au multiple de 5, avec un minimum de 25 points
-  // d'amplitude : sans plancher, huit devises groupées entre 48 et 55 seraient
-  // dilatées jusqu'à faire passer un écart de 2 points pour un gouffre.
-  const pad = Math.max(2, (vHi - vLo) * 0.08);
+  // Marge d'au moins 8 points (ou 12% de l'écart si plus large), arrondie au
+  // multiple de 5, avec un minimum de 25 points d'amplitude : sans plancher,
+  // huit devises groupées entre 48 et 55 seraient dilatées jusqu'à faire
+  // passer un écart de 2 points pour un gouffre. Le plancher est passé de 2 à
+  // 8 — à 2, la courbe touchait quasiment le haut et le bas du graphique,
+  // se confondant avec son propre cadre ; les bandes Achat/Neutre/Vente,
+  // elles, couvrent toujours tout le domaine [min, max] sans être affectées.
+  const pad = Math.max(8, (vHi - vLo) * 0.12);
   let min = Math.max(0, Math.floor((vLo - pad) / 5) * 5);
   let max = Math.min(100, Math.ceil((vHi + pad) / 5) * 5);
   if (max - min < 25) {

@@ -92,16 +92,84 @@ interface PendingRow {
 }
 
 /**
- * Writes readings, one upsert per row.
+ * Writes readings, one upsert per CHANGED row.
  *
  * Deliberately not createMany+skipDuplicates: a refresh must UPDATE the current
  * period when a figure is revised, and skipDuplicates would silently keep the
  * stale value.
+ *
+ * SKIPS rows that already match the database, after one bulk read — measured
+ * live: a full refresh with nothing skipped wrote 18,859 rows and took 5,507
+ * seconds, because several sources carry DAILY policy-rate history back to
+ * 2015 (FRED's Fed Funds alone is 4,243 rows) that was being rewritten in
+ * full on every single run even though almost none of it had changed since
+ * the last one. That is what starved ONS: it writes last, behind those, and
+ * never got a turn inside any serverless time budget — its GBP dates sat
+ * frozen for days, not the "a timeout costs a day of staleness" the ordering
+ * comment above assumes, because every run was equally overloaded, so the
+ * next day's run never caught up either. A row is still upserted whenever its
+ * value, period end, an explicitly-supplied nextRelease or sourceStale
+ * actually differs — nothing about what gets corrected changes, only how much
+ * unchanged history gets rewritten to say the same thing again.
+ *
+ * Rows are first collapsed to one per (currency, period), keeping the LAST
+ * occurrence in array order. Several sources (BoE, RBA, BoC, FRED's Fed Funds,
+ * the ECB) report DAILY and periodLabel() folds every day of a month onto the
+ * same upsert key — so `rows` routinely carries dozens of entries that only
+ * ever produce ONE stored row. Comparing every one of those individually
+ * against the database made almost all of them look "changed", because each
+ * day carries its OWN periodEnd while the database holds only whichever day's
+ * write landed last — exactly the false positive this collapse exists to
+ * remove. The last occurrence is the one that would have won the upsert loop
+ * anyway (see orderForResilientWrite), so the final state is unaffected.
  */
 async function writeRows(rows: PendingRow[]): Promise<number> {
-  let written = 0;
+  if (rows.length === 0) return 0;
 
-  for (const row of rows) {
+  const rowKey = (row: PendingRow) => `${row.currencyCode} ${row.period}`;
+  const collapsed = [...new Map(rows.map((row) => [rowKey(row), row])).values()];
+
+  const { indicatorKey, source } = collapsed[0]!;
+  const currencyCodes = [...new Set(collapsed.map((row) => row.currencyCode))];
+  const existingRows = await prisma.indicatorValue.findMany({
+    where: { indicatorKey, source, currencyCode: { in: currencyCodes } },
+    select: {
+      currencyCode: true,
+      period: true,
+      value: true,
+      periodEnd: true,
+      nextRelease: true,
+      sourceStale: true,
+    },
+  });
+  const existingByKey = new Map(existingRows.map((row) => [`${row.currencyCode} ${row.period}`, row]));
+
+  const changedRows = collapsed.filter((row) => {
+    const prior = existingByKey.get(rowKey(row));
+    if (!prior) return true;
+    // Rounded to the column's own precision (Decimal(18,6)) before comparing:
+    // a derived reading (a year-on-year rate, a CPI index turned into a %) is
+    // freshly recomputed through floating-point arithmetic on every run, and
+    // almost never lands on the exact same binary float twice even when the
+    // economically meaningful figure hasn't moved — the database's own value
+    // is already rounded on write, so comparing against the raw unrounded
+    // float made rows like ONS's retail sales rewrite in full every time.
+    if (Number(prior.value).toFixed(6) !== row.value.toFixed(6)) return true;
+    if (prior.periodEnd.getTime() !== row.periodEnd.getTime()) return true;
+
+    // `undefined` means this row never touches nextRelease/sourceStale (see
+    // PendingRow) — that must read as "unchanged", never as "cleared to null".
+    if (row.nextRelease !== undefined) {
+      const priorTime = prior.nextRelease?.getTime() ?? null;
+      const rowTime = row.nextRelease?.getTime() ?? null;
+      if (priorTime !== rowTime) return true;
+    }
+    if (row.sourceStale !== undefined && row.sourceStale !== prior.sourceStale) return true;
+
+    return false;
+  });
+
+  for (const row of changedRows) {
     await prisma.indicatorValue.upsert({
       where: {
         currencyCode_indicatorKey_period_source: {
@@ -120,10 +188,9 @@ async function writeRows(rows: PendingRow[]): Promise<number> {
         ...(row.sourceStale !== undefined ? { sourceStale: row.sourceStale } : {}),
       },
     });
-    written += 1;
   }
 
-  return written;
+  return changedRows.length;
 }
 
 /**

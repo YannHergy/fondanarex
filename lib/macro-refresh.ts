@@ -275,6 +275,17 @@ export interface RefreshOptions {
   oecdFields?: readonly string[];
   /** Skip FRED, e.g. when a run is only topping up one OECD dataset. */
   skipFred?: boolean;
+  /**
+   * Skip the OECD entirely.
+   *
+   * Note this is NOT the same as `oecdFields: []`, which falls through to
+   * "every dataset" — the emptiness is indistinguishable from "unspecified"
+   * inside fetchAllOecdData. Needed by the visit-triggered refresh, where the
+   * OECD's deliberate six-second spacing between five datasets costs about
+   * twenty-five seconds of a budget measured in tens — and buys nothing today,
+   * since every one of its datasets has been answering 500.
+   */
+  skipOecd?: boolean;
 }
 
 export async function refreshMacroData(options: RefreshOptions = {}): Promise<RefreshReport> {
@@ -307,7 +318,7 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     bojRateResults,
     bojTradeResults,
   ] = await Promise.all([
-    fetchAllOecdData(options.oecdFields),
+    options.skipOecd ? Promise.resolve([]) : fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
     fetchEurostatData(),

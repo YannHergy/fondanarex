@@ -12,6 +12,7 @@ import type { CurrencyWithScore, MarketContext } from "@/domain/types";
 import { getMarketContext, getScoredCurrencyList } from "@/lib/currencies";
 import { prisma } from "@/lib/prisma";
 import { scoreVerdict } from "@/lib/score-display";
+import { ensureFreshMacro } from "@/lib/macro-freshness";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -120,6 +121,11 @@ function formatLastSync(date: Date | null): string {
 
 export default async function DashboardPage() {
   const userId = await requireUserId();
+
+  // Queues a refresh when a publication has fallen due since the last pull.
+  // Costs two indexed queries on a day when nothing is out, and never blocks
+  // this render — see lib/macro-freshness.ts.
+  await ensureFreshMacro(userId);
 
   const [currencies, marketContext, lastSync, settings] = await Promise.all([
     getScoredCurrencyList(userId),

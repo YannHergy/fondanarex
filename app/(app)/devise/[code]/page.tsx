@@ -15,6 +15,7 @@ import { Icon } from "@/components/ui/icon";
 import { getIndicatorDisplay } from "@/domain/scoring";
 import { getMarketContext, getScoredCurrencies } from "@/lib/currencies";
 import { scoreTextClass, scoreVerdict } from "@/lib/score-display";
+import { ensureFreshMacro } from "@/lib/macro-freshness";
 import { requireUserId } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,10 @@ export default async function CurrencyDetailPage({
 }) {
   const userId = await requireUserId();
   const { code } = await params;
+
+  // This is the screen where a passed release date shows as "⚠ À MAJ", so it
+  // is the one that most needs to close the gap on its own.
+  await ensureFreshMacro(userId);
 
   const [currencies, marketContext] = await Promise.all([
     getScoredCurrencies(userId),

@@ -24,17 +24,6 @@ import type { InstrumentSpec } from "@/domain/risk/position";
 import type { AccountOption, TradeRow } from "@/lib/journal";
 import { cn } from "@/lib/utils";
 
-const ENTRY_TYPES = [
-  "M1_ENTRY",
-  "M2_ENTRY",
-  "A11_ENTRY",
-  "A12_ENTRY",
-  "A2_ENTRY",
-  "A21_ENTRY",
-  "A22_ENTRY",
-  "GOLDEN_ENTRY",
-] as const;
-
 interface FormState {
   instrument: string;
   direction: "Buy" | "Sell";
@@ -383,20 +372,27 @@ export function TradeForm({
           </div>
         ) : null}
 
+        {/*
+          « Type d'entrée » a été retiré d'ici.
+
+          C'était une seconde liste, figée dans le code (M1, M2, A11, A12, A2,
+          A21, A22, GOLDEN), posée juste à côté de « Setup » — deux champs qui
+          désignent la même chose pour qui remplit le formulaire, dont un seul
+          était lu par les statistiques. Le piège s'est refermé exactement comme
+          on pouvait le craindre : deux trades ont été étiquetés M2 et M1 dans
+          « Type d'entrée », et l'application a continué d'annoncer « aucun
+          setup enregistré ».
+
+          La colonne reste en base et s'affiche encore sur les trades qui la
+          portent : les anciennes saisies ne disparaissent pas. Elle n'est
+          simplement plus proposée, et son contenu a été repris dans `strategy`.
+        */}
         <div className="grid gap-2 sm:grid-cols-4">
           <Select
-            label="Stratégie"
+            label="Setup"
             value={form.strategy}
             onChange={(value) => set("strategy", value)}
             options={strategies}
-            allowEmpty="—"
-          />
-          <Select
-            label="Type d'entrée"
-            value={form.entryType}
-            onChange={(value) => set("entryType", value)}
-            options={[...ENTRY_TYPES]}
-            labels={Object.fromEntries(ENTRY_TYPES.map((t) => [t, t.replace("_", " ")]))}
             allowEmpty="—"
           />
           <Select

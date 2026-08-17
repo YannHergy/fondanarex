@@ -15,7 +15,7 @@ import {
   weightedWinRate,
 } from "@/domain/accounts/metrics";
 import { accountTradeMetrics, realisedPnl } from "@/domain/accounts/journal-metrics";
-import { setupsUsedInJournal } from "@/domain/journal/setup-stats";
+import { setupStats, setupsUsedInJournal } from "@/domain/journal/setup-stats";
 import { getTradingAccounts } from "@/lib/accounts";
 import { listStrategies, listTrades } from "@/lib/journal";
 import { metaApiConfigured } from "@/lib/integrations/metaapi";
@@ -41,6 +41,7 @@ export default async function AccountsPage() {
   const userSetups = [...new Set([...declared, ...setupsUsedInJournal(trades)])].sort((a, b) =>
     a.localeCompare(b, "fr"),
   );
+  const statsBySetup = new Map(setupStats(trades).map((stat) => [stat.setup, stat]));
 
   /**
    * Les trades de chaque compte, et le capital qui en découle.
@@ -202,7 +203,14 @@ export default async function AccountsPage() {
               name: account.name,
               color: account.color,
               style: account.style,
-              allowedEntries: [...account.allowedEntries],
+              allowedSetups: [...account.allowedSetups],
+            }))}
+            // Le vocabulaire du trader, avec le taux que SON journal a mesuré —
+            // là où cet écran servait auparavant une liste figée (M2, A12, A2…)
+            // et des pourcentages qui décrivaient le carnet d'un seul trader.
+            setups={userSetups.map((name) => ({
+              name,
+              winRatePct: statsBySetup.get(name)?.winRatePct ?? null,
             }))}
           />
 

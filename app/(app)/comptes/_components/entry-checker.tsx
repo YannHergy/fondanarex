@@ -1,19 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { ALL_ENTRY_TYPES, ENTRY_WIN_RATES, type EntryType } from "@/domain/data/entry-types";
 import { cn } from "@/lib/utils";
 
 /**
- * Which accounts permit a given entry type.
+ * Which accounts permit a given setup.
  *
  * The question this answers is asked at the moment a setup appears, under time
- * pressure: "I have an A2 — where can I take it?" Reading four account cards
+ * pressure: "I have this one — where can I take it?" Reading four account cards
  * and comparing their allowed lists is exactly the kind of task that gets done
  * wrong in a hurry.
+ *
+ * THE SETUPS ARE THE TRADER'S OWN. This screen used to be driven by
+ * ALL_ENTRY_TYPES and ENTRY_WIN_RATES — a fixed list (M2, A12, A2, A21, A22,
+ * GOLDEN) with fixed percentages, which described ONE trader's playbook and was
+ * shipped to everyone. A second user opening this page was shown someone else's
+ * setups and someone else's win rates, presented as their own. Everything here
+ * now comes from what the trader declared and what their own journal measured.
  */
 
 export interface CheckerAccount {
@@ -21,58 +28,79 @@ export interface CheckerAccount {
   name: string;
   color: string;
   style: string;
-  allowedEntries: string[];
+  /** Setups autorisés sur ce compte, tels que le trader les a nommés. */
+  allowedSetups: string[];
 }
 
-/** Entry types offered. M1 and A11 are excluded, as in the legacy screen. */
-const HIDDEN = new Set(["M1_ENTRY", "A11_ENTRY"]);
+export interface CheckerSetup {
+  name: string;
+  /** Taux mesuré sur SON journal, null tant que l'échantillon est trop maigre. */
+  winRatePct: number | null;
+}
 
-export function EntryChecker({ accounts }: { accounts: CheckerAccount[] }) {
-  // Driven by the full taxonomy, not by which entries happen to have a
-  // measured win rate — GOLDEN_ENTRY has none yet and must still be checkable.
-  const entries = ALL_ENTRY_TYPES.filter((entry) => !HIDDEN.has(entry));
-  const [selected, setSelected] = useState<EntryType>(
-    entries.includes("A2_ENTRY") ? "A2_ENTRY" : entries[0]!,
-  );
+export function EntryChecker({
+  accounts,
+  setups,
+}: {
+  accounts: CheckerAccount[];
+  setups: CheckerSetup[];
+}) {
+  const [selected, setSelected] = useState<string | null>(setups[0]?.name ?? null);
+
+  // Rien à vérifier tant que rien n'est déclaré — et le dire vaut mieux que
+  // d'afficher une rangée vide sous un titre qui promet une réponse.
+  if (setups.length === 0) {
+    return (
+      <Card>
+        <CardTitle icon="verified_user">Vérificateur d&apos;entrée</CardTitle>
+        <p className="text-muted text-xs leading-relaxed">
+          Vous n&apos;avez encore déclaré aucun setup. Ajoutez-en depuis un compte ci-dessus, ou
+          depuis{" "}
+          <Link href="/setups" className="text-brand-blue hover:underline">
+            Mes setups
+          </Link>
+          , et cet écran vous dira sur quels comptes chacun est autorisé.
+        </p>
+      </Card>
+    );
+  }
+
+  const active = selected ?? setups[0]!.name;
 
   return (
     <Card>
       <CardTitle icon="verified_user">Vérificateur d&apos;entrée</CardTitle>
       <p className="text-subtle -mt-2 mb-3 text-xs">
-        Sur quels comptes ce type d&apos;entrée est-il autorisé ?
+        Sur quels comptes ce setup est-il autorisé ?
       </p>
 
       <div className="mb-4 flex flex-wrap gap-1.5">
-        {entries.map((entry) => {
-          const winRate = ENTRY_WIN_RATES[entry];
-          const golden = entry === "GOLDEN_ENTRY";
-
-          return (
-            <button
-              key={entry}
-              type="button"
-              onClick={() => setSelected(entry)}
-              className={cn(
-                "rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors",
-                selected === entry
-                  ? golden
-                    ? "border-brand-amber/60 bg-brand-amber/20 text-brand-amber"
-                    : "border-brand-violet/60 bg-brand-violet/20 text-brand-violet"
-                  : "border-border-app text-subtle hover:text-fg",
-              )}
-            >
-              {entry.replace("_ENTRY", "")}
-              {winRate !== undefined ? (
-                <span className="ml-1 text-[10px] opacity-60">{winRate} %</span>
-              ) : null}
-            </button>
-          );
-        })}
+        {setups.map((setup) => (
+          <button
+            key={setup.name}
+            type="button"
+            onClick={() => setSelected(setup.name)}
+            className={cn(
+              "rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors",
+              active === setup.name
+                ? "border-brand-violet/60 bg-brand-violet/20 text-brand-violet"
+                : "border-border-app text-subtle hover:text-fg",
+            )}
+          >
+            {setup.name}
+            {/* Le taux n'apparaît que s'il est mesuré. Un setup joué trois fois
+                n'a pas de taux de réussite, et en afficher un serait présenter
+                du bruit comme une statistique. */}
+            {setup.winRatePct !== null ? (
+              <span className="ml-1 text-[10px] opacity-60">{setup.winRatePct} %</span>
+            ) : null}
+          </button>
+        ))}
       </div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {accounts.map((account) => {
-          const allowed = account.allowedEntries.includes(selected);
+          const allowed = account.allowedSetups.includes(active);
 
           return (
             <div

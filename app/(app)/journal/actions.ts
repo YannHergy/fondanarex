@@ -148,7 +148,13 @@ export async function removeTrade(tradeId: string): Promise<void> {
 export async function createStrategy(name: string): Promise<void> {
   const userId = await requireUserIdOrThrow();
   await addStrategy(userId, z.string().min(1).max(64).parse(name));
+  // Le vocabulaire des setups est partagé : la page Comptes s'en sert pour
+  // cocher les entrées autorisées d'un compte, et « Mes setups » pour en
+  // afficher les statistiques. Ne rafraîchir que le journal laissait un setup
+  // créé depuis un compte invisible sur l'écran qui venait de le créer.
   revalidatePath("/journal");
+  revalidatePath("/comptes");
+  revalidatePath("/setups");
 }
 
 export async function deleteStrategy(name: string): Promise<void> {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { adjustAccountCapital, saveTradingAccount } from "@/app/(app)/comptes/actions";
+import { createStrategy } from "@/app/(app)/journal/actions";
 import { DeleteAccountButton } from "@/app/(app)/comptes/_components/add-account";
 import {
   ConnectAccount,
@@ -59,6 +60,17 @@ export function AccountCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(account);
   const [delta, setDelta] = useState("");
+  const [newSetup, setNewSetup] = useState("");
+  /**
+   * Setups créés depuis ce formulaire, avant que le serveur ne les renvoie.
+   *
+   * `userSetups` est une prop serveur : elle ne contient le nouveau setup
+   * qu'après le rafraîchissement. Sans cette liste locale, le setup qu'on
+   * vient de créer disparaîtrait de l'écran pendant l'aller-retour — coché
+   * dans le brouillon, mais sans pastille à cocher.
+   */
+  const [addedSetups, setAddedSetups] = useState<string[]>([]);
+  const allSetups = [...new Set([...userSetups, ...addedSetups])];
 
   const health = accountHealth(account);
   const style = HEALTH_STYLE[health];
@@ -92,6 +104,37 @@ export function AccountCard({
         isActive: draft.isActive,
       });
       setEditing(false);
+      router.refresh();
+    });
+  }
+
+  /**
+   * Déclare un setup et le coche pour ce compte.
+   *
+   * Le nom est enregistré dans le vocabulaire du trader (partagé avec le
+   * journal et « Mes setups ») plutôt que dupliqué par compte : c'est ce qui
+   * permet ensuite d'agréger les statistiques d'un même setup joué sur
+   * plusieurs comptes. Ce qui est propre au compte, c'est de l'autoriser ou
+   * non — pas le nom lui-même.
+   */
+  function addSetup() {
+    const name = newSetup.trim();
+    if (!name) return;
+
+    // Déjà connu : inutile de le recréer, il suffit de le cocher.
+    if (allSetups.includes(name)) {
+      if (!draft.allowedSetups.includes(name)) {
+        setDraft({ ...draft, allowedSetups: [...draft.allowedSetups, name] });
+      }
+      setNewSetup("");
+      return;
+    }
+
+    startTransition(async () => {
+      await createStrategy(name);
+      setAddedSetups((current) => [...current, name]);
+      setDraft((current) => ({ ...current, allowedSetups: [...current.allowedSetups, name] }));
+      setNewSetup("");
       router.refresh();
     });
   }
@@ -486,35 +529,75 @@ export function AccountCard({
             <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <p className="text-muted text-xs">Entrées autorisées</p>
               <span className="text-subtle font-mono text-[10px]">
-                {draft.allowedSetups.length}/{userSetups.length}
+                {draft.allowedSetups.length}/{allSetups.length}
               </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft({
-                    ...draft,
-                    allowedSetups:
-                      draft.allowedSetups.length === userSetups.length ? [] : [...userSetups],
-                  })
-                }
-                className="text-subtle hover:text-fg ml-auto text-[10px] uppercase transition-colors"
-              >
-                {draft.allowedSetups.length === userSetups.length ? "Tout décocher" : "Tout cocher"}
-              </button>
+              {allSetups.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      allowedSetups:
+                        draft.allowedSetups.length === allSetups.length ? [] : [...allSetups],
+                    })
+                  }
+                  className="text-subtle hover:text-fg ml-auto text-[10px] uppercase transition-colors"
+                >
+                  {draft.allowedSetups.length === allSetups.length
+                    ? "Tout décocher"
+                    : "Tout cocher"}
+                </button>
+              ) : null}
             </div>
 
-            {/* Un compte sans entrée n'est pas cassé, mais ses statistiques
-                n'ont rien à mesurer. Mieux vaut le dire que d'afficher des
-                tirets sans explication. */}
-            {draft.allowedSetups.length === 0 ? (
+            {/* Deux situations très différentes, longtemps confondues sous le
+                même message : n'avoir DÉCLARÉ aucun setup, et en avoir mais
+                n'en cocher aucun. Le premier cas demandait « choisissez vos
+                setups » devant une liste vide — un ordre impossible à suivre. */}
+            {allSetups.length === 0 ? (
+              <p className="text-brand-amber mb-1.5 text-[11px]">
+                Vous n&apos;avez encore déclaré aucun setup. Ajoutez ci-dessous ceux que vous jouez
+                sur ce compte — sans eux, ni espérance ni taux de réussite ne peuvent être
+                calculés.
+              </p>
+            ) : draft.allowedSetups.length === 0 ? (
               <p className="text-brand-amber mb-1.5 text-[11px]">
                 Choisissez les setups que vous jouez sur ce compte — sans eux, ni espérance ni
                 taux de réussite ne peuvent être calculés.
               </p>
             ) : null}
 
+            {/* Saisie sur place : le vocabulaire des setups appartient au
+                trader, et l'envoyer déclarer ailleurs avant de pouvoir
+                configurer son compte est un détour que rien ne justifie. Le
+                setup créé est aussitôt coché pour CE compte. */}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <input
+                value={newSetup}
+                onChange={(e) => setNewSetup(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addSetup();
+                  }
+                }}
+                maxLength={64}
+                placeholder="Nom de votre setup (ex. Pullback H1)"
+                className="bg-panel border-border-app text-fg focus:border-brand-blue flex-1 rounded-lg border px-2 py-1 text-xs outline-none"
+              />
+              <button
+                type="button"
+                onClick={addSetup}
+                disabled={pending || newSetup.trim() === ""}
+                className="border-brand-blue text-brand-blue hover:bg-brand-blue/10 flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Icon name="add" size={13} />
+                Ajouter
+              </button>
+            </div>
+
             <div className="flex flex-wrap gap-1.5">
-              {userSetups.map((entry) => {
+              {allSetups.map((entry) => {
                 const on = draft.allowedSetups.includes(entry);
                 return (
                   <button

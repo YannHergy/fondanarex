@@ -38,18 +38,59 @@ function hashUrl(url: string): string {
 }
 
 const FETCH_TIMEOUT_MS = 12_000;
-const UA = "Mozilla/5.0 (compatible; Fondanarex/1.0)";
 
-async function get(url: string, headers: Record<string, string> = {}): Promise<string | null> {
+/**
+ * A browser User-Agent, and it is load-bearing.
+ *
+ * This module used to send `Mozilla/5.0 (compatible; Fondanarex/1.0)` — an
+ * honest bot signature. Measured live: from a residential connection both
+ * FXStreet feeds answer it with 24 KB of XML, but the same request from
+ * Vercel came back refused in 2.4 seconds — far too fast to be a timeout —
+ * and `fetchAllNews` returned ZERO articles for three days straight while
+ * the cron kept reporting `ok: true`.
+ *
+ * Datacenter IP plus a self-declared bot is what the filter rejects. Every
+ * other integration here that reaches a bot-protected host (the ONS, the
+ * RBA, StatCan, Stats NZ) already sends this exact Chrome string and fetches
+ * from Vercel without trouble — the news module was simply the one place
+ * that still announced itself, not the victim of a new block.
+ */
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/** A source that answered with something other than its content. */
+export interface SourceFailure {
+  source: string;
+  reason: string;
+}
+
+/**
+ * Fetches a URL, REPORTING why it failed rather than swallowing it.
+ *
+ * The previous version returned `null` for every failure mode — refused,
+ * rate-limited, timed out, unreachable — and each caller quietly moved on.
+ * That is what let a total outage look like a successful run for three days:
+ * nothing upstream of here had any way to tell "no news today" apart from
+ * "the source slammed the door".
+ */
+async function get(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ body: string | null; reason: string | null }> {
   try {
     const response = await fetch(url, {
-      headers: { "User-Agent": UA, ...headers },
+      headers: {
+        "User-Agent": UA,
+        Accept: "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7",
+        ...headers,
+      },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
+    if (!response.ok) return { body: null, reason: `HTTP ${response.status}` };
+    return { body: await response.text(), reason: null };
+  } catch (error) {
+    return { body: null, reason: error instanceof Error ? error.message : "échec réseau" };
   }
 }
 
@@ -94,21 +135,37 @@ const FXSTREET_FEEDS = [
   { url: "https://www.fxstreet.com/rss/analysis", source: "FXStreet Analyse" },
 ];
 
-export async function fetchFxStreet(): Promise<FetchedArticle[]> {
+export async function fetchFxStreet(): Promise<{
+  articles: FetchedArticle[];
+  failures: SourceFailure[];
+}> {
   const out: FetchedArticle[] = [];
+  const failures: SourceFailure[] = [];
 
   for (const feed of FXSTREET_FEEDS) {
-    const xml = await get(feed.url);
-    if (!xml) continue;
+    const { body: xml, reason } = await get(feed.url);
+    if (!xml) {
+      failures.push({ source: feed.source, reason: reason ?? "réponse vide" });
+      continue;
+    }
 
-    for (const item of parseFeed(xml)) {
+    const items = parseFeed(xml);
+    // A feed that answers 200 with nothing parseable is a failure too: it
+    // means the format moved under us, which is invisible from the status
+    // code alone and would otherwise read as "a quiet news day".
+    if (items.length === 0) {
+      failures.push({ source: feed.source, reason: "flux illisible (format changé ?)" });
+      continue;
+    }
+
+    for (const item of items) {
       // Forex-native: everything it publishes is on a forex desk's radar.
       const article = toArticle(item, feed.source, { forexNative: true });
       if (article) out.push(article);
     }
   }
 
-  return out;
+  return { articles: out, failures };
 }
 
 // ── Marketaux ─────────────────────────────────────────────────────────────
@@ -129,19 +186,24 @@ interface MarketauxArticle {
  * through the same tagger as everything else instead of being trusted, so a
  * loose vendor tag cannot put an irrelevant article on a currency page.
  */
-export async function fetchMarketaux(): Promise<FetchedArticle[]> {
+export async function fetchMarketaux(): Promise<{
+  articles: FetchedArticle[];
+  failures: SourceFailure[];
+}> {
   const key = process.env.MARKETAUX_API_KEY ?? "";
-  if (!key) return [];
+  // Not configured is not a failure — it is a source we deliberately do
+  // without. Only a configured source that refuses is worth reporting.
+  if (!key) return { articles: [], failures: [] };
 
-  const raw = await get(
+  const { body: raw, reason } = await get(
     `https://api.marketaux.com/v1/news/all?filter_entities=true&language=en&sort=published_desc&limit=3&api_token=${key}`,
   );
-  if (!raw) return [];
+  if (!raw) return { articles: [], failures: [{ source: "Marketaux", reason: reason ?? "réponse vide" }] };
 
   try {
     const payload = JSON.parse(raw) as { data?: MarketauxArticle[] };
 
-    return (payload.data ?? [])
+    const articles = (payload.data ?? [])
       .map((entry) =>
         entry.title && entry.url
           ? toArticle(
@@ -158,8 +220,10 @@ export async function fetchMarketaux(): Promise<FetchedArticle[]> {
           : null,
       )
       .filter((article): article is FetchedArticle => article !== null);
+
+    return { articles, failures: [] };
   } catch {
-    return [];
+    return { articles: [], failures: [{ source: "Marketaux", reason: "réponse JSON illisible" }] };
   }
 }
 
@@ -212,9 +276,11 @@ export async function fetchGdelt(currencies: readonly string[]): Promise<Fetched
     // Parentheses around OR'd terms are mandatory; GDELT rejects the query
     // outright without them, in prose rather than JSON.
     const query = encodeURIComponent(`(${terms.join(" OR ")})`);
-    const raw = await get(
+    const { body: raw } = await get(
       `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&maxrecords=8&timespan=3d&format=json&sort=datedesc`,
     );
+    // Throttling arrives as a plain-text scolding with a 200 status (see the
+    // note above), so the JSON check is the real test, not the status code.
     if (!raw || !raw.trimStart().startsWith("{")) continue;
 
     try {
@@ -250,21 +316,21 @@ export async function fetchGdelt(currencies: readonly string[]): Promise<Fetched
  * FXStreet runs first so its version of a shared story wins: it writes the
  * currency into the headline, which is what makes the tagging reliable.
  */
-export async function fetchAllNews(options: { withGdelt?: boolean } = {}): Promise<FetchedArticle[]> {
+export async function fetchAllNews(
+  options: { withGdelt?: boolean } = {},
+): Promise<{ articles: FetchedArticle[]; failures: SourceFailure[] }> {
   const [fxstreet, marketaux] = await Promise.all([fetchFxStreet(), fetchMarketaux()]);
 
-  const gdelt = options.withGdelt
-    ? await fetchGdelt(["CHF", "NZD", "AUD", "CAD"])
-    : [];
+  const gdelt = options.withGdelt ? await fetchGdelt(["CHF", "NZD", "AUD", "CAD"]) : [];
 
   const seen = new Set<string>();
   const out: FetchedArticle[] = [];
 
-  for (const article of [...fxstreet, ...marketaux, ...gdelt]) {
+  for (const article of [...fxstreet.articles, ...marketaux.articles, ...gdelt]) {
     if (seen.has(article.urlHash)) continue;
     seen.add(article.urlHash);
     out.push(article);
   }
 
-  return out;
+  return { articles: out, failures: [...fxstreet.failures, ...marketaux.failures] };
 }

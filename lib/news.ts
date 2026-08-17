@@ -9,7 +9,7 @@ import {
   TRANSLATE_SCHEMA,
   TRANSLATE_SYSTEM,
 } from "@/domain/news/translate";
-import { fetchAllNews } from "@/lib/integrations/news";
+import { fetchAllNews, type SourceFailure } from "@/lib/integrations/news";
 import { callGeminiStructured, geminiConfigured } from "@/lib/integrations/llm";
 import { prisma } from "@/lib/prisma";
 import { NewsLean } from "@/lib/generated/prisma/enums";
@@ -82,6 +82,15 @@ export interface RefreshSummary {
   alreadyKnown: number;
   removed: number;
   byCurrency: Record<string, number>;
+  /**
+   * Sources that refused, timed out or answered unparseable content.
+   *
+   * Reported rather than swallowed: `fetched: 0` alone cannot tell a quiet
+   * news day apart from every source slamming the door, and for three days
+   * running the second case was displayed as the first — the cron answered
+   * `ok: true` while FXStreet was refusing Vercel outright.
+   */
+  failures: SourceFailure[];
 }
 
 /**
@@ -94,7 +103,7 @@ export interface RefreshSummary {
 export async function refreshNews(
   options: { withGdelt?: boolean; translate?: boolean } = {},
 ): Promise<RefreshSummary> {
-  const articles = await fetchAllNews(options);
+  const { articles, failures } = await fetchAllNews(options);
 
   let stored = 0;
   let alreadyKnown = 0;
@@ -168,7 +177,15 @@ export async function refreshNews(
     }
   }
 
-  return { fetched: articles.length, stored, translated, alreadyKnown, removed, byCurrency };
+  return {
+    fetched: articles.length,
+    stored,
+    translated,
+    alreadyKnown,
+    removed,
+    byCurrency,
+    failures,
+  };
 }
 
 /** Translated per call. Large enough to be one request, small enough to finish. */

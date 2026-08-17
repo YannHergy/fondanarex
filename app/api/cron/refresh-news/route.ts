@@ -31,7 +31,17 @@ export async function GET(request: Request) {
 
   try {
     const summary = await refreshNews({ withGdelt });
-    return NextResponse.json({ ok: true, ...summary });
+
+    // A run where EVERY source refused is not a success, and answering 200
+    // for it is what hid a three-day outage: the schedule kept reporting
+    // `ok: true` with `fetched: 0` while FXStreet was turning Vercel away.
+    // A quiet news day still fetches articles and simply stores none of
+    // them, so "nothing fetched AND a source complained" is the honest
+    // signal to fail on — a partial outage stays 200 with its failures
+    // listed, because the articles that did arrive are worth keeping.
+    const blackout = summary.fetched === 0 && summary.failures.length > 0;
+
+    return NextResponse.json({ ok: !blackout, ...summary }, { status: blackout ? 502 : 200 });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Échec du rafraîchissement" },

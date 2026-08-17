@@ -168,6 +168,95 @@ export async function fetchFxStreet(): Promise<{
   return { articles: out, failures };
 }
 
+// ── Google News ───────────────────────────────────────────────────────────
+
+/**
+ * Google News RSS — the source that answers a datacenter.
+ *
+ * Added because FXStreet returns HTTP 403 to Vercel outright, verified from
+ * production: the browser User-Agent above was not enough, so the block is on
+ * the IP range rather than the signature. ForexLive and DailyFX refuse the
+ * same way. Google publishes this feed expressly to be consumed by machines,
+ * which is exactly the property the others turned out to lack.
+ *
+ * The queries are hand-written multi-word phrases rather than derived from
+ * CURRENCY_TERMS: the bare terms there include 'euro' and 'cable', which are
+ * precise enough for TAGGING a forex headline but pull in football and
+ * telecoms when used to SEARCH the open web. Central-bank names and full
+ * currency names keep the results on topic.
+ *
+ * Grouped four ways rather than eight so one refresh is four requests, and
+ * every headline still goes through the same tagger — a result that names no
+ * currency is dropped, exactly like Marketaux's.
+ */
+const GOOGLE_NEWS_QUERIES = [
+  '"Federal Reserve" OR FOMC OR "US dollar" OR "dollar index"',
+  '"European Central Bank" OR "Bank of England" OR "euro area" OR "pound sterling"',
+  '"Bank of Japan" OR "Swiss National Bank" OR "Japanese yen" OR "Swiss franc"',
+  '"Bank of Canada" OR "Reserve Bank of Australia" OR "Reserve Bank of New Zealand" OR "Canadian dollar" OR "Australian dollar" OR "New Zealand dollar"',
+];
+
+/**
+ * "Headline — Reuters" -> { title: "Headline", source: "Reuters" }.
+ *
+ * Google appends the publisher to every title after the LAST " - ". Split on
+ * the last one, not the first: plenty of headlines contain a hyphen of their
+ * own ("Fed holds - as expected - at 4%").
+ */
+function splitGooglePublisher(raw: string): { title: string; source: string } {
+  const at = raw.lastIndexOf(" - ");
+  if (at < 0) return { title: raw, source: "Google News" };
+
+  const title = raw.slice(0, at).trim();
+  const source = raw.slice(at + 3).trim();
+  // A suffix that is empty or absurdly long is not a publisher name.
+  if (!title || !source || source.length > 40) return { title: raw, source: "Google News" };
+
+  return { title, source };
+}
+
+export async function fetchGoogleNews(): Promise<{
+  articles: FetchedArticle[];
+  failures: SourceFailure[];
+}> {
+  const out: FetchedArticle[] = [];
+  const failures: SourceFailure[] = [];
+
+  const results = await Promise.all(
+    GOOGLE_NEWS_QUERIES.map(async (query) => {
+      // `when:2d` keeps the window tight; the store already dedupes, so an
+      // overlap between runs costs nothing.
+      const url =
+        `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:2d`)}` +
+        `&hl=en-US&gl=US&ceid=US:en`;
+      return { query, ...(await get(url)) };
+    }),
+  );
+
+  for (const { query, body: xml, reason } of results) {
+    if (!xml) {
+      failures.push({ source: "Google News", reason: `${reason ?? "réponse vide"} (${query.slice(0, 30)}…)` });
+      continue;
+    }
+
+    for (const item of parseFeed(xml)) {
+      const { title, source } = splitGooglePublisher(item.title);
+      const article = toArticle(
+        // The description is a bare anchor tag on this feed, so it decodes to
+        // the headline again — an empty summary is honest where a duplicate
+        // of the title would just be noise under it.
+        { title, summary: "", url: item.url, publishedAt: item.publishedAt },
+        source,
+        // A general search feed: it must name a currency to earn its place.
+        { forexNative: false },
+      );
+      if (article) out.push(article);
+    }
+  }
+
+  return { articles: out, failures };
+}
+
 // ── Marketaux ─────────────────────────────────────────────────────────────
 
 interface MarketauxArticle {
@@ -313,24 +402,43 @@ export async function fetchGdelt(currencies: readonly string[]): Promise<Fetched
 /**
  * Every source, deduplicated.
  *
- * FXStreet runs first so its version of a shared story wins: it writes the
- * currency into the headline, which is what makes the tagging reliable.
+ * FXStreet runs FIRST so its version of a shared story wins: it writes the
+ * currency into the headline, which is what makes the tagging reliable. It is
+ * kept ahead of Google News for that reason even though it currently answers
+ * 403 from Vercel — the order costs nothing when it is refused, and the day
+ * the block lifts its headlines are the better ones.
+ *
+ * Google News is the one that actually feeds production today. Treating it as
+ * a peer rather than a replacement is deliberate: a single reachable source is
+ * how this broke in the first place.
  */
 export async function fetchAllNews(
   options: { withGdelt?: boolean } = {},
 ): Promise<{ articles: FetchedArticle[]; failures: SourceFailure[] }> {
-  const [fxstreet, marketaux] = await Promise.all([fetchFxStreet(), fetchMarketaux()]);
+  const [fxstreet, google, marketaux] = await Promise.all([
+    fetchFxStreet(),
+    fetchGoogleNews(),
+    fetchMarketaux(),
+  ]);
 
   const gdelt = options.withGdelt ? await fetchGdelt(["CHF", "NZD", "AUD", "CAD"]) : [];
 
   const seen = new Set<string>();
   const out: FetchedArticle[] = [];
 
-  for (const article of [...fxstreet.articles, ...marketaux.articles, ...gdelt]) {
+  for (const article of [
+    ...fxstreet.articles,
+    ...google.articles,
+    ...marketaux.articles,
+    ...gdelt,
+  ]) {
     if (seen.has(article.urlHash)) continue;
     seen.add(article.urlHash);
     out.push(article);
   }
 
-  return { articles: out, failures: [...fxstreet.failures, ...marketaux.failures] };
+  return {
+    articles: out,
+    failures: [...fxstreet.failures, ...google.failures, ...marketaux.failures],
+  };
 }

@@ -19,6 +19,30 @@ import { currentUserId } from "@/lib/session";
  * what keeps every score current. Intended to run from a Netlify scheduled
  * function (see netlify.toml), but safe to call by hand.
  *
+ * WHY IT RUNS EIGHT TIMES A DAY (see the schedule in vercel.json, which is
+ * strict JSON and cannot carry this note).
+ *
+ * It used to run once, at 06:10 UTC, and that single hour bore no relation to
+ * when anything is actually published. Traced end to end on 17 Aug 2026:
+ * StatCan released the Canadian CPI at 12:30 UTC, more than six hours after
+ * the morning run had finished, so the site kept showing June's figure with a
+ * "next release" date already in the past — and the following automatic run
+ * was not due for another seventeen hours. Only a manual click closed the gap.
+ * The release time was sitting in the database the whole time; the schedule
+ * simply never looked at it.
+ *
+ * The hours are placed just after the windows that matter rather than spread
+ * evenly: 13:05 for the North American batch (BLS, StatCan and the BEA all
+ * publish at 12:30), 08:05 for the European morning (the ONS at 06:00–07:00,
+ * Eurostat behind it), 02:05 for the ABS at 01:30. The rest fill the day so
+ * nothing waits more than about three hours.
+ *
+ * Running often is affordable because of two earlier changes: writeRows only
+ * touches rows whose value actually moved (measured: 13 rows and 14 seconds
+ * for a normal run), and recordScoresAndAlert now snapshots a currency only
+ * when its score moved or when it has no point for the day — without that
+ * second guard, eight runs would have multiplied the score history by eight.
+ *
  * Authentication is a shared secret, not a session: a scheduler has no cookies.
  * Note that with app authentication currently disabled this is the ONLY
  * protected endpoint in the app — and it must stay protected, because it makes

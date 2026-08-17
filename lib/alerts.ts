@@ -48,24 +48,56 @@ export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
   const codes = Object.keys(currencies);
   if (codes.length === 0) return { snapshotted: 0, created: 0, suppressed: 0 };
 
-  // Latest snapshot per currency, to compare against.
+  // Latest snapshot per currency, to compare against. `computedAt` comes back
+  // too because it decides whether today's point already exists — see below.
   const previousRows = await prisma.scoreSnapshot.findMany({
     where: { userId },
     orderBy: { computedAt: "desc" },
     distinct: ["currencyCode"],
-    select: { currencyCode: true, total: true },
+    select: { currencyCode: true, total: true, computedAt: true },
   });
 
   const previous: Record<string, number> = {};
-  for (const row of previousRows) previous[row.currencyCode] = Number(row.total);
+  const lastAt: Record<string, Date> = {};
+  for (const row of previousRows) {
+    previous[row.currencyCode] = Number(row.total);
+    lastAt[row.currencyCode] = row.computedAt;
+  }
 
   const current: Record<string, number> = {};
   for (const currency of Object.values(currencies)) {
     current[currency.code] = currency.scores.total;
   }
 
+  /**
+   * A currency earns a new point when its score MOVED, or when it has none
+   * for today yet.
+   *
+   * This used to snapshot every currency on every call, which was harmless
+   * while the refresh ran once a day and produced exactly eight points. The
+   * schedule now runs eight times a day to catch releases when they actually
+   * publish, and snapshotting unconditionally would have multiplied the score
+   * curve by eight — turning a readable history into a wall of identical
+   * points.
+   *
+   * Skipping the write entirely when nothing moved is NOT an option: the
+   * comparison below reads `previous` from the newest stored snapshot, so a
+   * level that is never acknowledged would re-detect the same move and raise
+   * the same alert on every run. Writing on change is what advances the
+   * baseline; the daily floor is what keeps the curve continuous on a quiet
+   * day.
+   */
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const toSnapshot = Object.values(currencies).filter((currency) => {
+    const seen = lastAt[currency.code];
+    if (!seen || seen < startOfDay) return true;
+    return previous[currency.code] !== currency.scores.total;
+  });
+
   await prisma.scoreSnapshot.createMany({
-    data: Object.values(currencies).map((currency) => ({
+    data: toSnapshot.map((currency) => ({
       userId,
       currencyCode: currency.code,
       total: currency.scores.total,
@@ -90,7 +122,7 @@ export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
 
   const changes = detectScoreChanges(previous, current);
   if (changes.length === 0) {
-    return { snapshotted: codes.length, created: 0, suppressed: 0 };
+    return { snapshotted: toSnapshot.length, created: 0, suppressed: 0 };
   }
 
   const preferences = await prisma.alertPreference.findMany({ where: { userId } });
@@ -137,5 +169,5 @@ export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
     created += 1;
   }
 
-  return { snapshotted: codes.length, created, suppressed };
+  return { snapshotted: toSnapshot.length, created, suppressed };
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { TradeForm } from "@/app/(app)/journal/_components/trade-form";
 import {
+  assignAccount,
   assignStrategy,
   deleteTradeScreenshot,
   removeTrade,
@@ -26,6 +27,7 @@ import {
   SESSIONS,
   sortTrades,
   tradesByDay,
+  UNASSIGNED_ACCOUNT,
   type JournalFilters,
   type PeriodFilter,
   type ResultFilter,
@@ -82,6 +84,7 @@ export function JournalView({
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [month, setMonth] = useState(() => new Date(now));
   const [bulkSetup, setBulkSetup] = useState("");
+  const [bulkAccount, setBulkAccount] = useState("");
   const [bulkDone, setBulkDone] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -115,6 +118,45 @@ export function JournalView({
 
     return parts.join(", ");
   }, [filters, accounts]);
+
+  /**
+   * Un onglet par compte, plus « Tous » et, seulement s'il en reste, « Sans
+   * compte ».
+   *
+   * Les compteurs sont calculés sur `trades` (le journal entier) et non sur
+   * `visible` : un onglet doit annoncer ce qu'il contient, pas ce qu'il
+   * contiendrait une fois les autres filtres appliqués — sinon sélectionner
+   * une paire ferait tomber tous les compteurs à zéro sauf un.
+   */
+  const accountTabs = useMemo(() => {
+    const byAccount = new Map<string, number>();
+    let orphans = 0;
+    for (const trade of trades) {
+      if (!trade.accountId) orphans += 1;
+      else byAccount.set(trade.accountId, (byAccount.get(trade.accountId) ?? 0) + 1);
+    }
+
+    const tabs = [
+      { id: "", label: "Tous", color: null as string | null, count: trades.length },
+      ...accounts.map((a) => ({
+        id: a.id,
+        label: a.name,
+        color: a.color as string | null,
+        count: byAccount.get(a.id) ?? 0,
+      })),
+    ];
+
+    if (orphans > 0) {
+      tabs.push({
+        id: UNASSIGNED_ACCOUNT,
+        label: "Sans compte",
+        color: null,
+        count: orphans,
+      });
+    }
+
+    return tabs;
+  }, [trades, accounts]);
 
   const calendar = useMemo(
     () => monthCalendar(month.getUTCFullYear(), month.getUTCMonth(), tradesByDay(trades)),
@@ -152,6 +194,53 @@ export function JournalView({
           Nouveau trade
         </button>
       </PageHeader>
+
+      {/*
+        Un journal par compte, en onglets plutôt qu'en menu déroulant.
+
+        Le compte était déjà filtrable, mais noyé parmi six autres listes : rien
+        ne disait qu'on regardait un seul compte, ni combien il y en avait. En
+        onglets, chaque compte a visiblement SON journal — et l'onglet « Sans
+        compte » existe parce que des trades importés avant la création des
+        comptes n'en portent aucun et n'étaient donc atteignables nulle part.
+      */}
+      {accountTabs.length > 2 ? (
+        <div className="border-border-app flex flex-wrap items-center gap-1.5 rounded-2xl border bg-[var(--color-surface)] p-2">
+          <span className="text-subtle mr-1 flex items-center gap-1.5 pl-1 font-mono text-[10px] tracking-widest uppercase">
+            <Icon name="account_balance_wallet" size={12} />
+            Journaux
+          </span>
+          {accountTabs.map((entry) => {
+            const on = (filters.account ?? "") === entry.id;
+            return (
+              <button
+                key={entry.id || "all"}
+                type="button"
+                onClick={() =>
+                  setFilters((c) => ({ ...c, account: entry.id === "" ? undefined : entry.id }))
+                }
+                aria-pressed={on}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                  on ? "bg-brand-blue text-white" : "text-subtle hover:text-fg hover:bg-panel",
+                )}
+              >
+                {entry.color ? (
+                  <span
+                    aria-hidden
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                ) : null}
+                {entry.label}
+                <span className={cn("tabular font-mono", on ? "text-white/70" : "text-subtle")}>
+                  {entry.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/*
         Vue et filtres AVANT les chiffres : chaque statistique ci-dessous est
@@ -197,19 +286,10 @@ export function JournalView({
         </div>
 
         <div className="border-border-app flex flex-wrap gap-2 border-t pt-3">
-          {/* En premier : c'est le filtre le plus structurant — les statistiques,
-              la courbe de capital et la projection décrivent toutes le compte
-              sélectionné. Masqué quand il n'y a qu'un compte, où le choix
-              n'apporte rien. */}
-          {accounts.length > 1 ? (
-            <FilterSelect
-              value={filters.account ?? ""}
-              onChange={(value) => setFilters((c) => ({ ...c, account: value || undefined }))}
-              options={accounts.map((a) => a.id)}
-              labels={Object.fromEntries(accounts.map((a) => [a.id, a.name]))}
-              placeholder="Tous les comptes"
-            />
-          ) : null}
+          {/* Le compte n'est plus ici : il a ses propres onglets au-dessus, où
+              l'on voit d'un coup d'œil combien de journaux existent et lequel
+              on lit. Le garder aussi en liste aurait donné deux commandes pour
+              un même réglage, qu'il aurait fallu tenir synchronisées. */}
           <FilterSelect
             value={filters.instrument ?? ""}
             onChange={(value) => setFilters((c) => ({ ...c, instrument: value || undefined }))}
@@ -307,13 +387,56 @@ export function JournalView({
             >
               Appliquer
             </button>
+            {/* Rattacher au compte, à côté de l'étiquetage parce que c'est le
+                même geste : filtrer un lot, puis lui appliquer une propriété.
+                Indispensable pour l'existant — un trade importé avant qu'un
+                compte existe n'en porte aucun, et aucun onglet ne l'atteignait. */}
+            {accounts.length > 0 ? (
+              <>
+                <span className="border-border-app text-subtle ml-2 border-l pl-3 font-mono text-[10px] tracking-wide uppercase">
+                  Rattacher à
+                </span>
+                <select
+                  value={bulkAccount}
+                  onChange={(event) => setBulkAccount(event.target.value)}
+                  className="bg-panel border-border-app text-fg focus:border-brand-blue rounded-lg border px-2 py-1 text-xs focus:outline-none"
+                >
+                  <option value="">Choisir un compte…</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={pending || bulkAccount === ""}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const name = accounts.find((a) => a.id === bulkAccount)?.name ?? "";
+                      const { updated } = await assignAccount({
+                        tradeIds: visible.map((trade) => trade.id),
+                        accountId: bulkAccount,
+                      });
+                      setBulkDone(`${updated} trade(s) rattachés à « ${name} »`);
+                      setBulkAccount("");
+                      router.refresh();
+                    })
+                  }
+                  className="bg-brand-blue hover:bg-brand-blue/90 rounded-lg px-2.5 py-1 text-xs font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Rattacher
+                </button>
+              </>
+            ) : null}
+
             {bulkDone ? (
-              <span role="status" className="text-brand-green text-[11px]">
+              <span role="status" className="text-brand-green w-full text-[11px]">
                 {bulkDone}
               </span>
             ) : (
-              <span className="text-subtle text-[11px]">
-                Filtrez d&apos;abord, puis étiquetez le lot.
+              <span className="text-subtle w-full text-[11px]">
+                Filtrez d&apos;abord, puis appliquez au lot affiché.
               </span>
             )}
           </div>

@@ -443,3 +443,46 @@ export async function assignStrategy(input: unknown): Promise<{ updated: number 
   revalidatePath("/rapports");
   return { updated: result.count };
 }
+
+/**
+ * Rattache un lot de trades à un compte.
+ *
+ * Nécessaire parce qu'un trade importé AVANT la création d'un compte n'en
+ * porte aucun : 26 trades étaient dans ce cas, invisibles depuis tout onglet
+ * par compte alors qu'ils comptaient dans le total. L'import MT5 rattache
+ * désormais à la volée, mais rien ne rattrapait l'existant.
+ *
+ * Le compte est vérifié comme appartenant à l'utilisateur AVANT l'écriture :
+ * sans ce contrôle, un identifiant deviné rattacherait ses trades au compte
+ * d'autrui — et `updateMany`, filtré sur le seul userId des trades, ne l'aurait
+ * pas empêché.
+ */
+export async function assignAccount(input: unknown): Promise<{ updated: number }> {
+  const userId = await requireUserIdOrThrow();
+  const { tradeIds, accountId } = z
+    .object({
+      tradeIds: z.array(z.string().min(1).max(64)).min(1).max(500),
+      // Chaîne vide = détacher, ce qui doit rester possible.
+      accountId: z.string().max(64),
+    })
+    .parse(input);
+
+  const clean = accountId.trim();
+  if (clean.length > 0) {
+    const owned = await prisma.tradingAccount.findFirst({
+      where: { id: clean, userId },
+      select: { id: true },
+    });
+    if (!owned) throw new Error("Compte introuvable");
+  }
+
+  const result = await prisma.trade.updateMany({
+    where: { id: { in: tradeIds }, userId },
+    data: { accountId: clean.length > 0 ? clean : null },
+  });
+
+  revalidatePath("/journal");
+  revalidatePath("/comptes");
+  revalidatePath("/rapports");
+  return { updated: result.count };
+}

@@ -103,13 +103,24 @@ export function isThisMonth(date: Date, now: Date): boolean {
 export type ResultFilter = 'all' | 'win' | 'loss' | 'breakeven' | 'open';
 export type PeriodFilter = 'all' | 'week' | 'month';
 
+/**
+ * Valeur de `JournalFilters.account` qui isole les trades rattachés à AUCUN
+ * compte.
+ *
+ * Un identifiant réel ne peut pas la heurter : Prisma génère des cuid, qui
+ * n'ont ni underscore ni accent. Sans elle, ces trades n'étaient atteignables
+ * depuis aucun onglet — un import fait avant la création des comptes
+ * disparaissait de toute vue par compte tout en gonflant le total.
+ */
+export const UNASSIGNED_ACCOUNT = '__sans_compte__';
+
 export interface JournalFilters {
     instrument?: string;
     strategy?: string;
     session?: string;
     result?: ResultFilter;
     period?: PeriodFilter;
-    /** Identifiant du compte de trading. */
+    /** Identifiant du compte de trading, ou UNASSIGNED_ACCOUNT. */
     account?: string;
     /** Matches instrument, strategy, notes-free text and tags. */
     search?: string;
@@ -138,7 +149,9 @@ export function filterTrades<T extends JournalTrade>(
         if (filters.instrument && trade.instrument !== filters.instrument) return false;
         if (filters.strategy && trade.strategy !== filters.strategy) return false;
         if (filters.session && trade.session !== filters.session) return false;
-        if (filters.account && trade.accountId !== filters.account) return false;
+        if (filters.account === UNASSIGNED_ACCOUNT) {
+            if (trade.accountId != null) return false;
+        } else if (filters.account && trade.accountId !== filters.account) return false;
 
         if (filters.result && filters.result !== 'all') {
             if (tradeOutcome(trade.closedAt, trade.pnl) !== filters.result) return false;

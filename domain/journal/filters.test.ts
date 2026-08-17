@@ -9,6 +9,7 @@ import {
     sortTrades,
     tradesByDay,
     weekStart,
+    UNASSIGNED_ACCOUNT,
     type JournalTrade,
 } from './filters';
 
@@ -111,6 +112,21 @@ describe('filterTrades', () => {
         expect(filterTrades(withAccounts, { account: 'inconnu' }, NOW)).toHaveLength(0);
         // Pas de filtre : le trade sans compte reste visible.
         expect(filterTrades(withAccounts, {}, NOW)).toHaveLength(4);
+    });
+
+    it('isole les trades rattachés à aucun compte', () => {
+        // Le cas réel qui a motivé ce filtre : 26 trades importés avant que
+        // les comptes existent. Sans lui, ils n'apparaissaient dans aucun
+        // onglet par compte tout en comptant dans le total — donc introuvables.
+        const withAccounts = [
+            trade({ instrument: 'EUR/USD', accountId: 'acc-5k' }),
+            trade({ instrument: 'AUD/USD', accountId: null }),
+            trade({ instrument: 'NZD/USD', accountId: null }),
+        ];
+
+        expect(
+            filterTrades(withAccounts, { account: UNASSIGNED_ACCOUNT }, NOW).map(t => t.instrument),
+        ).toEqual(['AUD/USD', 'NZD/USD']);
     });
 
     it('filters by instrument, strategy and session', () => {

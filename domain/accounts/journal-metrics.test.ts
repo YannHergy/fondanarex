@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { setupStats, type SetupTrade } from '../journal/setup-stats';
-import { alertVerdict, journalExpectancyPct, journalMetrics } from './journal-metrics';
+import {
+    accountTradeMetrics,
+    alertVerdict,
+    journalExpectancyPct,
+    journalMetrics,
+    realisedPnl,
+} from './journal-metrics';
 
 function closed(strategy: string, pnl: number): SetupTrade {
     return { strategy, closedAt: new Date('2026-08-01T12:00:00.000Z'), pnl };
@@ -104,5 +110,45 @@ describe('alertVerdict', () => {
         const v = alertVerdict({ ...base, currentCapital: 5500 });
         expect(v.state).toBe('ok');
         expect(v.lossPct).toBe(-10);
+    });
+});
+
+describe('accountTradeMetrics', () => {
+    const closed = (pnl: number) => ({ closedAt: new Date('2026-07-01'), pnl });
+
+    it('mesure les trades du compte sans exiger la moindre étiquette', () => {
+        // Le cas réel du bug : neuf trades importés, aucun setup déclaré,
+        // aucune stratégie renseignée. L'ancien calcul filtrait sur les setups
+        // autorisés et renvoyait « 0 trade mesuré » sur un compte en perte.
+        const m = accountTradeMetrics([closed(-33.72), closed(74.18), closed(-55.44)]);
+
+        expect(m.closed).toBe(3);
+        expect(m.expectancy).toBe(-4.99);
+    });
+
+    it('exclut les positions encore ouvertes du capital réalisé', () => {
+        const trades = [closed(-100), { closedAt: null, pnl: null }, { closedAt: null, pnl: 500 }];
+
+        expect(realisedPnl(trades)).toBe(-100);
+        expect(accountTradeMetrics(trades).closed).toBe(1);
+    });
+
+    it('retient un taux de réussite seulement sur un échantillon suffisant', () => {
+        const maigre = accountTradeMetrics([closed(10), closed(-5)]);
+        expect(maigre.winRatePct).toBeNull();
+        expect(maigre.expectancy).toBe(2.5);
+
+        const assez = accountTradeMetrics(
+            Array.from({ length: 10 }, (_, i) => closed(i < 4 ? 20 : -10)),
+        );
+        expect(assez.winRatePct).toBe(40);
+        expect(assez.rr).toBe(2);
+    });
+
+    it('compte un trade nul dans l échantillon mais pas dans le ratio', () => {
+        const m = accountTradeMetrics([closed(50), closed(-25), closed(0)]);
+        expect(m.closed).toBe(3);
+        // 50 / 25 : le zéro ne fausse ni le gain moyen ni la perte moyenne.
+        expect(m.rr).toBe(2);
     });
 });

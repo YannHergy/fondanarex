@@ -41,12 +41,15 @@ export function AccountCard({
   metaApiEnabled = false,
   userSetups,
   metrics,
+  fromJournal = false,
 }: {
   account: TradingAccountRow;
   /** Setups déclarés par le trader — remplacent la taxonomie figée. */
   userSetups: string[];
-  /** Chiffres mesurés sur SON journal, pour les setups de ce compte. */
+  /** Chiffres mesurés sur les trades réellement rattachés à ce compte. */
   metrics: JournalMetrics;
+  /** Vrai quand le capital affiché est calculé sur ces trades et non saisi. */
+  fromJournal?: boolean;
   /** Connexion MetaApi rattachée à ce compte, quand il y en a une. */
   metaApiLink?: MetaApiLink | null;
   metaApiEnabled?: boolean;
@@ -313,6 +316,15 @@ export function AccountCard({
         ) : null}
       </div>
 
+      {/* La saisie manuelle disparaît dès que le compte a des trades : son
+          capital est alors calculé à partir d'eux, et reporter un résultat à
+          la main par-dessus le compterait deux fois. */}
+      {fromJournal ? (
+        <div className="border-border-app text-subtle mt-3 flex items-center gap-1.5 border-t pt-3 text-[10px]">
+          <Icon name="sync" size={12} className="shrink-0" />
+          Capital calculé sur les {metrics.closed} trades clôturés de ce compte, dans le journal.
+        </div>
+      ) : (
       <div className="border-border-app mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
         <label htmlFor={`delta-${account.id}`} className="text-muted text-xs">
           Résultat à reporter
@@ -333,6 +345,7 @@ export function AccountCard({
           Appliquer
         </button>
       </div>
+      )}
 
       {editing ? (
         <div className="border-border-app mt-3 space-y-3 border-t pt-3">

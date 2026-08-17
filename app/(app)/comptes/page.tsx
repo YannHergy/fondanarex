@@ -14,8 +14,8 @@ import {
   weightedRR,
   weightedWinRate,
 } from "@/domain/accounts/metrics";
-import { journalMetrics } from "@/domain/accounts/journal-metrics";
-import { setupStats, setupsUsedInJournal } from "@/domain/journal/setup-stats";
+import { accountTradeMetrics, realisedPnl } from "@/domain/accounts/journal-metrics";
+import { setupsUsedInJournal } from "@/domain/journal/setup-stats";
 import { getTradingAccounts } from "@/lib/accounts";
 import { listStrategies, listTrades } from "@/lib/journal";
 import { metaApiConfigured } from "@/lib/integrations/metaapi";
@@ -35,15 +35,54 @@ export default async function AccountsPage() {
     listStrategies(userId),
     listTrades(userId),
   ]);
-  const active = accounts.filter((a) => a.isActive);
-
   // Les setups proposés viennent du trader : ceux qu'il a déclarés, plus ceux
   // déjà présents dans son journal. Aucune taxonomie imposée, et ses chiffres
   // sont calculés sur ses propres trades.
-  const stats = setupStats(trades);
   const userSetups = [...new Set([...declared, ...setupsUsedInJournal(trades)])].sort((a, b) =>
     a.localeCompare(b, "fr"),
   );
+
+  /**
+   * Les trades de chaque compte, et le capital qui en découle.
+   *
+   * `currentCapital` est une colonne que seul le bouton « Résultat à reporter »
+   * mettait à jour, donc un compte portant neuf trades et 145 $ de perte
+   * affichait toujours son capital de départ — et comme la santé, le drawdown
+   * et l'alerte se calculent tous à partir de ce champ, aucun des trois ne
+   * bougeait non plus. Un seuil d'alerte réglé par le trader ne pouvait
+   * littéralement jamais se déclencher.
+   *
+   * Le capital est donc recalculé ici pour les comptes qui ONT des trades :
+   * capital de départ plus P&L réalisé. Un compte sans trade garde sa valeur
+   * saisie à la main — c'est le mode de ceux qui n'importent pas, et l'écraser
+   * effacerait la seule donnée qu'ils possèdent.
+   */
+  const tradesByAccount = new Map<string, typeof trades>();
+  for (const trade of trades) {
+    if (!trade.accountId) continue;
+    const bucket = tradesByAccount.get(trade.accountId);
+    if (bucket) bucket.push(trade);
+    else tradesByAccount.set(trade.accountId, [trade]);
+  }
+
+  const measured = accounts.map((account) => {
+    const own = tradesByAccount.get(account.id) ?? [];
+    const metrics = accountTradeMetrics(own);
+    return {
+      account:
+        metrics.closed > 0
+          ? { ...account, currentCapital: account.initialCapital + realisedPnl(own) }
+          : account,
+      metrics,
+      fromJournal: metrics.closed > 0,
+    };
+  });
+
+  // Les totaux et les projections lisent les comptes RECALCULÉS, pas les
+  // bruts : sans cela, la synthèse du haut aurait continué d'annoncer un
+  // capital intact et « 0 compte en alerte » au-dessus de cartes montrant la
+  // perte — deux chiffres contradictoires sur le même écran.
+  const active = measured.map((m) => m.account).filter((a) => a.isActive);
 
   // Une connexion par compte de trading. Un lien orphelin — dont le compte a
   // été supprimé — n'apparaît nulle part plutôt que sur le mauvais compte.
@@ -142,14 +181,15 @@ export default async function AccountsPage() {
       </Card>
 
       <div className="space-y-4">
-        {accounts.map((account) => (
+        {measured.map(({ account, metrics, fromJournal }) => (
           <AccountCard
             key={account.id}
             account={account}
             metaApiLink={linkByAccount.get(account.id) ?? null}
             metaApiEnabled={metaApiEnabled}
             userSetups={userSetups}
-            metrics={journalMetrics(account.allowedSetups, stats)}
+            metrics={metrics}
+            fromJournal={fromJournal}
           />
         ))}
       </div>

@@ -84,6 +84,73 @@ export function journalMetrics(
 }
 
 /**
+ * Les mêmes chiffres, mesurés sur TOUS les trades du compte.
+ *
+ * `journalMetrics` ci-dessus ne retient que les setups autorisés, ce qui
+ * répond à « que valent les entrées que je m'autorise ». C'est une autre
+ * question que « où en est ce compte », et confondre les deux a produit un
+ * bug net : un compte portant neuf trades et 145 $ de perte affichait
+ * « 0 trade mesuré », capital intact et aucune alerte — parce qu'aucun setup
+ * n'était déclaré et qu'aucun trade importé ne porte d'étiquette. Un compte
+ * doit refléter ce qu'il a réellement fait, étiqueté ou non.
+ *
+ * Les trades ouverts sont exclus : leur P&L n'est pas réalisé, et le compter
+ * ferait bouger un capital sur une position qui peut encore tourner.
+ */
+export function accountTradeMetrics(
+    trades: readonly { closedAt: Date | null; pnl: number | null }[],
+): JournalMetrics {
+    let closed = 0;
+    let wins = 0;
+    let losses = 0;
+    let grossWin = 0;
+    let grossLoss = 0;
+    let netPnl = 0;
+
+    for (const trade of trades) {
+        if (trade.closedAt === null || trade.pnl === null) continue;
+
+        closed += 1;
+        netPnl += trade.pnl;
+
+        if (trade.pnl > 0) {
+            wins += 1;
+            grossWin += trade.pnl;
+        } else if (trade.pnl < 0) {
+            losses += 1;
+            grossLoss += Math.abs(trade.pnl);
+        }
+        // Un trade à zéro est clôturé sans être ni gagnant ni perdant : il
+        // compte dans l'échantillon et dans le P&L, pas dans le ratio.
+    }
+
+    const reliable = closed >= MIN_TRADES_FOR_RATE;
+
+    return {
+        closed,
+        winRatePct: reliable ? Math.round((wins / closed) * 1000) / 10 : null,
+        rr:
+            wins > 0 && losses > 0 && grossLoss > 0
+                ? Math.round((grossWin / wins / (grossLoss / losses)) * 10) / 10
+                : null,
+        expectancy: closed > 0 ? Math.round((netPnl / closed) * 100) / 100 : null,
+        reliable,
+    };
+}
+
+/** Le P&L réalisé d'un lot de trades — ce qui a réellement bougé le compte. */
+export function realisedPnl(
+    trades: readonly { closedAt: Date | null; pnl: number | null }[],
+): number {
+    let total = 0;
+    for (const trade of trades) {
+        if (trade.closedAt === null || trade.pnl === null) continue;
+        total += trade.pnl;
+    }
+    return Math.round(total * 100) / 100;
+}
+
+/**
  * L'espérance rapportée au capital, en pourcentage.
  *
  * C'est la forme comparable entre comptes de tailles différentes : gagner 40 $

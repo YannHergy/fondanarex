@@ -12,11 +12,11 @@ async function settle<T>(promise: Promise<T>): Promise<T | null> {
   }
 }
 
-function Unavailable() {
+function Unavailable({ reason }: { reason?: string }) {
   return (
     <p className="text-subtle flex items-start gap-2 text-xs">
       <Icon name="cloud_off" size={13} className="mt-px shrink-0" />
-      Données FXMacroData indisponibles.
+      {reason ?? "Données FXMacroData indisponibles."}
     </p>
   );
 }
@@ -29,18 +29,48 @@ function Unavailable() {
  * other two down with it. This is the real-data follow-up to the
  * "Bientôt disponible" placeholders from the earlier form-only pass.
  */
-export async function ComplementaryData({ code }: { code: string }) {
+export async function ComplementaryData({
+  code,
+  rates,
+}: {
+  code: string;
+  /** Taux directeur par devise, tel que l'application le détient déjà. */
+  rates: Record<string, number>;
+}) {
   const configured = fx.isConfigured() && isCurrencyCode(code);
 
-  const [curve, cot, allDiffs] = configured
-    ? await Promise.all([
-        settle(fx.getYieldCurve(code)),
-        settle(fx.getCOT(code)),
-        settle(fx.getRateDifferentials()),
-      ])
-    : [null, null, null];
+  /**
+   * Les différentiels sont calculés ICI, plus demandés à l'API.
+   *
+   * `getRateDifferentials()` lançait 56 requêtes — la matrice 8×8 entière — à
+   * chaque affichage, pour obtenir une soustraction entre deux taux
+   * directeurs que nous détenons déjà. Mesuré : l'API répond « Rate
+   * exceeded », et comme la limite est par hôte, cette rafale emportait avec
+   * elle la courbe des taux et le COT, qui affichaient alors
+   * « indisponible » — ou, pire, restaient figés sur la dernière réponse
+   * mise en cache, ce qui donnait exactement l'impression d'une donnée morte.
+   *
+   * Un différentiel de taux EST la différence entre deux taux directeurs :
+   * rien ne justifiait de la sous-traiter. La matrice carry de la vue
+   * d'ensemble faisait déjà ce calcul en repli. Les deux requêtes restantes —
+   * courbe et COT — sont, elles, irremplaçables : nous n'avons ni rendements
+   * obligataires ni positionnement spéculatif.
+   */
+  const own = rates[code];
+  const differentials =
+    typeof own === "number"
+      ? CURRENCY_CODES.filter((quote) => quote !== code)
+          .filter((quote) => typeof rates[quote] === "number")
+          .map((quote) => ({
+            base: code,
+            quote,
+            differentialPct: Math.round((own - rates[quote]!) * 100) / 100,
+          }))
+      : null;
 
-  const differentials = allDiffs?.filter((d) => d.base === code) ?? null;
+  const [curve, cot] = configured
+    ? await Promise.all([settle(fx.getYieldCurve(code)), settle(fx.getCOT(code))])
+    : [null, null];
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -113,8 +143,10 @@ export async function ComplementaryData({ code }: { code: string }) {
 
       <Card>
         <CardTitle icon="swap_horiz">Différentiels de taux</CardTitle>
-        {!configured || !differentials || differentials.length === 0 ? (
-          <Unavailable />
+        {/* Ne dépend plus de `configured` : ce panneau se calcule sur nos
+            propres taux, donc il reste juste même sans abonnement actif. */}
+        {!differentials || differentials.length === 0 ? (
+          <Unavailable reason="Taux directeurs insuffisants pour calculer les différentiels." />
         ) : (
           <ul className="space-y-1">
             {CURRENCY_CODES.filter((quote) => quote !== code)

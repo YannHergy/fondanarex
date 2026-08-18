@@ -273,13 +273,22 @@ export default async function CurrencyDetailPage({
        * it is not squeezed into the same 2/3 as the category cards while the
        * shorter score table leaves the other 1/3 empty below it. */}
 
-      {/* Everything here is deliberately OUTSIDE the score: yield curve,
-       * COT and rate differentials are FXMacroData enrichments, now wired
-       * to the real API (see complementary-data.tsx), and the three
-       * qualitative cards are notes, not computed indicators. Grouping
-       * them together frees the rest of the page for Actualités &
-       * Sentiment instead of splitting this content across the bottom. */}
-      <ComplementaryData code={currency.code} />
+      {/* Everything here is deliberately OUTSIDE the score: yield curve, COT
+       * and rate differentials are enrichments, and the three qualitative
+       * cards are notes, not computed indicators. Grouping them together
+       * frees the rest of the page for Actualités & Sentiment instead of
+       * splitting this content across the bottom.
+       *
+       * Les taux directeurs sont passés depuis ici : les différentiels s'en
+       * déduisent par soustraction, ce qui évite les 56 requêtes que ce
+       * panneau lançait par affichage — et qui saturaient la limite de l'API
+       * au point d'emporter la courbe des taux avec elles. */}
+      <ComplementaryData
+        code={currency.code}
+        rates={Object.fromEntries(
+          Object.values(currencies).map((c) => [c.code, c.interestRate]),
+        )}
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>

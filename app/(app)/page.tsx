@@ -3,8 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import {
-  AnnouncementsPanel,
-  CalendarPanel,
+  AnnouncementsPanel,
   CarryMatrix,
   PanelSkeleton,
   PressReleasesPanel,
@@ -119,29 +118,28 @@ export default async function OverviewPage() {
             <CarryMatrix currencies={currencies} />
           </Suspense>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Suspense
-              fallback={
-                <Card>
-                  <CardTitle icon="calendar_month">Prochaines publications</CardTitle>
-                  <PanelSkeleton />
-                </Card>
-              }
-            >
-              <CalendarPanel userId={userId} />
-            </Suspense>
+          {/*
+            « Prochaines publications » a été retiré d'ici.
 
-            <Suspense
-              fallback={
-                <Card>
-                  <CardTitle>Dernières publications</CardTitle>
-                  <PanelSkeleton />
-                </Card>
-              }
-            >
-              <AnnouncementsPanel />
-            </Suspense>
-          </div>
+            Il lisait WeeklyEvent, une table remplie à la main que personne
+            n'a jamais renseignée — le panneau annonçait donc « aucune
+            publication à venir » en permanence, pendant que le calendrier
+            automatique en contenait des dizaines. Deux écrans sur le même
+            sujet, dont un vide par construction.
+
+            « Dernières publications » récupère sa place et lit désormais ce
+            même calendrier, en ne montrant que ce qui est réellement sorti.
+          */}
+          <Suspense
+            fallback={
+              <Card>
+                <CardTitle icon="history">Dernières publications</CardTitle>
+                <PanelSkeleton lines={6} />
+              </Card>
+            }
+          >
+            <AnnouncementsPanel userId={userId} />
+          </Suspense>
         </div>
 
         <Suspense

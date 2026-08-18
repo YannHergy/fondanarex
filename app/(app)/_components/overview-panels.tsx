@@ -1,16 +1,16 @@
-import Link from "next/link";
 
 import { Card, CardTitle } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { FxSessions } from "@/app/(app)/_components/fx-sessions";
 import { getSessionStatuses } from "@/domain/market/sessions";
-import { getUpcomingEvents } from "@/lib/weekly-events";
+import { getReleases } from "@/lib/releases";
 import { translateTitles } from "@/lib/press-release-translate";
 import { geminiConfigured } from "@/lib/integrations/llm";
 import * as fx from "@/lib/integrations/fxmacrodata";
 import { localRiskSentiment } from "@/domain/market-context/scorers";
 import type { MarketContext } from "@/domain/types";
 import type { CurrencyWithScore } from "@/domain/types";
+import { FlagIcon } from "@/components/ui/flag-icon";
 import { CURRENCY_CODES, brazzavilleMonthDay, brazzavilleTime, cn } from "@/lib/utils";
 
 /**
@@ -248,98 +248,94 @@ export async function CarryMatrix({ currencies }: { currencies: CurrencyWithScor
   );
 }
 
-// ── Calendar and announcements ─────────────────────────────────────────────
+// ── Dernières publications ─────────────────────────────────────────────────
 
 /**
- * Upcoming releases, read from the user's own WeeklyEvent rows rather than a
- * third-party calendar. These are the events they actually track and annotate
- * in Calendrier, so the overview and the calendar can no longer disagree.
+ * Ce qui vient d'être publié, lu sur le calendrier de l'application.
+ *
+ * La source a changé : ce panneau interrogeait FXMacroData, alors que le
+ * calendrier dérivé des indicateurs (lib/releases.ts) porte déjà chaque
+ * publication avec son instant exact, sa valeur précédente et — une fois
+ * l'heure passée — sa valeur réelle. Les deux écrans pouvaient donc se
+ * contredire sur la même publication, l'un via un agrégateur payant, l'autre
+ * via nos propres relevés.
+ *
+ * On ne montre QUE ce qui est déjà sorti : une publication dont l'heure n'est
+ * pas atteinte n'a pas de valeur réelle, et l'annoncer sous « dernières
+ * publications » reviendrait à présenter une attente comme un résultat. S'il
+ * n'y a rien eu aujourd'hui, ce sont celles de la veille qui remontent — la
+ * liste est ordonnée par date, pas filtrée sur le jour.
  */
-export async function CalendarPanel({ userId }: { userId: string }) {
-  const events = await getUpcomingEvents(userId, 8);
+export async function AnnouncementsPanel({ userId }: { userId: string }) {
+  const now = new Date();
+  const releases = (await settle(getReleases(userId))) ?? [];
+  const published = releases
+    .filter((release) => release.at <= now && release.actual !== null)
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 12);
+
+  const fmt = (value: number | null) =>
+    value === null ? "—" : Number.isInteger(value) ? String(value) : value.toFixed(2);
 
   return (
     <Card>
-      <CardTitle icon="calendar_month">Prochaines publications</CardTitle>
-      {events.length > 0 ? (
-        <ul className="space-y-1.5">
-          {events.map((event) => (
-            <li
-              key={event.id}
-              className="border-border-app flex items-center gap-2 border-b py-1.5 text-xs last:border-0"
-            >
-              <span className="text-subtle w-24 shrink-0 font-mono">
-                {brazzavilleMonthDay(event.scheduledAt)} {brazzavilleTime(event.scheduledAt)}
-              </span>
-              <span className="text-fg min-w-0 flex-1 truncate font-bold">
-                {event.currencyCode} — {event.name}
-              </span>
-              <span
-                className={cn(
-                  "shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase",
-                  event.importance === "HIGH"
-                    ? "text-brand-red border-brand-red/40 bg-brand-red/10"
-                    : event.importance === "MEDIUM"
-                      ? "text-brand-amber border-brand-amber/40 bg-brand-amber/10"
-                      : "text-muted border-border-app",
-                )}
+      <CardTitle icon="history">Dernières publications</CardTitle>
+      {published.length > 0 ? (
+        <ul className="space-y-1">
+          {published.map((release) => {
+            // La surprise se lit par rapport au relevé précédent : c'est le
+            // seul point de comparaison dont nous disposons, faute de
+            // consensus de marché dans l'application.
+            const up =
+              release.actual !== null && release.previous !== null
+                ? release.actual - release.previous
+                : null;
+
+            return (
+              <li
+                key={`${release.currencyCode}-${release.indicatorKey}`}
+                className="border-border-app flex flex-wrap items-center gap-x-3 gap-y-1 border-b py-2 text-xs last:border-0"
               >
-                {event.importance === "HIGH"
-                  ? "haute"
-                  : event.importance === "MEDIUM"
-                    ? "moyenne"
-                    : "basse"}
-              </span>
-            </li>
-          ))}
+                <span className="text-subtle w-24 shrink-0 font-mono text-[10px]">
+                  {brazzavilleMonthDay(release.at)}
+                  {release.hasTime ? ` ${brazzavilleTime(release.at)}` : ""}
+                </span>
+
+                <span className="flex w-14 shrink-0 items-center gap-1.5">
+                  <FlagIcon code={release.currencyCode} style={{ width: 16, height: 11 }} />
+                  <span className="text-fg font-mono text-[11px] font-bold">
+                    {release.currencyCode}
+                  </span>
+                </span>
+
+                <span className="text-fg min-w-0 flex-1 truncate">{release.label}</span>
+
+                <span className="text-subtle shrink-0 font-mono text-[11px]">
+                  préc. {fmt(release.previous)}
+                </span>
+                <span
+                  className={cn(
+                    "tabular shrink-0 font-mono text-[11px] font-bold",
+                    up === null
+                      ? "text-fg"
+                      : up > 0
+                        ? "text-brand-green"
+                        : up < 0
+                          ? "text-brand-red"
+                          : "text-subtle",
+                  )}
+                >
+                  {fmt(release.actual)}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       ) : (
-        <div>
-          <p className="text-subtle text-xs leading-relaxed">
-            Aucune publication à venir enregistrée.
-          </p>
-          <Link
-            href="/calendrier"
-            className="text-brand-blue mt-2 inline-flex items-center gap-1 text-xs hover:underline"
-          >
-            Ajouter des événements <Icon name="arrow_forward" size={12} />
-          </Link>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-export async function AnnouncementsPanel() {
-  const entries = fx.isConfigured()
-    ? await settle(
-        Promise.all(CURRENCY_CODES.map((c) => fx.getLatestAnnouncements(c))).then((all) =>
-          all.flat().slice(0, 8),
-        ),
-      )
-    : null;
-
-  return (
-    <Card>
-      <CardTitle>Dernières publications</CardTitle>
-      {entries?.length ? (
-        <ul className="space-y-1.5">
-          {entries.map((a, i) => (
-            <li
-              key={`${a.currency}-${a.indicator}-${i}`}
-              className="border-border-app flex items-center justify-between border-b py-1.5 text-xs last:border-0"
-            >
-              <span className="text-fg flex-1 font-bold">
-                {a.currency} — {a.indicator}
-              </span>
-              <span className="text-subtle font-mono">
-                Réel : {a.actual} (préc. {a.previous})
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Unavailable />
+        <p className="text-subtle text-xs leading-relaxed">
+          Aucune publication encore sortie. Les prochaines apparaîtront ici dès leur heure
+          atteinte.
+        </p>
       )}
     </Card>
   );

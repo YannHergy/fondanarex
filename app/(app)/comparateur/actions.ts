@@ -2,7 +2,7 @@
 
 import { buildPairInsightPrompt, PAIR_INSIGHT_SYSTEM } from "@/domain/scoring/pair-insight-prompt";
 import { getScoredCurrencies } from "@/lib/currencies";
-import { callClaudeStructured } from "@/lib/integrations/llm";
+import { callGeminiStructured } from "@/lib/integrations/llm";
 import { prisma } from "@/lib/prisma";
 import { requireUserIdOrThrow } from "@/lib/session";
 import { isCurrencyCode } from "@/lib/utils";
@@ -71,7 +71,13 @@ export async function generatePairInsight(
 
   const prompt = buildPairInsightPrompt(base, quote, pairScore);
 
-  const result = await callClaudeStructured({
+  // Gemini, pas Claude : 800 tokens de sortie sur un schéma à un seul champ,
+  // à partir d'un contexte macro déjà calculé — la tâche est courte et
+  // cadrée, pas un raisonnement long. Sur Opus elle coûtait ~0,025 $ l'appel
+  // pour un résultat qu'un modèle du palier gratuit rend aussi bien. Même
+  // arbitrage que l'engrenage, où le coût par clic devait rester nul avec
+  // plusieurs traders.
+  const result = await callGeminiStructured({
     system: PAIR_INSIGHT_SYSTEM,
     prompt,
     schema: RESPONSE_SCHEMA,

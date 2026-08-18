@@ -1,7 +1,7 @@
 import "server-only";
 
 import { MIN_TRADES_FOR_RATE, type SetupStat } from "@/domain/journal/setup-stats";
-import { callClaudeStructured } from "@/lib/integrations/llm";
+import { callGeminiStructured } from "@/lib/integrations/llm";
 
 /**
  * Revue IA des setups, à partir des statistiques RÉELLES du journal.
@@ -117,7 +117,12 @@ export async function reviewSetups(stats: readonly SetupStat[]): Promise<SetupRe
     "}",
   ].join("\n");
 
-  const { data, error } = await callClaudeStructured<Parsed>({
+  // Gemini, pas Claude : le modèle ne reçoit que des compteurs déjà calculés
+  // — trades, gagnants, perdants, gain et perte moyens — et rend un verdict
+  // par setup dans une énumération fermée. Aucune des deux extrémités ne
+  // demande Opus. Sur Claude l'appel coûtait ~0,045 $ ; ici il est gratuit,
+  // et le trader peut relancer sa revue sans que cela se paie.
+  const { data, error } = await callGeminiStructured<Parsed>({
     system: SYSTEM,
     prompt,
     schema: SCHEMA,

@@ -18,7 +18,6 @@ import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
 import { fetchEurostatData } from "@/lib/integrations/eurostat";
 import { fetchOnsData } from "@/lib/integrations/ons";
-import { fetchAllOecdData } from "@/lib/integrations/oecd";
 import { fetchFredCsvData } from "@/lib/integrations/fred-csv";
 import {
   fetchAllFxMacroCoreData,
@@ -273,30 +272,31 @@ async function knownCurrencyCodes(): Promise<Set<string>> {
   return new Set(rows.map((r) => r.code));
 }
 
+/**
+ * L'OCDE a été RETIRÉE le 2026-08-18. Mesuré ce jour-là, avant de décider :
+ *
+ *   - Elle n'était en tête d'AUCUNE série. 14 lignes en base, uniquement du
+ *     CPI, arrêtées au 30/06 — et le CPI lui est fourni plus frais par
+ *     FXMacroData et par les instituts nationaux. Elle est au palier 6, sous
+ *     FXMacroData (3) : même quand elle répondait, elle perdait.
+ *   - Quatre de ses cinq requêtes renvoient 500 en permanence : Core CPI,
+ *     chômage, taux 3 mois et PIB trimestriel. Ce n'est pas du bridage —
+ *     vérifié après 120 s de refroidissement et 15 s entre chaque appel, le
+ *     CPI passe (200, 49 observations) et les quatre autres échouent. Leurs
+ *     identifiants de flux ou leurs clés dimensionnelles ont changé chez
+ *     l'OCDE.
+ *   - Elle coûtait ~25 s d'espacement délibéré par passage et polluait le
+ *     rapport de cinq erreurs à chaque fois.
+ *
+ * Les champs qu'elle couvrait sont tous servis ailleurs : CPI, Core CPI, PIB
+ * et chômage par FXMacroData plus les sources nationales ; le taux 3 mois
+ * n'était lu par aucun barème. `lib/integrations/oecd.ts` reste dans l'arbre
+ * mais n'est plus appelé — à supprimer une fois qu'on est sûr de ne pas y
+ * revenir.
+ */
 export interface RefreshOptions {
-  /**
-   * Restrict the OECD pull to these indicator fields.
-   *
-   * The OECD rate-limits hard enough that fetching all five datasets in one run
-   * takes ~30 seconds of deliberate spacing — more than a synchronous Netlify
-   * function is allowed. The scheduler therefore walks one dataset per
-   * invocation; leaving this empty pulls everything, which is what the manual
-   * refresh button does.
-   */
-  oecdFields?: readonly string[];
-  /** Skip FRED, e.g. when a run is only topping up one OECD dataset. */
+  /** Skip FRED, e.g. when a run is only topping up one dataset. */
   skipFred?: boolean;
-  /**
-   * Skip the OECD entirely.
-   *
-   * Note this is NOT the same as `oecdFields: []`, which falls through to
-   * "every dataset" — the emptiness is indistinguishable from "unspecified"
-   * inside fetchAllOecdData. Needed by the visit-triggered refresh, where the
-   * OECD's deliberate six-second spacing between five datasets costs about
-   * twenty-five seconds of a budget measured in tens — and buys nothing today,
-   * since every one of its datasets has been answering 500.
-   */
-  skipOecd?: boolean;
 }
 
 export async function refreshMacroData(options: RefreshOptions = {}): Promise<RefreshReport> {
@@ -309,7 +309,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     error instanceof Error ? error : new Error(String(error));
 
   const [
-    oecdResults,
     fredCsvResults,
     fxMacroResults,
     eurostatResults,
@@ -329,7 +328,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
     bojRateResults,
     bojTradeResults,
   ] = await Promise.all([
-    options.skipOecd ? Promise.resolve([]) : fetchAllOecdData(options.oecdFields),
     options.skipFred ? Promise.resolve([]) : fetchFredCsvData(),
     fxMacroDataConfigured() ? fetchAllFxMacroCoreData() : Promise.resolve([]),
     fetchEurostatData(),
@@ -371,58 +369,6 @@ export async function refreshMacroData(options: RefreshOptions = {}): Promise<Re
   // of one. Writing the small, broad blocks (and now FRED) first means a
   // timeout or a dropped Neon connection now costs a day of staleness on
   // Eurostat's or ONS's own 2015 rows, not on the USD's current month.
-
-  // ── OECD: every currency ────────────────────────────────────────────────
-  for (const dataset of oecdResults) {
-    if (dataset.error) {
-      errors.push(`OECD ${dataset.label}: ${dataset.error}`);
-      sources.push({
-        source: "OECD",
-        label: dataset.label,
-        written: 0,
-        error: dataset.error,
-      });
-      continue;
-    }
-
-    const rows: PendingRow[] = [];
-    for (const [currencyCode, point] of Object.entries(dataset.values)) {
-      if (!known.has(currencyCode)) continue;
-
-      const end = periodEnd(point.latestPeriod);
-      if (!end) continue;
-
-      rows.push({
-        currencyCode,
-        indicatorKey: dataset.field,
-        value: point.current,
-        period: periodLabel(point.latestPeriod),
-        periodEnd: end,
-        source: IndicatorSource.OECD,
-      });
-
-      // The prior reading is stored as its own dated row, not discarded. Every
-      // momentum scorer needs a previous value, and with only the latest row
-      // present they fall back to "no change" — a currency whose inflation is
-      // accelerating would score as flat.
-      if (point.previousPeriod) {
-        const priorEnd = periodEnd(point.previousPeriod);
-        if (priorEnd) {
-          rows.push({
-            currencyCode,
-            indicatorKey: dataset.field,
-            value: point.previous,
-            period: periodLabel(point.previousPeriod),
-            periodEnd: priorEnd,
-            source: IndicatorSource.OECD,
-          });
-        }
-      }
-    }
-
-    const written = await writeRows(rows);
-    sources.push({ source: "OECD", label: dataset.label, written, error: null });
-  }
 
   // ── FXMacroData: core indicators, every currency ────────────────────────
   //

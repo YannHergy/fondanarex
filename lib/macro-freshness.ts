@@ -75,10 +75,6 @@ export async function ensureFreshMacro(userId: string): Promise<MacroFreshness> 
   after(async () => {
     try {
       inFlight ??= (async () => {
-        // OECD skipped: see RefreshOptions.skipOecd. This path is the one
-        // running on borrowed time, and the OECD is both the slowest source
-        // and the one currently answering 500 across the board.
-        //
         // Le GDT part avec, et pas seulement dans le cron.
         //
         // `refreshMacroData` ne le couvre pas : les enchères laitières vivent
@@ -93,7 +89,7 @@ export async function ensureFreshMacro(userId: string): Promise<MacroFreshness> 
         // coût est négligeable même quand c'est une autre publication qui a
         // ouvert la porte.
         await Promise.all([
-          refreshMacroData({ skipOecd: true }),
+          refreshMacroData(),
           refreshDairyGdt(userId).catch(() => null),
         ]);
         await recordScoresAndAlert(userId).catch(() => undefined);

@@ -7,7 +7,6 @@ import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshJpCurrentAccount } from "@/lib/jp-current-account";
 import { refreshChfRateDate } from "@/lib/chf-rate-date";
 import { refreshNominalGdp } from "@/lib/nominal-gdp-refresh";
-import { OECD_FIELDS } from "@/lib/integrations/oecd";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { refreshOilChange } from "@/lib/oil";
 import { currentUserId } from "@/lib/session";
@@ -87,47 +86,17 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** 1-366, UTC. Only used to pick a stable rotation index, not a real date. */
-function dayOfYear(): number {
-  const now = new Date();
-  const startOfYear = Date.UTC(now.getUTCFullYear(), 0, 1);
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return Math.floor((today - startOfYear) / 86_400_000) + 1;
-}
-
 export async function GET(request: NextRequest) {
   if (!authorised(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // `?dataset=cpi` pulls a single OECD dataset, so a schedule can walk them one
-  // per invocation and stay inside the platform's execution limit.
-  //
-  // The daily schedule (vercel.json) calls this with NO query string at all,
-  // so without a default it silently fell through to "pull all five" — the
-  // exact case the comment above describes avoiding. Fetching all five costs
-  // ~30s of deliberately-spaced OECD requests before a single row is even
-  // written, which is half of Vercel's Hobby-plan ceiling gone on a source
-  // that, since RBA/StatCan/Stats NZ/Eurostat/ONS took over the fields that
-  // matter, wins almost nothing — it is now relevant mainly for PMI.
-  //
-  // A day-of-year rotation (free: no cron-schedule or plan change, no extra
-  // billed function invocations) picks ONE dataset when the caller does not
-  // name one, cycling through all five across five days. `?dataset=<field>`
-  // still targets one explicitly, and `?dataset=all` opts back into the old
-  // "every dataset, one call" behaviour for a by-hand full refresh — knowing
-  // that call risks the same timeout this default exists to avoid.
-  const requestedDataset = request.nextUrl.searchParams.get("dataset");
-  const dataset =
-    requestedDataset === "all"
-      ? null
-      : (requestedDataset ?? OECD_FIELDS[dayOfYear() % OECD_FIELDS.length]);
   const skipFred = request.nextUrl.searchParams.get("fred") === "0";
 
   // BEFORE the macro pull, not after, and the ordering is load-bearing.
   //
-  // `refreshMacroData` alone exceeds this function's 60-second budget against
-  // the OECD — measured: FUNCTION_INVOCATION_TIMEOUT at 61s on Vercel. Anything
+  // `refreshMacroData` a déjà dépassé le budget de 60 s de cette fonction —
+  // mesuré : FUNCTION_INVOCATION_TIMEOUT à 61 s sur Vercel. Anything
   // sequenced after it therefore never runs at all. These two are a handful of
   // requests each and finish in about a second, so they go first and are
   // already committed by the time the slow work times out.
@@ -154,10 +123,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const report = await refreshMacroData({
-      oecdFields: dataset ? [dataset] : undefined,
-      skipFred,
-    });
+    const report = await refreshMacroData({ skipFred });
 
     // Snapshot the resulting scores. This is what builds the score history
     // curve: without it ScoreSnapshot stays empty forever, which is exactly

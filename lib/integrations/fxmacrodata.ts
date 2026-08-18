@@ -68,6 +68,27 @@ const HISTORY_SLUGS: Record<string, string> = {
   // employed-population level), not `employment_change`, which 404s for every
   // currency; the move is derived from it in FIELD_EXTRACTORS.
   employmentChange: "employment",
+  // Ajoutés le 2026-08-18. Ces deux champs étaient en saisie manuelle et
+  // figés au 28/02/2026 pour six devises sur huit — personne n'allait les
+  // tenir à jour à la main tous les mois. Vérifiés un par un sur les huit
+  // devises : `ppi` répond pour USD, EUR, GBP, AUD, CHF (404 pour JPY, CAD,
+  // NZD) et `consumer_confidence` pour tout le monde sauf le NZD.
+  //
+  // ATTENTION, ce ne sont PAS les mêmes mesures que les valeurs saisies à la
+  // main qu'elles remplacent :
+  //   - `ppi` renvoie une variation ANNUELLE (USD 4,7 · EUR 4,4 · CHF -2,1)
+  //     là où les lignes MANUAL portaient une variation mensuelle
+  //     (USD 0,1 · EUR -0,5 · CHF -0,3).
+  //   - `consumer_confidence` s'appuie sur une enquête DIFFÉRENTE de celle
+  //     saisie jusqu'ici : le GBP passe de -16 (GfK, échelle négative) à 58,
+  //     le CHF de 102 à 32,1.
+  // Les anciennes lignes MANUAL sont conservées — elles portent leur propre
+  // `source`, donc l'historique n'est pas réécrit — mais un graphique qui
+  // traverse la bascule montre une rupture, et c'est normal : ce sont deux
+  // séries distinctes. Aucun des deux champs n'entre dans un barème, donc
+  // aucun score n'est affecté.
+  ppi: "ppi",
+  consumerConfidence: "consumer_confidence",
 };
 
 export function hasIndicatorHistory(field: string): boolean {
@@ -661,10 +682,38 @@ export interface FxMacroCoreResult {
  * prices resolve for the AUD alone, which is the only currency whose profile
  * weights an iron-ore/coal indicator at all.
  *
- * PMI is deliberately absent: FXMacroData has no PMI slug for any currency
- * (see HISTORY_SLUGS), so it stays sourced from OECD/FRED as agreed.
+ * PMI is deliberately absent: FXMacroData has no PMI slug for any currency.
+ * Revérifié le 2026-08-18 sur huit orthographes (`pmi`, `pmi_manufacturing`,
+ * `manufacturing_pmi`, `pmi_services`, `industrial_production`, ...) : 404
+ * partout. L'ISM n'est pas non plus sur FRED — `NAPM` y répond 404 depuis que
+ * l'ISM en a retiré la licence. Le PMI reste donc en saisie manuelle, faute
+ * de source gratuite, et non par choix.
+ *
+ * `retail_sales` est lui aussi absent VOLONTAIREMENT, alors que le slug
+ * existe. Deux raisons : il est NOTÉ pour l'USD (poids 4) et le GBP (poids
+ * 4), donc y toucher déplacerait des scores ; et son unité change selon la
+ * devise — le CAD renvoie 73708, un niveau en millions, là où l'USD renvoie
+ * -0,6, une variation. Le brancher demande un extracteur par devise et une
+ * vérification contre chaque source nationale, pas une ligne de plus ici.
+ *
+ * `current_account` n'existe pas non plus : 404 sur les huit devises.
  */
-const CORE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
+const CORE_FIELDS: ReadonlyArray<{
+  field: string;
+  label: string;
+  /**
+   * Aller chercher AUSSI la date de prochaine publication.
+   *
+   * C'est un second appel par devise, donc le double du trafic pour le champ.
+   * Il le vaut pour les indicateurs notés : leur date alimente le calendrier
+   * et déclenche le rafraîchissement à la visite. Il ne le vaut pas pour les
+   * champs hors barème — mesuré le 2026-08-18, les deux derniers ajoutés ne
+   * ramenaient que 2 devises sur 5 et 2 sur 7, le reste tombant sur la limite
+   * de débit. Seize requêtes par champ au lieu de huit, pour une date que
+   * personne ne lit.
+   */
+  withNextRelease?: boolean;
+}> = [
   { field: "interestRate", label: "Taux directeur" },
   { field: "cpi", label: "Inflation (CPI)" },
   { field: "coreCpi", label: "Inflation sous-jacente" },
@@ -673,11 +722,17 @@ const CORE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
   { field: "tradeBalance", label: "Balance commerciale" },
   { field: "commodityPrice", label: "Matières premières" },
   { field: "employmentChange", label: "Emploi (variation)" },
+  // Hors barème pour les huit devises — voir la note de HISTORY_SLUGS. Pas de
+  // date de prochaine publication : ces deux-là n'entrent ni dans un score ni
+  // dans le calendrier, et l'économie de trafic leur permet d'aboutir.
+  { field: "ppi", label: "Prix à la production (PPI)", withNextRelease: false },
+  { field: "consumerConfidence", label: "Confiance des consommateurs", withNextRelease: false },
 ];
 
 async function fetchCorePoint(
   currency: CurrencyCode,
   field: string,
+  withNextRelease: boolean,
 ): Promise<FxMacroDatapoint | null> {
   const slug = HISTORY_SLUGS[field];
   if (!slug) return null;
@@ -690,7 +745,7 @@ async function fetchCorePoint(
       `/announcements/${currency.toLowerCase()}/${slug}?limit=2`,
       TTL.announcements,
     ),
-    fetchNextRelease(currency, field).catch(() => null),
+    withNextRelease ? fetchNextRelease(currency, field).catch(() => null) : Promise.resolve(null),
   ]);
 
   const points = (payload.data ?? [])
@@ -731,10 +786,11 @@ async function fetchCorePoint(
 export async function fetchAllFxMacroCoreData(): Promise<FxMacroCoreResult[]> {
   const results: FxMacroCoreResult[] = [];
 
-  for (const { field, label } of CORE_FIELDS) {
+  for (const { field, label, withNextRelease = true } of CORE_FIELDS) {
     const settled = await Promise.allSettled(
       CURRENCY_CODES.map(
-        async (currency) => [currency, await fetchCorePoint(currency, field)] as const,
+        async (currency) =>
+          [currency, await fetchCorePoint(currency, field, withNextRelease)] as const,
       ),
     );
 

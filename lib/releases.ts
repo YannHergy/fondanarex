@@ -103,7 +103,7 @@ function impactOf(indicatorKey: string): ReleaseImpact {
  * already in, and hiding them would drop the most useful rows of the week.
  */
 export const getReleases = cache(async (userId: string): Promise<Release[]> => {
-  const [rows, currencies] = await Promise.all([
+  const [rows, lastPulls, currencies] = await Promise.all([
     prisma.indicatorValue.findMany({
       where: { nextRelease: { not: null } },
       select: {
@@ -119,8 +119,21 @@ export const getReleases = cache(async (userId: string): Promise<Release[]> => {
       // date from last winter at 00:00 instead of the real upcoming print.
       orderBy: { fetchedAt: "desc" },
     }),
+    /**
+     * Dernière récupération par (devise, indicateur), toutes sources et toutes
+     * périodes confondues. C'est ce qui permet de distinguer « l'échéance est
+     * passée » de « nous avons le chiffre ». Voir `ingested` plus bas.
+     */
+    prisma.indicatorValue.groupBy({
+      by: ["currencyCode", "indicatorKey"],
+      _max: { fetchedAt: true },
+    }),
     getCurrencies(userId),
   ]);
+
+  const lastPullByKey = new Map(
+    lastPulls.map((r) => [`${r.currencyCode}:${r.indicatorKey}`, r._max.fetchedAt]),
+  );
 
   // One row per (currency, indicator): the same indicator has a row per
   // period, and they all carry the same upcoming release date.
@@ -146,7 +159,38 @@ export const getReleases = cache(async (userId: string): Promise<Release[]> => {
     const previousValue = currency?.previousData?.[row.indicatorKey];
 
     const at = row.nextRelease;
-    const published = at.getTime() <= Date.now();
+
+    /**
+     * « Échue » ne veut pas dire « connue ».
+     *
+     * Ce booléen valait autrefois `at <= maintenant`, c'est-à-dire seulement
+     * « l'heure prévue est passée ». La colonne « réel » affichait alors la
+     * valeur que nous DÉTENIONS, qui est celle de la publication PRÉCÉDENTE
+     * tant que la nouvelle n'a pas été récupérée — et « précédent » glissait
+     * d'un cran, sur l'avant-dernière.
+     *
+     * Constaté sur le ZEW du 18/08/2026 : la ligne annonçait « réel 26,30 ·
+     * précédent 10,50 », soit juillet et juin, alors que le chiffre du jour
+     * était 34,2 et n'avait pas encore été saisi. Deux nombres faux, présentés
+     * avec la même assurance qu'un vrai, là où les lignes à venir affichaient
+     * honnêtement « en attente ».
+     *
+     * Le test porte donc désormais sur une PREUVE : avons-nous récupéré cet
+     * indicateur, depuis n'importe quelle source, APRÈS l'instant de la
+     * publication ? Si oui, ce que nous détenons en vient. Sinon, nous ne
+     * savons rien de cette publication et la case reste vide.
+     *
+     * Il est délibérément conservateur. Une source dont la valeur n'a pas
+     * bougé d'une publication à l'autre n'est pas réécrite (`writeRows`
+     * n'écrit que les changements), donc sa date de récupération n'avance pas
+     * et la ligne restera « en attente ». Mesuré le 2026-08-18 : 38 des 41
+     * publications échues restent prouvées, les 3 écartées sont exactement
+     * celles dont le chiffre manquait — ZEW, PMI services EUR et USD, tous
+     * trois en saisie manuelle. Mieux vaut une case vide qu'un faux chiffre.
+     */
+    const lastPull = lastPullByKey.get(key) ?? null;
+    const ingested = lastPull !== null && lastPull.getTime() > at.getTime();
+    const published = at.getTime() <= Date.now() && ingested;
 
     // Midnight means the provider gave a date without a time (see Release.hasTime).
     const hasTime = at.getUTCHours() !== 0 || at.getUTCMinutes() !== 0;

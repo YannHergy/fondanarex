@@ -168,23 +168,33 @@ function carryClass(diff: number): string {
 }
 
 export async function CarryMatrix({ currencies }: { currencies: CurrencyWithScore[] }) {
-  const diffs = fx.isConfigured() ? await settle(fx.getRateDifferentials()) : null;
-
-  // Fallback to our own policy rates when FXMacroData is unavailable.
-  //
-  // A carry differential IS the gap between two policy rates, and those rates
-  // are already in our database — so an empty matrix would be hiding data we
-  // hold. The source is labelled below so the two are never confused.
+  /**
+   * La matrice se calcule ICI, elle n'est plus demandée à l'API.
+   *
+   * `getRateDifferentials()` lançait les 56 cases une par une — l'essentiel du
+   * trafic de cet écran — pour obtenir la soustraction entre deux taux
+   * directeurs que nous détenons déjà, et que la page devise calcule
+   * localement depuis qu'elle a connu le même problème.
+   *
+   * Deux raisons de la supprimer plutôt que de la ralentir :
+   *
+   *   - La limite de débit. Mesuré le 2026-08-18, l'API refuse déjà des
+   *     requêtes envoyées une par une ; un éventail de 56 en essuie
+   *     forcément une partie.
+   *   - Une case rejetée valait « 0 ». Le repli partiel gardait les cases
+   *     résolues et laissait les autres à zéro, donc un 429 s'affichait
+   *     « +0,00 » — deux devises présentées comme ayant le même taux
+   *     directeur. Un chiffre faux, indiscernable d'un vrai.
+   *
+   * Nos taux directeurs, eux, ont été recoupés un à un avec les communiqués
+   * officiels des huit banques centrales le 2026-08-18.
+   */
   const rateByCode = new Map(currencies.map((c) => [c.code, c.interestRate]));
-  const usingFallback = !diffs || diffs.length === 0;
 
-  const diffFor = (base: string, quote: string): number => {
-    if (!usingFallback) {
-      return diffs.find((d) => d.base === base && d.quote === quote)?.differentialPct ?? 0;
-    }
+  const diffFor = (base: string, quote: string): number | null => {
     const b = rateByCode.get(base);
     const q = rateByCode.get(quote);
-    if (b === undefined || q === undefined) return 0;
+    if (b === undefined || q === undefined) return null;
     return Math.round((b - q) * 100) / 100;
   };
 
@@ -225,11 +235,13 @@ export async function CarryMatrix({ currencies }: { currencies: CurrencyWithScor
                     <span
                       className={cn(
                         "tabular inline-block w-12 rounded px-1 py-0.5 font-mono",
-                        carryClass(d),
+                        d === null ? "bg-panel text-subtle" : carryClass(d),
                       )}
                     >
-                      {d > 0 ? "+" : ""}
-                      {d.toFixed(2)}
+                      {/* Un taux manquant s'affiche « — », jamais « 0,00 » :
+                          zéro est un écart réel et légitime entre deux devises,
+                          donc il ne peut pas servir aussi à dire « inconnu ». */}
+                      {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(2)}`}
                     </span>
                   </td>
                 );
@@ -240,9 +252,7 @@ export async function CarryMatrix({ currencies }: { currencies: CurrencyWithScor
       </table>
       <p className="text-subtle mt-2 text-[10px]">
         Plus la couleur est marquée, plus l&apos;écart de taux entre les deux devises est important.
-        {usingFallback
-          ? " Source : taux directeurs enregistrés dans l'application (FXMacroData indisponible)."
-          : " Source : FXMacroData."}
+        {" Source : taux directeurs enregistrés dans l'application."}
       </p>
     </Card>
   );

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createThrottle } from "@/lib/integrations/throttle";
 import { CURRENCY_CODES, type CurrencyCode } from "@/lib/utils";
 
 /**
@@ -14,8 +15,10 @@ import { CURRENCY_CODES, type CurrencyCode } from "@/lib/utils";
  * Two problems from the old implementation are fixed here:
  *
  *   - `getAllRateDifferentials` fired 56 requests on every single page view,
- *     uncached. Responses are cached now, with a revalidation window per
- *     resource reflecting how fast that data actually changes.
+ *     uncached. That endpoint is gone entirely — the differential is a
+ *     subtraction between two policy rates we already hold. What remains is
+ *     cached, with a revalidation window per resource reflecting how fast
+ *     that data actually changes, and paced by the throttle below.
  *   - A missing key produced a 500 and an error banner. It now degrades: the
  *     screen renders without the FXMacroData panels and says so.
  */
@@ -27,7 +30,6 @@ const TTL = {
   /** Session open/close countdowns are minute-scale by nature. */
   sessions: 60,
   riskSentiment: 15 * 60,
-  rateDifferentials: 6 * 60 * 60,
   calendar: 60 * 60,
   announcements: 30 * 60,
   pressReleases: 60 * 60,
@@ -150,12 +152,6 @@ export interface FxSession {
   closesInMin?: number;
 }
 
-export interface RateDifferential {
-  base: CurrencyCode;
-  quote: CurrencyCode;
-  differentialPct: number;
-}
-
 export interface CalendarEntry {
   date: string;
   time: string;
@@ -235,11 +231,11 @@ class FxMacroDataError extends Error {
 /**
  * Circuit breaker for authentication failures.
  *
- * The overview screen fans out to more than 70 requests (56 of them for the
- * carry matrix alone). When the key is missing, expired or revoked, every one
- * of those fails — and because only successful responses are cached, they all
- * fail again on the very next render. That turns a billing problem into a
- * multi-second page and a burst of pointless upstream traffic.
+ * A page render fans out to several of these requests at once. When the key is
+ * missing, expired or revoked, every one of them fails — and because only
+ * successful responses are cached, they all fail again on the very next
+ * render. That turns a billing problem into a multi-second page and a burst of
+ * pointless upstream traffic.
  *
  * A 401/403 trips the breaker: subsequent calls fail instantly for a cooldown
  * window instead of going out. Only auth failures trip it — a timeout or a 500
@@ -258,58 +254,131 @@ function tripBreaker(reason: string): void {
   authFailureReason = reason;
 }
 
+/**
+ * Étrangleur de débit — le mécanisme et la mesure qui l'a motivé sont dans
+ * `throttle.ts`, qui est testé ; ici ne restent que les réglages.
+ *
+ * Le plafond est à six. L'API répond en ~3,8 s sous charge, donc un plafond
+ * plus bas découpe les huit communiqués de la vue d'ensemble en vagues
+ * successives : mesuré à quatre, seize requêtes prenaient 15,3 s et deux
+ * mouraient sur le délai d'expiration. À six, l'éventail réel de cet écran —
+ * neuf requêtes — passe en 5,2 s sans un seul rejet.
+ *
+ * Le 429 est en outre réessayé avec un délai croissant. Sans ce rattrapage il
+ * n'était pas mis en cache — seules les réponses réussies le sont — et
+ * repartait à l'identique au rendu suivant : la panne se réinstallait seule.
+ */
+const MAX_RETRIES = 2;
+
+const throttle = createThrottle({
+  maxConcurrent: 6,
+  throttledGapMs: 300,
+  throttleWindowMs: 60_000,
+});
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * `Retry-After` se présente soit en secondes, soit en date HTTP ; seul le
+ * premier cas est exploitable ici. Le délai est plafonné : le rendu de la page
+ * a son propre budget, et mieux vaut un panneau « indisponible » qu'une page
+ * entière retenue par une source qui demande d'attendre une minute.
+ */
+function retryDelayMs(retryAfter: string | null, attempt: number): number {
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, 2_000);
+  return 300 * 2 ** attempt;
+}
+
+/**
+ * A 4xx from a plain lookup ("unsupported indicator") answers with `detail` as
+ * a string. A 422 from a bad query parameter — the bug that motivated this —
+ * answers with `detail` as an ARRAY of FastAPI validation objects
+ * (`{type, loc, msg, ...}`), which `Error`'s constructor silently stringifies
+ * to the useless "[object Object]" if passed directly. Both shapes are
+ * normalised to a string here.
+ */
+function describeError(status: number, data: unknown): string {
+  const rawDetail =
+    data && typeof data === "object"
+      ? ((data as { detail?: unknown; error?: unknown }).detail ??
+        (data as { error?: unknown }).error)
+      : null;
+
+  if (typeof rawDetail === "string") return rawDetail;
+  if (Array.isArray(rawDetail)) {
+    return rawDetail
+      .map((entry) =>
+        entry && typeof entry === "object" && "msg" in entry
+          ? String((entry as { msg: unknown }).msg)
+          : JSON.stringify(entry),
+      )
+      .join("; ");
+  }
+  return `FXMacroData responded ${status}`;
+}
+
 async function fxFetch<T>(path: string, revalidate: number): Promise<T> {
   const key = process.env.FXMACRODATA_API_KEY ?? "";
   if (!key) throw new FxMacroDataError("FXMACRODATA_API_KEY is not configured");
 
-  if (breakerOpen()) {
-    throw new FxMacroDataError(`FXMacroData unavailable: ${authFailureReason}`);
-  }
-
   const separator = path.includes("?") ? "&" : "?";
-  const response = await fetch(`${BASE}${path}${separator}api_key=${encodeURIComponent(key)}`, {
-    next: { revalidate },
-    // The overview screen fans out to 70+ of these. Without a deadline, one
-    // unresponsive upstream request holds the whole page render open until the
-    // serverless function is killed, turning a degraded panel into a failed
-    // page. Callers already treat a rejection as "panel unavailable".
-    signal: AbortSignal.timeout(5_000),
-  });
+  const url = `${BASE}${path}${separator}api_key=${encodeURIComponent(key)}`;
 
-  const data: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    // A 4xx from a plain lookup ("unsupported indicator") answers with
-    // `detail` as a string. A 422 from a bad query parameter — the bug that
-    // motivated this — answers with `detail` as an ARRAY of FastAPI
-    // validation objects (`{type, loc, msg, ...}`), which `Error`'s
-    // constructor silently stringifies to the useless "[object Object]"
-    // if passed directly. Both shapes are normalised to a string here.
-    const rawDetail =
-      data && typeof data === "object"
-        ? ((data as { detail?: unknown; error?: unknown }).detail ??
-          (data as { error?: unknown }).error)
-        : null;
-
-    let message: string;
-    if (typeof rawDetail === "string") {
-      message = rawDetail;
-    } else if (Array.isArray(rawDetail)) {
-      message = rawDetail
-        .map((entry) => (entry && typeof entry === "object" && "msg" in entry ? String((entry as { msg: unknown }).msg) : JSON.stringify(entry)))
-        .join("; ");
-    } else {
-      message = `FXMacroData responded ${response.status}`;
+  for (let attempt = 0; ; attempt += 1) {
+    // Relu à chaque tentative : une requête parallèle a pu faire sauter le
+    // disjoncteur pendant que celle-ci patientait.
+    if (breakerOpen()) {
+      throw new FxMacroDataError(`FXMacroData unavailable: ${authFailureReason}`);
     }
 
-    // 401/403 means the key itself is bad — retrying the other 69 requests of
-    // this page render cannot succeed.
+    const { response, data } = await throttle.run(async () => {
+      const res = await fetch(url, {
+        next: { revalidate },
+        // Without a deadline, one unresponsive upstream request holds the whole
+        // page render open until the serverless function is killed, turning a
+        // degraded panel into a failed page. Callers already treat a rejection
+        // as "panel unavailable".
+        //
+        // Huit secondes, pas cinq. Mesuré le 2026-08-18 : l'API répond en
+        // ~3,8 s sous charge, et deux requêtes parfaitement valides ont été
+        // coupées à 5 s pendant le test. Chaque panneau ayant sa propre
+        // frontière Suspense, une réponse lente arrive en différé au lieu de
+        // retenir la page — le coût d'un délai plus long est donc faible,
+        // celui d'un délai trop court est un panneau « indisponible » à tort.
+        signal: AbortSignal.timeout(8_000),
+      });
+      // Le créneau reste tenu jusqu'à la lecture du corps : relâcher aux
+      // en-têtes laisserait des transferts en cours hors du plafond.
+      return { response: res, data: (await res.json().catch(() => null)) as unknown };
+    });
+
+    if (response.ok) return data as T;
+
+    const message = describeError(response.status, data);
+
+    // 401/403 means the key itself is bad — retrying cannot succeed, here or
+    // in any of the sibling requests of this page render.
     if (response.status === 401 || response.status === 403) {
       tripBreaker(message);
+      throw new FxMacroDataError(message);
+    }
+
+    if (response.status === 429) {
+      // Espace les requêtes qui suivent, y compris celles déjà en attente
+      // derrière le plafond : c'est tout l'éventail qui est de trop, pas
+      // seulement celle-ci.
+      throttle.engageBackoff();
+      if (attempt < MAX_RETRIES) {
+        await sleep(retryDelayMs(response.headers.get("retry-after"), attempt));
+        continue;
+      }
     }
 
     throw new FxMacroDataError(message);
   }
-  return data as T;
 }
 
 // ── Resources ──────────────────────────────────────────────────────────────
@@ -352,42 +421,15 @@ export async function getSessions(): Promise<FxSession[]> {
   }));
 }
 
-async function getRateDifferential(
-  base: CurrencyCode,
-  quote: CurrencyCode,
-): Promise<RateDifferential> {
-  const payload = await fxFetch<{ latest_differential?: number }>(
-    `/rate_differentials/${base.toLowerCase()}/${quote.toLowerCase()}`,
-    TTL.rateDifferentials,
-  );
-  return { base, quote, differentialPct: payload.latest_differential ?? 0 };
-}
-
 /**
- * The full 8×8 differential matrix.
+ * Les différentiels de taux ne sont plus demandés à l'API.
  *
- * This is 56 upstream requests. They are cached for six hours — policy-rate
- * differentials do not move faster than that — so the fan-out happens once per
- * window rather than once per page view as it did before.
+ * `/rate_differentials/{base}/{quote}` ne fournit qu'une soustraction entre
+ * deux taux directeurs que l'application détient déjà, au prix de 56 requêtes
+ * pour la matrice complète. Les deux appelants — la matrice carry de la vue
+ * d'ensemble et le panneau de la page devise — la calculent désormais
+ * eux-mêmes. Voir le commentaire de `CarryMatrix` pour le détail.
  */
-export async function getRateDifferentials(): Promise<RateDifferential[]> {
-  const pairs: Array<[CurrencyCode, CurrencyCode]> = [];
-  for (const base of CURRENCY_CODES) {
-    for (const quote of CURRENCY_CODES) {
-      if (base !== quote) pairs.push([base, quote]);
-    }
-  }
-
-  const settled = await Promise.allSettled(
-    pairs.map(([base, quote]) => getRateDifferential(base, quote)),
-  );
-
-  // A partial matrix is more useful than an error: the cells that resolved are
-  // still correct, and the rest render as zero.
-  return settled
-    .filter((r): r is PromiseFulfilledResult<RateDifferential> => r.status === "fulfilled")
-    .map((r) => r.value);
-}
 
 export async function getCalendar(currency: CurrencyCode): Promise<CalendarEntry[]> {
   const payload = await fxFetch<{

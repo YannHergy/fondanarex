@@ -73,9 +73,20 @@ export default async function AdminPage() {
   const releaseOverrides = new Set(
     overrides.filter((o) => o.nextRelease).map((o) => `${o.currencyCode}:${o.indicatorKey}`),
   );
+  // Même règle que pour les dates : une surcharge dont le précédent est nul
+  // laisse la source fournir le sien, et l'éditeur ne doit pas prétendre le
+  // contraire.
+  const previousOverrides = new Set(
+    overrides
+      .filter((o) => o.previousValue !== null)
+      .map((o) => `${o.currencyCode}:${o.indicatorKey}`),
+  );
 
   const editors = Object.values(currencies).map((currency) => {
     const record = currency as unknown as Record<string, unknown>;
+    // Le précédent tel que le moteur le lit — surcharge comprise, puisque
+    // `previousData` est déjà résolu en tenant compte des corrections.
+    const previousRecord = (currency.previousData ?? {}) as Record<string, unknown>;
 
     const fields: EditableField[] = FIELD_SPECS.filter((spec) => {
       const restricted = CURRENCY_SPECIFIC[spec.key];
@@ -96,6 +107,10 @@ export default async function AdminPage() {
         // timestamp because the release HOUR matters on the calendar screen.
         nextRelease: currency.nextReleases?.[spec.key]?.slice(0, 10) ?? null,
         nextReleaseOverridden: releaseOverrides.has(`${currency.code}:${spec.key}`),
+        previous: typeof previousRecord[spec.key] === "number"
+          ? (previousRecord[spec.key] as number)
+          : null,
+        previousOverridden: previousOverrides.has(`${currency.code}:${spec.key}`),
         source: currency.dataSources?.[spec.key] ?? null,
       };
     });

@@ -84,11 +84,31 @@ const overridesSchema = z.object({
   periods: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.string().max(10).nullish()).optional(),
   /** Next expected publication per indicator, AAAA-MM-JJ. Normally a FUTURE date. */
   releases: z.partialRecord(z.enum(EDITABLE_INDICATORS), z.string().max(10).nullish()).optional(),
+  /**
+   * Chiffre PRÉCÉDENT, saisi à la main.
+   *
+   * Il était jusqu'ici déduit : la valeur affichée au moment de la correction
+   * devenait le précédent. C'est juste quand on saisit une publication neuve
+   * par-dessus l'ancienne, et faux dès que ce qui est à l'écran ne correspond
+   * pas au vrai chiffre précédent — un import à la mauvaise unité, une série
+   * en retard, ou une première saisie manuelle sur un indicateur dont nous
+   * n'avons jamais eu l'historique. Or ce précédent n'est pas décoratif : la
+   * colonne « précédent » du calendrier et TOUS les scores de momentum le
+   * lisent.
+   *
+   * Trois cas, distingués volontairement :
+   *   - un nombre : c'est celui-là, tel quel ;
+   *   - `null` : efface le précédent enregistré et rend la main à la source ;
+   *   - absent : conserve la déduction automatique décrite plus bas.
+   */
+  previous: z
+    .partialRecord(z.enum(EDITABLE_INDICATORS), z.number().finite().nullish())
+    .optional(),
 });
 
 export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: number }> {
   const userId = await requireUserIdOrThrow();
-  const { code, values, periods, releases } = overridesSchema.parse(input);
+  const { code, values, periods, releases, previous } = overridesSchema.parse(input);
 
   // One clock for the whole batch: reading it per field could put two
   // indicators saved in the same click on opposite sides of midnight.
@@ -143,12 +163,24 @@ export async function saveIndicatorOverrides(input: unknown): Promise<{ saved: n
       nextRelease = parsed.date;
     }
 
-    // The reading being displaced. Recorded only when it genuinely differs:
-    // re-saving the same number is a no-op edit, and treating it as a move
-    // would erase the real previous value behind an identical one.
+    /**
+     * Le précédent : saisi s'il l'a été, déduit sinon.
+     *
+     * La saisie l'emporte toujours, y compris pour effacer — `null` rend la
+     * main à la source, ce qu'aucune déduction ne saurait exprimer. Le champ
+     * ABSENT, lui, conserve exactement l'ancien comportement : la valeur
+     * déplacée devient le précédent, et seulement si elle diffère vraiment,
+     * car re-sauvegarder le même nombre n'est pas un mouvement et écraserait
+     * le vrai précédent derrière un doublon.
+     */
+    const typed = previous?.[key];
     const displaced = (before as unknown as Record<string, unknown>)?.[indicatorKey];
     const previousValue =
-      typeof displaced === "number" && displaced !== value ? displaced : undefined;
+      typed !== undefined
+        ? typed
+        : typeof displaced === "number" && displaced !== value
+          ? displaced
+          : undefined;
 
     await prisma.indicatorOverride.upsert({
       where: { userId_currencyCode_indicatorKey: { userId, currencyCode: code, indicatorKey } },

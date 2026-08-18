@@ -38,6 +38,13 @@ export interface EditableField {
   nextRelease: string | null;
   /** True when that date is the administrator's rather than the provider's. */
   nextReleaseOverridden: boolean;
+  /**
+   * Chiffre précédent tel que le moteur le lit. Alimente la colonne
+   * « précédent » du calendrier et tous les scores de momentum.
+   */
+  previous: number | null;
+  /** True when that previous figure was typed rather than deduced. */
+  previousOverridden: boolean;
   /** Raw source tag behind the current value ("ONS", "FXMACRODATA", "MANUAL"...). */
   source: string | null;
 }
@@ -92,6 +99,8 @@ export function CurrencyEditor({
   const [dateEdits, setDateEdits] = useState<Record<string, string>>({});
   /** Next-release dates the user has touched. */
   const [releaseEdits, setReleaseEdits] = useState<Record<string, string>>({});
+  /** Chiffres précédents saisis à la main, mêmes clés que `edits`. */
+  const [previousEdits, setPreviousEdits] = useState<Record<string, string>>({});
   const [stance, setStance] = useState<CentralBankStance>(data.stance);
   const [geo, setGeo] = useState(data.geopoliticalRisks);
   const [analysis, setAnalysis] = useState(data.qualitativeAnalysis);
@@ -107,6 +116,7 @@ export function CurrencyEditor({
     Object.keys(edits).length > 0 ||
     Object.keys(dateEdits).length > 0 ||
     Object.keys(releaseEdits).length > 0 ||
+    Object.keys(previousEdits).length > 0 ||
     noteDirty;
 
   function save() {
@@ -125,7 +135,11 @@ export function CurrencyEditor({
         // Changing only a date still needs the value sent, because an override
         // row carries all three: without the value the server would have
         // nothing to upsert and the dates would be dropped on the floor.
-        for (const key of [...Object.keys(dateEdits), ...Object.keys(releaseEdits)]) {
+        for (const key of [
+          ...Object.keys(dateEdits),
+          ...Object.keys(releaseEdits),
+          ...Object.keys(previousEdits),
+        ]) {
           if (key in values) continue;
           const current = data.fields.find((f) => f.key === key)?.value;
           if (typeof current === "number") values[key] = current;
@@ -144,8 +158,21 @@ export function CurrencyEditor({
           releases[key] = raw.trim() === "" ? null : raw;
         }
 
+        // Vidé volontairement = `null`, qui EFFACE le précédent enregistré et
+        // rend la main à la source. Un champ jamais touché n'est pas envoyé du
+        // tout, et le serveur conserve alors sa déduction automatique.
+        const previous: Record<string, number | null> = {};
+        for (const [key, raw] of Object.entries(previousEdits)) {
+          if (raw.trim() === "") {
+            previous[key] = null;
+          } else {
+            const parsed = Number.parseFloat(raw);
+            if (Number.isFinite(parsed)) previous[key] = parsed;
+          }
+        }
+
         if (Object.keys(values).length > 0) {
-          await saveIndicatorOverrides({ code: data.code, values, periods, releases });
+          await saveIndicatorOverrides({ code: data.code, values, periods, releases, previous });
         }
 
         if (noteDirty) {
@@ -161,6 +188,7 @@ export function CurrencyEditor({
         setEdits({});
         setDateEdits({});
         setReleaseEdits({});
+        setPreviousEdits({});
         setStatus("Enregistré");
         router.refresh();
       } catch (error) {
@@ -226,6 +254,7 @@ export function CurrencyEditor({
                 const edited = field.key in edits;
                 const dateEdited = field.key in dateEdits;
                 const releaseEdited = field.key in releaseEdits;
+                const previousEdited = field.key in previousEdits;
                 const shown = edited ? edits[field.key]! : (field.value?.toString() ?? "");
 
                 return (
@@ -274,6 +303,38 @@ export function CurrencyEditor({
                         edited && "border-brand-blue",
                       )}
                     />
+                    {/* Le chiffre PRÉCÉDENT, saisissable.
+                        Il était jusqu'ici déduit de ce qui se trouvait à
+                        l'écran au moment de la correction — juste pour une
+                        publication neuve, faux dès que l'affichage ne portait
+                        pas le vrai précédent. Or la colonne « précédent » du
+                        calendrier et tous les scores de momentum le lisent. */}
+                    <div className="mt-1 flex items-center gap-1">
+                      <Icon
+                        name="history"
+                        size={11}
+                        className={field.previousOverridden ? "text-brand-amber" : "text-subtle"}
+                      />
+                      <input
+                        type="number"
+                        step={field.step}
+                        aria-label={`Chiffre précédent — ${field.label}`}
+                        title="Chiffre précédent. Vide = déduit automatiquement de la valeur remplacée."
+                        placeholder="précédent"
+                        value={
+                          previousEdited
+                            ? previousEdits[field.key]!
+                            : (field.previous?.toString() ?? "")
+                        }
+                        onChange={(e) =>
+                          setPreviousEdits((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        }
+                        className={cn(
+                          "bg-panel border-border-app text-muted focus:border-brand-blue tabular w-full rounded-md border px-1.5 py-1 font-mono text-[11px] outline-none",
+                          previousEdited && "border-brand-blue text-fg",
+                        )}
+                      />
+                    </div>
                     <div className="mt-1 flex items-center gap-1">
                       <Icon
                         name="event"

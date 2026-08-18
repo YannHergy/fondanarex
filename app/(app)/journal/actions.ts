@@ -123,9 +123,34 @@ function toInput(parsed: z.infer<typeof tradeSchema>): TradeInput {
   };
 }
 
+/**
+ * Un journal sans compte n'a pas de sens.
+ *
+ * Un trade se juge contre un capital, un risque par position et un seuil
+ * d'alerte — trois choses qui vivent sur le compte. Sans compte, le journal
+ * affiche un P&L de -103,81 sans pouvoir dire si c'est 2 % ou 20 % de ce que
+ * le trader a engagé, et la carte de compte n'a rien à mesurer.
+ *
+ * C'est aussi ce qui produisait des trades orphelins : rien n'empêchait d'en
+ * saisir, ni d'importer un rapport MetaTrader, avant d'avoir créé le moindre
+ * compte. Constaté le 2026-08-18 : 39 trades, zéro compte.
+ */
+async function requireAnAccount(userId: string): Promise<void> {
+  const count = await prisma.tradingAccount.count({ where: { userId } });
+  if (count === 0) {
+    throw new Error(
+      "Crée d'abord un compte dans « Comptes » : un trade se mesure contre un capital.",
+    );
+  }
+}
+
 export async function saveTrade(input: unknown): Promise<{ id: string }> {
   const userId = await requireUserIdOrThrow();
   const parsed = tradeSchema.parse(input);
+
+  // À la création seulement : modifier un trade déjà enregistré ne doit pas se
+  // retrouver bloqué par une règle instaurée après coup.
+  if (!parsed.id) await requireAnAccount(userId);
 
   if (parsed.id) {
     await updateTrade(userId, parsed.id, toInput(parsed));
@@ -199,6 +224,14 @@ export async function importMt5(
   formData: FormData,
 ): Promise<{ ok: true; summary: ImportSummary } | { ok: false; error: string }> {
   const userId = await requireUserIdOrThrow();
+
+  const accountCount = await prisma.tradingAccount.count({ where: { userId } });
+  if (accountCount === 0) {
+    return {
+      ok: false,
+      error: "Crée d'abord un compte dans « Comptes » : un rapport s'importe SUR un compte.",
+    };
+  }
 
   const file = formData.get("file");
   if (!(file instanceof File)) return { ok: false, error: "Aucun fichier reçu" };
@@ -463,6 +496,28 @@ export async function assignStrategy(input: unknown): Promise<{ updated: number 
  * d'autrui — et `updateMany`, filtré sur le seul userId des trades, ne l'aurait
  * pas empêché.
  */
+/**
+ * Efface les trades qui ne sont rattachés à AUCUN compte.
+ *
+ * Le pendant de `requireAnAccount` : celui-ci empêche d'en créer de nouveaux,
+ * celle-ci nettoie ceux que l'ancienne règle a laissés. Ils n'apparaissent que
+ * par la suppression d'un compte, qui les détachait au lieu de les traiter —
+ * `Trade.account` est en `onDelete: SetNull`.
+ *
+ * Volontairement limitée aux orphelins : elle ne peut pas toucher un trade
+ * rattaché, même par erreur d'appel. Un journal entier s'efface trade par
+ * trade ou en détachant d'abord, jamais par cette porte.
+ */
+export async function deleteUnassignedTrades(): Promise<{ deleted: number }> {
+  const userId = await requireUserIdOrThrow();
+  const { count } = await prisma.trade.deleteMany({ where: { userId, accountId: null } });
+
+  revalidatePath("/journal");
+  revalidatePath("/comptes");
+  revalidatePath("/rapports");
+  return { deleted: count };
+}
+
 export async function assignAccount(input: unknown): Promise<{ updated: number }> {
   const userId = await requireUserIdOrThrow();
   const { tradeIds, accountId } = z

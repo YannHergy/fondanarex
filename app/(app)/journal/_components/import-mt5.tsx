@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 export function ImportMt5({
   accounts,
   defaultAccountId,
+  disabled = false,
 }: {
   accounts: AccountOption[];
   /**
@@ -32,6 +33,12 @@ export function ImportMt5({
    * déjà filtré sur ce compte.
    */
   defaultAccountId?: string;
+  /**
+   * Bloqué tant qu'aucun compte n'existe. Le serveur refuse déjà l'import
+   * (voir `importMt5`), mais laisser ouvrir le panneau et choisir un fichier
+   * pour le rejeter ensuite fait perdre le geste : autant dire non avant.
+   */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [accountId, setAccountId] = useState(defaultAccountId ?? "");
@@ -62,7 +69,9 @@ export function ImportMt5({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="border-border-app bg-panel text-fg hover:border-brand-blue flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors"
+        disabled={disabled}
+        title={disabled ? "Crée d'abord un compte dans « Comptes »" : undefined}
+        className="border-border-app bg-panel text-fg hover:border-brand-blue flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Icon name="upload" size={16} />
         Importer MetaTrader

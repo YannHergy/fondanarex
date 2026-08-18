@@ -146,10 +146,34 @@ export async function createTradingAccount(): Promise<{ id: string }> {
  * on it. Losing months of journal because an account was closed would be the
  * worst possible reading of "delete".
  */
+/**
+ * Supprime un compte — et refuse tant qu'il porte des trades.
+ *
+ * `Trade.account` est en `onDelete: SetNull` : supprimer un compte ne
+ * supprimait pas ses trades, il les DÉTACHAIT. Ils restaient dans le journal
+ * sans capital de référence, donc sans risque calculable ni seuil d'alerte, et
+ * sans aucun moyen de savoir d'où ils venaient. C'est ainsi qu'on s'est
+ * retrouvé le 2026-08-18 avec 39 trades et zéro compte.
+ *
+ * Refuser plutôt que supprimer en cascade, parce que la cascade est
+ * irréversible et qu'un trader qui supprime un compte pour le recréer perdrait
+ * tout son historique sans l'avoir demandé. Le message dit quoi faire : les
+ * rattacher ailleurs, ou les effacer — deux gestes qui existent déjà dans le
+ * journal, et qui sont, eux, des décisions explicites.
+ */
 export async function deleteTradingAccount(accountId: unknown): Promise<void> {
   const userId = await requireUserIdOrThrow();
   const id = z.string().min(1).parse(accountId);
 
+  const trades = await prisma.trade.count({ where: { userId, accountId: id } });
+  if (trades > 0) {
+    throw new Error(
+      `Ce compte porte ${trades} trade${trades > 1 ? "s" : ""}. Rattache-les à un autre compte ` +
+        `ou efface-les depuis le journal avant de le supprimer.`,
+    );
+  }
+
   await prisma.tradingAccount.deleteMany({ where: { id, userId } });
   revalidatePath("/comptes");
+  revalidatePath("/journal");
 }

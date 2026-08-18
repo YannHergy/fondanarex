@@ -5,10 +5,13 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { TradeForm } from "@/app/(app)/journal/_components/trade-form";
+import Link from "next/link";
+
 import {
   assignAccount,
   assignStrategy,
   deleteTradeScreenshot,
+  deleteUnassignedTrades,
   removeTrade,
   uploadTradeScreenshot,
 } from "@/app/(app)/journal/actions";
@@ -158,6 +161,18 @@ export function JournalView({
     return tabs;
   }, [trades, accounts]);
 
+  /**
+   * Trades rattachés à aucun compte.
+   *
+   * Compté sur `trades`, la liste ENTIÈRE, jamais sur `visible` : un orphelin
+   * masqué par un filtre reste un orphelin, et un bandeau qui disparaît quand
+   * on filtre laisserait croire que le problème est réglé.
+   */
+  const orphanCount = useMemo(
+    () => trades.reduce((n, trade) => (trade.accountId ? n : n + 1), 0),
+    [trades],
+  );
+
   const calendar = useMemo(
     () => monthCalendar(month.getUTCFullYear(), month.getUTCMonth(), tradesByDay(trades)),
     [month, trades],
@@ -184,16 +199,98 @@ export function JournalView({
         title="Journal"
         subtitle="Chaque trade, ce qui l'a motivé et ce qu'il a réellement donné"
       >
-        <ImportMt5 accounts={accounts} defaultAccountId={filters.account} />
+        {/* Désactivés sans compte : le serveur refuse de toute façon, mais un
+            bouton qui ouvre un formulaire pour le rejeter à l'envoi fait
+            perdre la saisie. Mieux vaut dire non avant. */}
+        <ImportMt5
+          accounts={accounts}
+          defaultAccountId={filters.account}
+          disabled={accounts.length === 0}
+        />
         <button
           type="button"
           onClick={() => openForm(null)}
-          className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors"
+          disabled={accounts.length === 0}
+          title={
+            accounts.length === 0 ? "Crée d'abord un compte dans « Comptes »" : undefined
+          }
+          className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name="add" size={16} />
           Nouveau trade
         </button>
       </PageHeader>
+
+      {/*
+        Le journal n'a de sens qu'adossé à un compte.
+
+        Un trade se juge contre un capital, un risque par position et un seuil
+        d'alerte, qui vivent tous sur le compte. Sans lui, ce tableau affiche un
+        P&L sans pouvoir dire si c'est 2 % ou 20 % de ce qui a été engagé.
+
+        Deux situations distinctes, deux messages : aucun compte du tout, ou
+        des trades restés sans compte après la suppression du leur.
+      */}
+      {accounts.length === 0 ? (
+        <Card className="border-brand-amber/40 bg-brand-amber/5">
+          <div className="flex flex-wrap items-start gap-3">
+            <Icon name="warning" size={18} className="text-brand-amber mt-0.5 shrink-0" />
+            <div className="min-w-[16rem] flex-1">
+              <p className="text-fg text-sm font-semibold">Aucun compte enregistré</p>
+              <p className="text-muted mt-1 text-xs">
+                Crée d&apos;abord un compte : c&apos;est lui qui porte le capital, le risque par
+                position et le seuil d&apos;alerte contre lesquels un trade se mesure. La saisie
+                et l&apos;import restent bloqués tant qu&apos;il n&apos;y en a pas.
+              </p>
+            </div>
+            <Link
+              href="/comptes"
+              className="bg-brand-blue hover:bg-brand-blue/90 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors"
+            >
+              <Icon name="account_balance_wallet" size={16} />
+              Créer un compte
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+
+      {orphanCount > 0 ? (
+        <Card className="border-brand-red/40 bg-brand-red/5">
+          <div className="flex flex-wrap items-start gap-3">
+            <Icon name="link_off" size={18} className="text-brand-red mt-0.5 shrink-0" />
+            <div className="min-w-[16rem] flex-1">
+              <p className="text-fg text-sm font-semibold">
+                {orphanCount} trade{orphanCount > 1 ? "s" : ""} sans compte
+              </p>
+              <p className="text-muted mt-1 text-xs">
+                {accounts.length > 0
+                  ? "Rattache-les à un compte avec « Rattacher à » ci-dessous, ou efface-les."
+                  : "Ils viennent d'un compte supprimé. Crée un compte pour les rattacher, ou efface-les."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `Effacer définitivement ${orphanCount} trade${orphanCount > 1 ? "s" : ""} sans compte ? Cette action est irréversible.`,
+                  )
+                ) {
+                  return;
+                }
+                startTransition(async () => {
+                  await deleteUnassignedTrades();
+                  router.refresh();
+                });
+              }}
+              className="border-brand-red/50 text-brand-red hover:bg-brand-red/10 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              <Icon name="delete_sweep" size={16} />
+              Effacer ces trades
+            </button>
+          </div>
+        </Card>
+      ) : null}
 
       {/*
         Un journal par compte, en onglets plutôt qu'en menu déroulant.

@@ -44,18 +44,38 @@ export interface AlertRun {
  * they will never be shown.
  */
 export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
-  const currencies = await getScoredCurrencies(userId);
-  const codes = Object.keys(currencies);
-  if (codes.length === 0) return { snapshotted: 0, created: 0, suppressed: 0 };
-
-  // Latest snapshot per currency, to compare against. `computedAt` comes back
-  // too because it decides whether today's point already exists — see below.
+  // Latest snapshot per currency, to compare against. Read FIRST, before the
+  // scores: everything between reading a score and storing it is a window in
+  // which a concurrent refresh can write new data, and the stored point then
+  // describes a state that no longer exists.
+  //
+  // `computedAt` comes back too because it decides whether today's point
+  // already exists — see below.
   const previousRows = await prisma.scoreSnapshot.findMany({
     where: { userId },
     orderBy: { computedAt: "desc" },
     distinct: ["currencyCode"],
     select: { currencyCode: true, total: true, computedAt: true },
   });
+
+  const currencies = await getScoredCurrencies(userId);
+  /**
+   * Stamped HERE, not by the database.
+   *
+   * The column carried `@default(now())`, so Postgres dated each point at
+   * INSERT. Observed on CAD: the score was read, an oil price landed eleven
+   * seconds later from a parallel refresh, and the row was written after that
+   * — storing 69 under a timestamp that claimed to be later than the data
+   * making it 72. The curve and the currency page then disagreed, with no way
+   * to tell which was stale, and the mismatch came back every time a refresh
+   * overlapped a snapshot. Dating the point when it is COMPUTED cannot
+   * prevent the overlap, but it stops the record from lying about which
+   * moment it describes.
+   */
+  const computedAt = new Date();
+
+  const codes = Object.keys(currencies);
+  if (codes.length === 0) return { snapshotted: 0, created: 0, suppressed: 0 };
 
   const previous: Record<string, number> = {};
   const lastAt: Record<string, Date> = {};
@@ -87,7 +107,7 @@ export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
    * baseline; the daily floor is what keeps the curve continuous on a quiet
    * day.
    */
-  const startOfDay = new Date();
+  const startOfDay = new Date(computedAt);
   startOfDay.setUTCHours(0, 0, 0, 0);
 
   const toSnapshot = Object.values(currencies).filter((currency) => {
@@ -99,6 +119,7 @@ export async function recordScoresAndAlert(userId: string): Promise<AlertRun> {
   await prisma.scoreSnapshot.createMany({
     data: toSnapshot.map((currency) => ({
       userId,
+      computedAt,
       currencyCode: currency.code,
       total: currency.scores.total,
       rawTotal: currency.scores.rawTotal,

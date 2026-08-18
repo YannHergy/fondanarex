@@ -12,6 +12,7 @@ import {
   nextJpNationalCpiRelease,
   nextJpTokyoCpiRelease,
 } from "@/lib/integrations/jp-calendar";
+import { nextBocDecision } from "@/lib/integrations/ca-calendar";
 import { nextBoeDecision } from "@/lib/integrations/uk-calendar";
 import { fetchEcbData } from "@/lib/integrations/ecb";
 import { fetchEurChfData } from "@/lib/integrations/eurchf";
@@ -249,10 +250,20 @@ function parseInstant(value: string | null): Date | null {
  * doit effacer la date plutôt que ressusciter la source payante.
  */
 function officialNextRelease(code: string, field: string): Date | null | undefined {
-  if (code !== "JPY") return undefined;
   const now = new Date();
-  if (field === "interestRate") return nextBojDecision(now);
-  if (field === "tradeBalance") return nextJpBopRelease(now);
+
+  if (code === "JPY") {
+    if (field === "interestRate") return nextBojDecision(now);
+    if (field === "tradeBalance") return nextJpBopRelease(now);
+    return undefined;
+  }
+
+  // La Banque du Canada publie son calendrier de décisions ; ni son API Valet
+  // ni StatCan ne portent de date pour le taux directeur, et FXMacroData n'en
+  // renvoie aucune — l'indicateur affichait donc « Prochaine : — » alors qu'il
+  // pèse 13 % du score de la devise.
+  if (code === "CAD" && field === "interestRate") return nextBocDecision(now);
+
   return undefined;
 }
 

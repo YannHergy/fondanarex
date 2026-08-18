@@ -24,10 +24,24 @@ export default async function GearPage({
   const userId = await requireUserId();
   const { devise } = await searchParams;
 
-  // Fenêtre de sept jours : au-delà, une publication appartient au contexte,
-  // plus à « ce qui vient de tomber ».
+  /**
+   * Fenêtre d'un mois, contre sept jours auparavant.
+   *
+   * Sept jours ne montraient qu'UNE publication pour l'USD et AUCUNE pour six
+   * devises sur huit — mesuré le 2026-08-18. Un engrenage sans engrenage
+   * allumé : rien à voir, et surtout rien à comparer.
+   *
+   * Trente jours en font apparaître cinq pour l'USD, deux pour l'AUD, deux
+   * pour le CAD, une pour l'EUR et le NZD. C'est ce volume qui rend possible
+   * la lecture d'ensemble — les publications du mois se confirment-elles ou se
+   * contredisent-elles ? — que produit `summariseDirection`.
+   *
+   * Élargir davantage ne servirait à rien : `getReleases` ne garde qu'UNE
+   * publication par (devise, indicateur), et soixante jours ne ramènent pas
+   * une ligne de plus. C'est le plafond réel de cet historique.
+   */
   const now = new Date();
-  const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const releases = await getReleases(userId);
   const litByCurrency: Record<string, LitNode[]> = Object.fromEntries(
     CURRENCY_CODES.map((code) => [code, litNodesFor(releases, code, since, now)]),

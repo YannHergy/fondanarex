@@ -18,6 +18,11 @@ import { propagateCascade } from "@/domain/fundamental/cascade";
 import { analyseReleaseAction } from "@/app/(app)/engrenage/actions";
 import type { ReleaseAnalysisResult } from "@/lib/release-analysis";
 import type { LitNode } from "@/domain/fundamental/release-bridge";
+import {
+  directRelease,
+  summariseDirection,
+  VERDICT_LABEL,
+} from "@/domain/fundamental/release-direction";
 import { CURRENCY_CODES, cn } from "@/lib/utils";
 
 /**
@@ -85,6 +90,18 @@ export function GearGraph({
   const [view, setView] = useState<"structure" | "direct">("structure");
 
   const lit = useMemo(() => litByCurrency[currency] ?? [], [litByCurrency, currency]);
+
+  /**
+   * Le sens de chaque publication, puis la lecture du mois.
+   *
+   * Calculé ici plutôt que passé en propriété : `directRelease` et
+   * `summariseDirection` sont des fonctions pures de la couche domaine, sans
+   * accès ni au réseau ni à l'horloge. Les faire traverser la frontière
+   * serveur/client n'apporterait qu'une propriété de plus à tenir synchrone
+   * avec `currency`, qui change côté client.
+   */
+  const directed = useMemo(() => directRelease(lit, currency), [lit, currency]);
+  const summary = useMemo(() => summariseDirection(directed), [directed]);
   const litById = useMemo(() => new Map(lit.map((l) => [l.nodeId, l])), [lit]);
 
   // La cascade RÉELLE part du chiffre publié, pas de la seule structure : un
@@ -476,32 +493,81 @@ export function GearGraph({
         <Card>
           {lit.length === 0 ? (
             <p className="text-subtle text-sm">
-              Aucune publication sortie ces sept derniers jours pour {currency}. Le mode temps
+              Aucune publication sortie ces trente derniers jours pour {currency}. Le mode temps
               réel allume les indicateurs dès qu&apos;un chiffre tombe.
             </p>
           ) : (
             <>
-              <CardTitle icon="bolt">Publications récentes — {currency}</CardTitle>
+              <CardTitle icon="bolt">Publications du mois — {currency}</CardTitle>
+
+              {/*
+                La lecture d'ensemble, avant le détail.
+                Une pile de chiffres ne dit pas si le mois est cohérent. Le
+                verdict répond à la seule question qui compte quand on empile
+                un mois de publications : vont-elles dans le même sens ?
+              */}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "rounded-md px-2 py-1 text-[11px] font-semibold",
+                    summary.verdict.endsWith("favorable") &&
+                      !summary.verdict.includes("defavorable")
+                      ? "bg-brand-green/15 text-brand-green"
+                      : summary.verdict.includes("defavorable")
+                        ? "bg-brand-red/15 text-brand-red"
+                        : summary.verdict === "contradictoire"
+                          ? "bg-brand-amber/15 text-brand-amber"
+                          : "bg-panel text-subtle",
+                  )}
+                >
+                  {VERDICT_LABEL[summary.verdict]}
+                </span>
+                <span className="text-subtle text-[11px]">
+                  {summary.favorable} favorable{summary.favorable > 1 ? "s" : ""} ·{" "}
+                  {summary.defavorable} défavorable{summary.defavorable > 1 ? "s" : ""}
+                  {summary.neutre > 0 ? ` · ${summary.neutre} sans effet` : ""}
+                </span>
+              </div>
+
               <p className="text-subtle mb-2 text-[11px]">
                 Cliquez une publication pour voir ce qu&apos;elle entraîne logiquement.
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {lit.map((node) => (
+                {directed.map((node) => (
                   <button
                     key={node.nodeId}
                     type="button"
+                    title={node.why}
                     onClick={() => setSelectedId(node.nodeId === selectedId ? null : node.nodeId)}
                     className={cn(
-                      "rounded-lg border px-2 py-1 text-left text-[11px] transition-colors",
+                      "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-[11px] transition-colors",
                       node.nodeId === selectedId
                         ? "border-brand-amber bg-brand-amber/10 text-brand-amber"
                         : "border-border-app text-muted hover:text-fg",
                     )}
                   >
-                    <span className="font-semibold">{node.label}</span>{" "}
-                    <span className="font-mono">
-                      {node.actual}
-                      {node.previous !== null ? ` (préc. ${node.previous})` : ""}
+                    {/* Une pastille COLORÉE ET une flèche : la couleur seule
+                        exclut les daltoniens, et le sens est justement ce que
+                        cette vue existe pour montrer. */}
+                    <span
+                      className={cn(
+                        "font-bold",
+                        node.lean === "favorable"
+                          ? "text-brand-green"
+                          : node.lean === "defavorable"
+                            ? "text-brand-red"
+                            : "text-subtle",
+                      )}
+                      aria-label={node.lean}
+                    >
+                      {node.lean === "favorable" ? "▲" : node.lean === "defavorable" ? "▼" : "="}
+                    </span>
+                    <span>
+                      <span className="font-semibold">{node.label}</span>{" "}
+                      <span className="font-mono">
+                        {node.actual}
+                        {node.previous !== null ? ` (préc. ${node.previous})` : ""}
+                      </span>
                     </span>
                   </button>
                 ))}

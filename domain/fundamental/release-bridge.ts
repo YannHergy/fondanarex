@@ -50,6 +50,17 @@ export interface ReleasedIndicator {
 
 export interface LitNode {
     nodeId: string;
+    /**
+     * Clé d'origine de la publication, AVANT aliasing.
+     *
+     * Indispensable, et pas seulement pratique : `nodeIdFor` est surjectif.
+     * `unemployment` et `employmentChange` tombent tous deux sur
+     * `{devise}_labour_market`, alors que leur sens est OPPOSÉ — un chômage
+     * qui monte est une mauvaise nouvelle, un emploi qui monte est une bonne.
+     * Déduire la polarité de l'identifiant du nœud ferait donc applaudir une
+     * hausse du chômage. Voir release-direction.ts.
+     */
+    indicatorKey: string;
     label: string;
     at: string;
     actual: number | null;
@@ -156,6 +167,7 @@ export function litNodesFor(
 
         byNode.set(nodeId, {
             nodeId,
+            indicatorKey: release.indicatorKey,
             label: release.label,
             at: release.at.toISOString(),
             actual: release.actual,

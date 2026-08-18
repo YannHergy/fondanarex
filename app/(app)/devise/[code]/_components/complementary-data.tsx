@@ -46,20 +46,46 @@ export async function ComplementaryData({ code }: { code: string }) {
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
       <Card>
         <CardTitle icon="show_chart">Courbe des taux</CardTitle>
-        {!configured || !curve || curve.length === 0 ? (
+        {!configured || !curve || curve.points.length === 0 ? (
           <Unavailable />
         ) : (
-          <div className="flex items-end gap-4">
-            {curve.map((point) => (
-              <div key={point.maturity} className="text-center">
-                <p className="text-fg tabular font-mono text-lg font-bold">
-                  {point.yieldPct.toFixed(2)}
-                  <span className="text-subtle text-xs">%</span>
-                </p>
-                <p className="text-subtle text-[10px] tracking-wide uppercase">{point.maturity}</p>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="flex items-end gap-4">
+              {curve.points.map((point) => (
+                <div key={point.maturity} className="text-center">
+                  <p className="text-fg tabular font-mono text-lg font-bold">
+                    {point.yieldPct.toFixed(2)}
+                    <span className="text-subtle text-xs">%</span>
+                  </p>
+                  <p className="text-subtle text-[10px] tracking-wide uppercase">
+                    {point.maturity}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* La date de la donnée, pas celle de l'affichage.
+                Sans elle, une courbe qui bouge lentement — la BCE publie les
+                jours ouvrés, l'agrégateur accuse quelques jours de retard —
+                est indiscernable d'une courbe figée. C'est précisément ce
+                doute qui a motivé ce champ. */}
+            {curve.asOf ? (
+              <p
+                className={cn(
+                  "mt-2 flex items-center gap-1 text-[10px]",
+                  curve.isStale ? "text-brand-amber" : "text-subtle",
+                )}
+              >
+                <Icon name={curve.isStale ? "warning" : "schedule"} size={11} />
+                Donnée du {curve.asOf}
+                {curve.lagDays !== null && curve.lagDays > 0
+                  ? ` · ${curve.lagDays} jour${curve.lagDays > 1 ? "s" : ""} de décalage`
+                  : ""}
+                {curve.sourceName ? ` · ${curve.sourceName}` : ""}
+                {curve.isStale ? " · jugée périmée par la source" : ""}
+              </p>
+            ) : null}
+          </>
         )}
       </Card>
 

@@ -191,6 +191,28 @@ export interface YieldCurvePoint {
   yieldPct: number;
 }
 
+export interface YieldCurve {
+  points: YieldCurvePoint[];
+  /**
+   * Jour auquel la courbe se rapporte — PAS celui de la requête.
+   *
+   * L'API le renvoie depuis toujours (`as_of`, `data_quality.as_of`) et le
+   * code le jetait, si bien que l'écran affichait « 2,81 % » sans dire de
+   * quand datait ce 2,81 %. Or la BCE publie sa courbe les jours ouvrés et
+   * FXMacroData accuse quelques jours de retard : un lundi matin, la valeur
+   * affichée est celle du jeudi précédent. Sans la date, une donnée qui
+   * bouge lentement est indiscernable d'une donnée figée — c'est exactement
+   * la confusion que ce champ existe pour lever.
+   */
+  asOf: string | null;
+  /** Écart en jours entre la donnée et aujourd'hui, tel que la source le calcule. */
+  lagDays: number | null;
+  /** Nom de la source réelle derrière l'agrégateur, ex. « ECB Yield Curve ». */
+  sourceName: string | null;
+  /** La source elle-même juge la donnée périmée (au-delà de son propre seuil). */
+  isStale: boolean;
+}
+
 export interface CotPositioning {
   currency: CurrencyCode;
   longPct: number;
@@ -461,14 +483,32 @@ export async function getPrediction(
   return { currency, indicator, consensus: blended ? String(blended.predicted_value) : "—" };
 }
 
-export async function getYieldCurve(currency: CurrencyCode): Promise<YieldCurvePoint[]> {
-  const payload = await fxFetch<{ data?: Array<{ maturity: string; val: number }> }>(
-    `/curves/${currency.toLowerCase()}`,
-    TTL.yieldCurve,
-  );
-  return (payload.data ?? [])
-    .filter((p) => ["2Y", "5Y", "10Y"].includes(p.maturity))
-    .map((p) => ({ maturity: p.maturity, yieldPct: p.val }));
+export async function getYieldCurve(currency: CurrencyCode): Promise<YieldCurve> {
+  const payload = await fxFetch<{
+    data?: Array<{ maturity: string; val: number }>;
+    as_of?: string;
+    data_quality?: {
+      latest_available_date?: string;
+      data_lag_days?: number;
+      source_name?: string;
+      is_stale?: boolean;
+    };
+  }>(`/curves/${currency.toLowerCase()}`, TTL.yieldCurve);
+
+  const quality = payload.data_quality;
+
+  return {
+    points: (payload.data ?? [])
+      .filter((p) => ["2Y", "5Y", "10Y"].includes(p.maturity))
+      .map((p) => ({ maturity: p.maturity, yieldPct: p.val })),
+    asOf: payload.as_of ?? quality?.latest_available_date ?? null,
+    lagDays: typeof quality?.data_lag_days === "number" ? quality.data_lag_days : null,
+    sourceName: quality?.source_name ?? null,
+    // On fait confiance au jugement de la source : elle connaît la cadence de
+    // publication de chaque série (`stale_after_days`), là où un seuil choisi
+    // ici traiterait une courbe quotidienne et un indice trimestriel pareil.
+    isStale: quality?.is_stale === true,
+  };
 }
 
 export interface IndicatorHistoryPoint {

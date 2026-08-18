@@ -186,3 +186,61 @@ export function gdtVerdict(changePct: number): string {
     if (changePct > -3) return 'Enchères laitières en baisse';
     return 'Enchères laitières en forte baisse';
 }
+
+/**
+ * Heure de publication estimée des résultats, en UTC.
+ *
+ * Relevée sur le bucket S3 de GDT : l'enchère n°409 a été mise en ligne le
+ * 2026-08-04 à 15h14m29s UTC (en-tête `Last-Modified`), pour un événement
+ * démarrant à 12h00 UTC et durant 2h36 — soit environ trois heures un quart
+ * après l'ouverture.
+ *
+ * Seize heures, donc, et pas quinze : le repère doit tomber APRÈS la mise en
+ * ligne réelle, jamais avant. Un repère trop tôt est précisément le défaut
+ * qu'on corrige ici — il faisait consommer le déclencheur par un
+ * rafraîchissement lancé alors que GDT n'avait encore rien publié, et
+ * l'enchère n'était ramassée que le lendemain.
+ */
+const PUBLICATION_HOUR_UTC = 16;
+
+/** Nième mardi (1 ou 3) du mois, à l'heure de publication, en UTC. */
+function nthTuesday(year: number, month: number, nth: number): Date {
+    const firstOfMonth = new Date(Date.UTC(year, month, 1));
+    // 2 = mardi, dans la numérotation de `getUTCDay`.
+    const offsetToFirstTuesday = (2 - firstOfMonth.getUTCDay() + 7) % 7;
+    return new Date(
+        Date.UTC(year, month, 1 + offsetToFirstTuesday + (nth - 1) * 7, PUBLICATION_HOUR_UTC),
+    );
+}
+
+/**
+ * Prochaine enchère GDT après l'instant donné.
+ *
+ * GDT ne publie aucun calendrier prévisionnel, et le code estimait donc la
+ * prochaine à « la précédente + 14 jours ». C'est faux une fois sur trois :
+ * relevé sur les treize enchères servies par la source le 2026-08-18, les
+ * écarts alternent entre 14 et 21 jours (17/03 -> 07/04, 16/06 -> 07/07).
+ *
+ * La vraie règle, vérifiée sur ces treize dates sans exception, est que les
+ * enchères se tiennent les PREMIER et TROISIÈME MARDIS de chaque mois. Un
+ * écart de 21 jours n'est pas une irrégularité : c'est ce que donne la règle
+ * quand le 1er du mois tombe un mercredi.
+ *
+ * `after` est un paramètre parce que la couche domaine ne possède pas
+ * d'horloge, comme pour `isStale`.
+ */
+export function nextGdtAuction(after: Date): Date {
+    // Deux mois suffisent — il y a toujours deux enchères par mois — mais on
+    // en balaie trois pour que le passage d'une année à l'autre ne soit pas
+    // un cas particulier.
+    const year = after.getUTCFullYear();
+    const month = after.getUTCMonth();
+    for (let ahead = 0; ahead < 3; ahead += 1) {
+        for (const nth of [1, 3]) {
+            const candidate = nthTuesday(year, month + ahead, nth);
+            if (candidate.getTime() > after.getTime()) return candidate;
+        }
+    }
+    /* c8 ignore next -- inatteignable : trois mois contiennent six enchères */
+    throw new Error('Aucune enchère GDT trouvée dans les trois mois à venir');
+}

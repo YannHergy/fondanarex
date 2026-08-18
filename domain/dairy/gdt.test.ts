@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     gdtVerdict,
     isStale,
+    nextGdtAuction,
     parseEventDate,
     parseEventSummary,
     parseTwelveEvents,
@@ -188,5 +189,61 @@ describe('gdtVerdict', () => {
         expect(gdtVerdict(0.1)).toBe('Enchères laitières stables');
         expect(gdtVerdict(-2.7)).toBe('Enchères laitières en baisse');
         expect(gdtVerdict(-5.1)).toBe('Enchères laitières en forte baisse');
+    });
+});
+
+describe('nextGdtAuction', () => {
+    /**
+     * Les treize enchères servies par la source le 2026-08-18, dans l'ordre.
+     * Elles portent la règle : chacune doit prédire la suivante.
+     */
+    const SERVED = [
+        '2026-02-03', '2026-02-17', '2026-03-03', '2026-03-17', '2026-04-07',
+        '2026-04-21', '2026-05-05', '2026-05-19', '2026-06-02', '2026-06-16',
+        '2026-07-07', '2026-07-21', '2026-08-04',
+    ];
+
+    it('predit chaque enchere reellement tenue a partir de la precedente', () => {
+        for (let i = 0; i < SERVED.length - 1; i += 1) {
+            // Minuit le lendemain de l'enchère : la publication du jour même
+            // est passée, la suivante ne l'est pas.
+            const after = new Date(`${SERVED[i]}T23:59:59Z`);
+            expect(nextGdtAuction(after).toISOString().slice(0, 10)).toBe(SERVED[i + 1]);
+        }
+    });
+
+    it('couvre les ecarts de 21 jours, qui ne sont pas des irregularites', () => {
+        // 1er mars 2026 = dimanche -> 1er mardi le 3. 1er avril = mercredi ->
+        // 1er mardi le 7. D'où trois semaines entre le 17/03 et le 07/04, là
+        // où « +14 jours » tombait sur le 31/03, un mardi sans enchère.
+        expect(nextGdtAuction(new Date('2026-03-17T23:59:59Z')).toISOString().slice(0, 10))
+            .toBe('2026-04-07');
+        expect(nextGdtAuction(new Date('2026-06-16T23:59:59Z')).toISOString().slice(0, 10))
+            .toBe('2026-07-07');
+    });
+
+    it('vise APRES la mise en ligne, pas l ouverture de l enchere', () => {
+        // Le repère doit tomber après 15h14 UTC, heure relevée de publication
+        // de l'enchère 409 : un repère plus tôt fait consommer le déclencheur
+        // par un rafraîchissement lancé avant que GDT n'ait rien publié.
+        const next = nextGdtAuction(new Date('2026-08-04T23:59:59Z'));
+        expect(next.toISOString()).toBe('2026-08-18T16:00:00.000Z');
+    });
+
+    it('franchit le changement d annee', () => {
+        expect(nextGdtAuction(new Date('2026-12-15T23:59:59Z')).toISOString().slice(0, 10))
+            .toBe('2027-01-05');
+    });
+
+    it('rend la prochaine du mois quand on interroge avant la premiere', () => {
+        expect(nextGdtAuction(new Date('2026-08-01T00:00:00Z')).toISOString().slice(0, 10))
+            .toBe('2026-08-04');
+    });
+
+    it('ne rend jamais un instant deja passe', () => {
+        // Le jour même de l'enchère, mais AVANT la mise en ligne : c'est bien
+        // celle du jour qui est attendue, pas la suivante.
+        expect(nextGdtAuction(new Date('2026-08-18T09:00:00Z')).toISOString())
+            .toBe('2026-08-18T16:00:00.000Z');
     });
 });

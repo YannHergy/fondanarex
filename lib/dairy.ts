@@ -3,6 +3,7 @@ import "server-only";
 import {
   gdtVerdict,
   isStale,
+  nextGdtAuction,
   parseEventSummary,
   parseTwelveEvents,
   type GdtHistoryPoint,
@@ -50,9 +51,6 @@ export interface DairyRefreshReport {
 
 const KEY = "dairyGdtChangePct";
 const FIELD = "commodityPrice";
-
-/** GDT publishes no forward calendar; auctions run fortnightly in practice. */
-const ESTIMATED_DAYS_BETWEEN_AUCTIONS = 14;
 
 function empty(error: string): DairyRefreshReport {
   return {
@@ -107,10 +105,22 @@ export async function refreshDairyGdt(userId: string): Promise<DairyRefreshRepor
   // Full history, oldest first, so a month holding two auctions (periodLabel
   // collapses to one row per month, same as every daily-to-monthly series
   // here) keeps its LATER auction rather than its earlier one.
-  const estimatedNextRelease = new Date(event.eventDate);
-  estimatedNextRelease.setUTCDate(
-    estimatedNextRelease.getUTCDate() + ESTIMATED_DAYS_BETWEEN_AUCTIONS,
-  );
+  // Prochaine enchère selon la règle des 1er et 3e mardis (voir
+  // nextGdtAuction), et non « +14 jours ».
+  //
+  // L'ancienne estimation se trompait deux fois. De date : un écart sur trois
+  // fait 21 jours et non 14, elle visait alors un mardi sans enchère. D'heure
+  // surtout : elle héritait de midi UTC, alors que GDT met ses résultats en
+  // ligne vers 15h15. Le rafraîchissement quotidien de 13h05 UTC passait donc
+  // APRÈS le repère et AVANT la publication — il consommait le déclencheur
+  // sans rien trouver, et l'enchère n'était ramassée que le lendemain.
+  //
+  // On interroge depuis la FIN du jour de l'enchère, pas depuis son horodatage
+  // de midi : `nextGdtAuction` rend la prochaine strictement postérieure, et
+  // depuis midi c'est encore la mise en ligne du jour même qui l'emporterait.
+  const endOfAuctionDay = new Date(event.eventDate);
+  endOfAuctionDay.setUTCHours(23, 59, 59, 999);
+  const estimatedNextRelease = nextGdtAuction(endOfAuctionDay);
   const points: GdtHistoryPoint[] =
     history.length > 0
       ? history

@@ -3,6 +3,7 @@ import "server-only";
 import { after } from "next/server";
 
 import { recordScoresAndAlert } from "@/lib/alerts";
+import { refreshDairyGdt } from "@/lib/dairy";
 import { refreshMacroData } from "@/lib/macro-refresh";
 import { prisma } from "@/lib/prisma";
 
@@ -77,7 +78,24 @@ export async function ensureFreshMacro(userId: string): Promise<MacroFreshness> 
         // OECD skipped: see RefreshOptions.skipOecd. This path is the one
         // running on borrowed time, and the OECD is both the slowest source
         // and the one currently answering 500 across the board.
-        await refreshMacroData({ skipOecd: true });
+        //
+        // Le GDT part avec, et pas seulement dans le cron.
+        //
+        // `refreshMacroData` ne le couvre pas : les enchères laitières vivent
+        // dans `lib/dairy.ts`, appelé uniquement par les routes cron. Or c'est
+        // la source qui a le plus besoin de ce chemin-ci. GDT met ses
+        // résultats en ligne vers 15h15 UTC, deux heures après le passage
+        // quotidien de 13h05 — le cron ne peut structurellement PAS voir une
+        // enchère le jour où elle se tient, seulement le lendemain. Une visite
+        // en fin d'après-midi, elle, le peut.
+        //
+        // Deux lectures de JSON statique, sans clé ni limite de débit : le
+        // coût est négligeable même quand c'est une autre publication qui a
+        // ouvert la porte.
+        await Promise.all([
+          refreshMacroData({ skipOecd: true }),
+          refreshDairyGdt(userId).catch(() => null),
+        ]);
         await recordScoresAndAlert(userId).catch(() => undefined);
       })().finally(() => {
         inFlight = null;

@@ -290,37 +290,6 @@ export default async function CurrencyDetailPage({
         )}
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardTitle icon="public">Risques géopolitiques</CardTitle>
-          <p className="text-muted text-sm leading-relaxed">
-            {currency.geopoliticalRisks || (
-              <span className="text-subtle">Aucune note. Modifiable dans Admin données.</span>
-            )}
-          </p>
-        </Card>
-        <Card>
-          <CardTitle icon="visibility">Événements à surveiller</CardTitle>
-          {currency.eventsToWatch.length > 0 ? (
-            <ul className="text-muted list-inside list-disc space-y-1 text-sm">
-              {currency.eventsToWatch.map((event) => (
-                <li key={event}>{event}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-subtle text-sm">Aucun événement enregistré.</p>
-          )}
-        </Card>
-        <Card>
-          <CardTitle icon="edit_note">Analyse qualitative</CardTitle>
-          <p className="text-muted text-sm leading-relaxed">
-            {currency.qualitativeAnalysis || (
-              <span className="text-subtle">Aucune analyse. Modifiable dans Admin données.</span>
-            )}
-          </p>
-        </Card>
-      </div>
-
       <Card>
         <CardTitle icon="table_chart">Données macroéconomiques</CardTitle>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">

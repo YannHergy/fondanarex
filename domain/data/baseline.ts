@@ -30,10 +30,26 @@ export interface CurrencyBaseline {
     indicators: Record<string, BaselineIndicator>;
 }
 
+/**
+ * Les orientations ci-dessous ont ete relevees le 2026-08-18 sur les
+ * communiques officiels des huit banques centrales, recoupees avec la
+ * trajectoire reelle des taux directeurs sur douze mois.
+ *
+ * Elles etaient restees celles de l'ancienne application, et ce n'est pas
+ * anodin : `lib/bootstrap.ts` les seme dans CurrencyNote a la creation de
+ * CHAQUE compte. Constate en production le 2026-08-19, apres une
+ * reinitialisation de la base : le nouveau proprietaire a demarre avec un JPY
+ * « accommodant » alors que la Banque du Japon monte ses taux depuis un an,
+ * soit un score de 32 — verdict « Sell » — la ou le chiffre juste est 56,
+ * « Neutre ». Vingt-quatre points d'ecart sur une seule valeur semee.
+ *
+ * A reverifier quand les banques bougent ; une orientation perimee ici se
+ * propage silencieusement a tout nouveau compte.
+ */
 export const CURRENCY_BASELINE: readonly CurrencyBaseline[] = [
     {
         code: 'USD',
-        stance: 'Neutral',
+        stance: 'Very Hawkish',
         previousStance: 'Neutral',
         lastUpdate: '2026-07-29',
         indicators: {
@@ -79,7 +95,7 @@ export const CURRENCY_BASELINE: readonly CurrencyBaseline[] = [
     },
     {
         code: 'GBP',
-        stance: 'Dovish',
+        stance: 'Hawkish',
         previousStance: 'Neutral',
         lastUpdate: '2026-02-03',
         indicators: {
@@ -100,7 +116,7 @@ export const CURRENCY_BASELINE: readonly CurrencyBaseline[] = [
     },
     {
         code: 'JPY',
-        stance: 'Dovish',
+        stance: 'Very Hawkish',
         previousStance: 'Dovish',
         lastUpdate: '2026-02-03',
         indicators: {
@@ -163,7 +179,7 @@ export const CURRENCY_BASELINE: readonly CurrencyBaseline[] = [
     },
     {
         code: 'NZD',
-        stance: 'Neutral',
+        stance: 'Very Hawkish',
         previousStance: 'Neutral',
         lastUpdate: '2026-02-03',
         indicators: {
@@ -184,7 +200,7 @@ export const CURRENCY_BASELINE: readonly CurrencyBaseline[] = [
     },
     {
         code: 'CHF',
-        stance: 'Dovish',
+        stance: 'Neutral',
         previousStance: 'Neutral',
         lastUpdate: '2026-02-03',
         indicators: {

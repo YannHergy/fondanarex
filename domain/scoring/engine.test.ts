@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { CurrencyData, IndicatorScore, MarketContext, ScoreData } from '../types';
 import { EMPTY_MARKET_CONTEXT, createMarketContext } from '../market-context/context';
 import { CURRENCY_WEIGHTS, totalWeight } from '../data/currency-weights';
+import { scoreVerdict } from '../charts/timeframes';
 import {
     calculateAllScores,
     calculateInstitutionalScore,
@@ -582,15 +583,34 @@ describe('normalizeScore', () => {
 });
 
 describe('getScoreLabel', () => {
-    it('applies the verdict thresholds', () => {
-        expect(getScoreLabel(70)).toBe('Strong Buy');
-        expect(getScoreLabel(69)).toBe('Buy');
-        expect(getScoreLabel(60)).toBe('Buy');
-        expect(getScoreLabel(59)).toBe('Neutral');
+    /**
+     * Les bornes de CLAUDE.md, testées de part et d'autre de chaque coupure.
+     *
+     * Elles valaient 70/60/45/30 jusqu'au 2026-08-19, en contradiction avec la
+     * méthodologie écrite ET avec `scoreVerdict` de domain/charts/timeframes,
+     * qui appliquait déjà les bonnes. Un score de 71 s'affichait « Achat fort »
+     * sous une courbe dont les bandes le plaçaient dans « Achat ».
+     */
+    it('applies the verdict thresholds from the methodology', () => {
+        expect(getScoreLabel(100)).toBe('Strong Buy');
+        expect(getScoreLabel(80)).toBe('Strong Buy');
+        expect(getScoreLabel(79)).toBe('Buy');
+        expect(getScoreLabel(71)).toBe('Buy'); // le cas observé
+        expect(getScoreLabel(65)).toBe('Buy');
+        expect(getScoreLabel(64)).toBe('Neutral');
         expect(getScoreLabel(45)).toBe('Neutral');
         expect(getScoreLabel(44)).toBe('Sell');
-        expect(getScoreLabel(30)).toBe('Sell');
-        expect(getScoreLabel(29)).toBe('Strong Sell');
+        expect(getScoreLabel(25)).toBe('Sell');
+        expect(getScoreLabel(24)).toBe('Strong Sell');
+        expect(getScoreLabel(0)).toBe('Strong Sell');
+    });
+
+    it('agrees with scoreVerdict, the other implementation in the project', () => {
+        // Deux tables se contredisaient. Ce test échoue si elles divergent à
+        // nouveau, quel que soit le côté qui bouge.
+        for (let score = 0; score <= 100; score += 1) {
+            expect(getScoreLabel(score)).toBe(scoreVerdict(score));
+        }
     });
 });
 

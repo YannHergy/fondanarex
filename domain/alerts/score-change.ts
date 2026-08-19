@@ -32,8 +32,15 @@ export interface ScoreChange {
  */
 export const MIN_DELTA = 5;
 
-/** Verdict boundaries, matching getScoreLabel in the scoring domain. */
-const VERDICT_BOUNDARIES = [30, 45, 60, 70];
+/**
+ * Verdict boundaries, matching getScoreLabel in the scoring domain.
+ *
+ * Elles doivent SUIVRE getScoreLabel, pas vivre leur vie : `crossedVerdict`
+ * eleve la severite d'une alerte parce que le verdict a change, et des bornes
+ * decalees feraient alerter sur un franchissement que l'ecran ne montre pas —
+ * ou taire celui qu'il montre.
+ */
+const VERDICT_BOUNDARIES = [25, 45, 65, 80];
 
 function verdictBand(score: number): number {
     return VERDICT_BOUNDARIES.filter(b => score >= b).length;

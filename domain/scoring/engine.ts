@@ -848,14 +848,28 @@ export function calculateAllScores(
 // ================================================================
 // VERDICT
 //
-// Thresholds aligned with the weighted methodology:
-//   >= 70 Strong Buy · 60-69 Buy · 45-59 Neutral · 30-44 Sell · < 30 Strong Sell
+// Seuils de la méthodologie (CLAUDE.md) :
+//   80-100 Strong Buy · 65-79 Buy · 45-64 Neutral · 25-44 Sell · 0-24 Strong Sell
+//
+// Ils valaient 70/60/45/30 jusqu'au 2026-08-19, et deux tables se
+// contredisaient dans le même projet : celle-ci, qui alimente le tableau de
+// bord, les pages devise, le comparateur et les profils, et celle de
+// `domain/charts/timeframes.ts`, conforme à la méthodologie mais utilisée par
+// le seul écran Graphiques.
+//
+// Le symptôme était visible sous la courbe d'une devise à 71 : la légende
+// annonçait « Achat fort » quand les bandes du même graphique plaçaient 71
+// dans « Achat ». Quatre devises sur huit changeaient de verdict selon
+// l'écran consulté — sur un tableau dont la seule raison d'être est de dire
+// quoi acheter et quoi vendre.
+//
+// Arbitré en faveur de la méthodologie écrite, qui est la référence.
 // ================================================================
 
 export function getScoreLabel(score: number): string {
-    if (score >= 70) return 'Strong Buy';
-    if (score >= 60) return 'Buy';
+    if (score >= 80) return 'Strong Buy';
+    if (score >= 65) return 'Buy';
     if (score >= 45) return 'Neutral';
-    if (score >= 30) return 'Sell';
+    if (score >= 25) return 'Sell';
     return 'Strong Sell';
 }

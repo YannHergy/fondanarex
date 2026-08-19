@@ -28,7 +28,7 @@ const PAD_Y = 16;
 /**
  * The three verdict zones, collapsed from the five the cards show.
  *
- * `getScoreLabel` cuts at 30/45/60/70, and the app paints Strong Buy cyan
+ * `getScoreLabel` cuts at 25/45/65/80, and the app paints Strong Buy cyan
  * against Buy's green. Those two measured ΔE 14.7 against each other in normal
  * vision — below the 15 floor, so as adjacent BANDS they would have been hard
  * to tell apart even for a full-colour reader. Merging the two buy grades and
@@ -36,8 +36,8 @@ const PAD_Y = 16;
  * ΔE 22.0 normal / 11.3 deuteranopia, comfortably separated.
  */
 const ZONES = [
-  { from: 60, to: 100, label: "Achat", colour: "var(--color-brand-green)" },
-  { from: 45, to: 60, label: "Neutre", colour: "var(--color-brand-amber)" },
+  { from: 65, to: 100, label: "Achat", colour: "var(--color-brand-green)" },
+  { from: 45, to: 65, label: "Neutre", colour: "var(--color-brand-amber)" },
   { from: 0, to: 45, label: "Vente", colour: "var(--color-brand-red)" },
 ] as const;
 
